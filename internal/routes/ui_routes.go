@@ -9,6 +9,7 @@ import (
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/middleware"
 	"infinite-experiment/politburo/internal/metrics"
+	"infinite-experiment/politburo/internal/providers"
 	"infinite-experiment/politburo/internal/services"
 	vizbuUI "infinite-experiment/politburo/vizburo/ui"
 
@@ -27,6 +28,11 @@ func RegisterUIRoutes(
 	flightSvc *services.FlightsService,
 	cache common.CacheInterface,
 	liveAPI *common.LiveAPIService,
+	configSvc *services.DataProviderConfigService,
+	airtableProvider *providers.AirtableProvider,
+	vaGormRepo *repositories.VAGormRepository,
+	eventRepo *repositories.VAEventRepository,
+	routeRepo *repositories.RouteATSyncedRepo,
 ) {
 	authHandler := vizbuUI.NewAuthHandler(sessionSvc, urlSigner, userRepo, vaRoleRepo, vaRepo)
 
@@ -108,6 +114,60 @@ func RegisterUIRoutes(
 				})
 				admin.Delete("/pilots/{pilot_id}", func(w http.ResponseWriter, r *http.Request) {
 					vizbuUI.RemovePilotHandler(w, r, pilotMgmtSvc)
+				})
+
+				// Datasource configuration (admin only)
+				admin.Get("/settings/datasource", vizbuUI.DatasourceSettingsHandler)
+				admin.Get("/settings/datasource/config", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.GetDatasourceConfigHandler(w, r, configSvc)
+				})
+				admin.Post("/settings/datasource/config", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.SaveDatasourceConfigHandler(w, r, configSvc)
+				})
+				admin.Post("/settings/datasource/test", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.TestConnectionHandler(w, r, airtableProvider)
+				})
+				admin.Post("/settings/datasource/table-fields", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.FetchTableFieldsHandler(w, r, airtableProvider, configSvc)
+				})
+
+				// PIREP configuration (admin only)
+				admin.Get("/settings/pirep", vizbuUI.PirepConfigHandler)
+				admin.Get("/settings/pirep/config", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.GetPirepConfigHandler(w, r, vaGormRepo)
+				})
+				admin.Get("/settings/pirep/mode/{mode_id}/edit", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.GetPirepModeEditHandler(w, r, vaGormRepo)
+				})
+				admin.Post("/settings/pirep/mode/{mode_id}/toggle", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.TogglePirepModeHandler(w, r, vaGormRepo)
+				})
+				admin.Post("/settings/pirep/mode/{mode_id}/update", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.UpdatePirepModeHandler(w, r, vaGormRepo)
+				})
+
+				// Events management (admin only)
+				admin.Get("/events", vizbuUI.EventsHandler)
+				admin.Get("/events/list", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.GetEventsListHandler(w, r, eventRepo, routeRepo)
+				})
+				admin.Get("/events/form", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.GetEventFormHandler(w, r, eventRepo, routeRepo)
+				})
+				admin.Get("/events/form/{event_id}", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.GetEventFormHandler(w, r, eventRepo, routeRepo)
+				})
+				admin.Get("/events/routes/search", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.RouteSearchHandler(w, r, routeRepo)
+				})
+				admin.Post("/events/create", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.CreateEventHandler(w, r, eventRepo)
+				})
+				admin.Post("/events/{event_id}/update", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.UpdateEventHandler(w, r, eventRepo)
+				})
+				admin.Delete("/events/{event_id}", func(w http.ResponseWriter, r *http.Request) {
+					vizbuUI.DeleteEventHandler(w, r, eventRepo)
 				})
 			})
 		})

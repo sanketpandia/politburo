@@ -4,8 +4,8 @@ import (
 	"infinite-experiment/politburo/internal/api"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/middleware"
 	"infinite-experiment/politburo/internal/metrics"
+	"infinite-experiment/politburo/internal/middleware"
 	"infinite-experiment/politburo/internal/services"
 
 	"github.com/go-chi/chi/v5"

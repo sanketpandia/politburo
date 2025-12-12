@@ -28,6 +28,7 @@ type Repositories struct {
 	AircraftLivery        *repositories.AircraftLiveryRepository
 	LiveryAirtableMapping *repositories.LiveryAirtableMappingRepository
 	AirportsRepo          *repositories.AirportRepository
+	WorldTour             *repositories.WorldTourRepository
 }
 
 type Services struct {
@@ -49,6 +50,7 @@ type Services struct {
 	RedisQueue         common.RedisQueueService
 	URLSigner          *common.URLSignerService
 	Session            *common.SessionService
+	WorldTour          *services.WorldTourService
 }
 type Dependencies struct {
 	Repo     *Repositories
@@ -72,6 +74,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		AircraftLivery:        repositories.NewAircraftLiveryRepository(db.PgDB),
 		LiveryAirtableMapping: repositories.NewLiveryAirtableMappingRepository(db.PgDB),
 		AirportsRepo:          repositories.NewAirportRepository(db.PgDB),
+		WorldTour:             repositories.NewWorldTourRepository(db.PgDB, repositories.NewRouteATSyncedRepo(db.PgDB)),
 	}
 
 	// Initialize cache service (Redis or in-memory based on USE_REDIS_CACHE env var)
@@ -146,6 +149,9 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 	// Initialize session service for UI authentication
 	sessionSvc := common.NewSessionService(redisClient)
 
+	// Initialize World Tour service
+	worldTourSvc := services.NewWorldTourService(repositories.WorldTour)
+
 	svc := &Services{
 		User:               userSvc,
 		Reg:                *services.NewRegistrationService(liveSvc, *legacyCache, repositories.User, repositories.Va),
@@ -165,6 +171,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		RedisQueue:         redisQSvc,
 		URLSigner:          urlSignerSvc,
 		Session:            sessionSvc,
+		WorldTour:          worldTourSvc,
 	}
 
 	return &Dependencies{

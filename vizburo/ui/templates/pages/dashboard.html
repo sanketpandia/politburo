@@ -9,6 +9,9 @@
         --nord5: #E5E9F0;
         --nord6: #ECEFF4;
         --nord8: #88C0D0;
+        --nord9: #81A1C1;
+        --nord11: #BF616A;
+        --nord14: #A3BE8C;
     }
 
     .secondary-nav {
@@ -41,6 +44,166 @@
         border-bottom-color: var(--nord8);
     }
 
+    /* Dashboard Card Styles */
+    .dashboard-card {
+        background-color: var(--nord1);
+        border: 1px solid var(--nord3);
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        transition: all 0.2s ease;
+    }
+
+    .dashboard-card:hover {
+        border-color: var(--nord8);
+        box-shadow: 0 0 12px rgba(136, 192, 208, 0.1);
+    }
+
+    .dashboard-card-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--nord8);
+        margin-bottom: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .dashboard-card-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .card-stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .card-stat-label {
+        font-size: 0.8rem;
+        color: var(--nord4);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .card-stat-value {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--nord6);
+    }
+
+    .card-stat-value.secondary {
+        font-size: 1rem;
+    }
+
+    .callsign-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        background-color: var(--nord8);
+        color: var(--nord0);
+        font-weight: 700;
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+    }
+
+    .role-badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border-radius: 0.25rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .role-badge.admin {
+        background-color: var(--nord11);
+        color: var(--nord0);
+    }
+
+    .role-badge.staff {
+        background-color: var(--nord9);
+        color: var(--nord0);
+    }
+
+    .role-badge.pilot {
+        background-color: var(--nord14);
+        color: var(--nord0);
+    }
+
+    /* Admin Links Section */
+    .admin-links {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+
+    .admin-link-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem 0.75rem;
+        background-color: var(--nord2);
+        color: var(--nord8);
+        text-decoration: none;
+        border-radius: 0.375rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border: 1px solid var(--nord3);
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .admin-link-btn:hover {
+        background-color: var(--nord3);
+        border-color: var(--nord8);
+    }
+
+    /* Affiliation Pill */
+    .affiliation-pill {
+        display: inline-block;
+        background-color: var(--nord2);
+        border: 1px solid var(--nord3);
+        border-radius: 1rem;
+        padding: 0.5rem 0.875rem;
+        font-size: 0.8rem;
+        color: var(--nord5);
+        margin-right: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .affiliation-pill span {
+        display: block;
+        font-size: 0.7rem;
+        color: var(--nord4);
+        margin-top: 0.125rem;
+    }
+
+    /* Loading State */
+    .loading {
+        text-align: center;
+        color: var(--nord4);
+        padding: 2rem;
+    }
+
+    .spinner {
+        display: inline-block;
+        width: 1.5rem;
+        height: 1.5rem;
+        border: 2px solid var(--nord3);
+        border-top-color: var(--nord8);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
     /* Responsive nav */
     @media (max-width: 640px) {
         .secondary-nav {
@@ -52,50 +215,197 @@
             padding: 0.5rem 1rem;
             font-size: 0.85rem;
         }
+
+        .admin-links {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
 <!-- Secondary Navigation -->
-<nav class="secondary-nav">
-    <a href="/dashboard" class="secondary-nav-item active" data-page="dashboard">Dashboard</a>
-
-    {{if or (eq .ActiveVA.Role "admin") (eq .ActiveVA.Role "staff")}}
-    <a href="/dashboard/logbook" class="secondary-nav-item" data-page="logbook">Logbook</a>
-    <a href="/dashboard/pilots" class="secondary-nav-item" data-page="pilots">Pilots</a>
-    {{end}}
-
-    {{if eq .ActiveVA.Role "admin"}}
-    <a href="/dashboard/settings" class="secondary-nav-item" data-page="settings" style="opacity: 0.5; cursor: not-allowed;" title="Coming soon">Settings</a>
-    {{end}}
-</nav>
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" "dashboard" "IsAdmin" .IsAdmin "IsStaff" .IsStaff}}
 
 <!-- Dashboard Content -->
 <div class="space-y-6">
-    <!-- Dashboard Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <!-- Placeholder cards for future content -->
-        <div class="rounded-lg p-6" style="background-color: var(--nord1); border: 1px solid var(--nord3);">
-            <h3 class="text-sm font-semibold mb-2" style="color: var(--nord8);">Quick Stats</h3>
-            <div class="text-3xl font-bold" style="color: var(--nord6);">—</div>
-            <p class="text-xs mt-2" style="color: var(--nord4);">Coming soon</p>
-        </div>
+    <!-- Loading State (shown initially) -->
+    <div id="dashboard-loading" class="loading">
+        <div class="spinner"></div>
+        <p style="margin-top: 1rem;">Loading your profile...</p>
+    </div>
 
-        <div class="rounded-lg p-6" style="background-color: var(--nord1); border: 1px solid var(--nord3);">
-            <h3 class="text-sm font-semibold mb-2" style="color: var(--nord8);">Recent Activity</h3>
-            <div class="text-3xl font-bold" style="color: var(--nord6);">—</div>
-            <p class="text-xs mt-2" style="color: var(--nord4);">Coming soon</p>
-        </div>
+    <!-- Dashboard Grid (shown after data loads) -->
+    <div id="dashboard-cards" style="display: none;">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- User Profile Card -->
+            <div class="dashboard-card">
+                <div class="dashboard-card-title">👤 Profile</div>
+                <div class="dashboard-card-content">
+                    <div class="card-stat">
+                        <span class="card-stat-label">Callsign</span>
+                        <div class="callsign-badge" id="profile-callsign">—</div>
+                    </div>
+                    <div class="card-stat">
+                        <span class="card-stat-label">IF Community ID</span>
+                        <span class="card-stat-value secondary" id="profile-ifid" style="word-break: break-all;">—</span>
+                    </div>
+                    <div class="card-stat">
+                        <span class="card-stat-label">Role</span>
+                        <div id="profile-role">—</div>
+                    </div>
+                </div>
+            </div>
 
-        <div class="rounded-lg p-6" style="background-color: var(--nord1); border: 1px solid var(--nord3);">
-            <h3 class="text-sm font-semibold mb-2" style="color: var(--nord8);">Flight Hours</h3>
-            <div class="text-3xl font-bold" style="color: var(--nord6);">—</div>
-            <p class="text-xs mt-2" style="color: var(--nord4);">Coming soon</p>
+            <!-- VA Status Card -->
+            <div class="dashboard-card">
+                <div class="dashboard-card-title">✈️ VA Status</div>
+                <div class="dashboard-card-content">
+                    <div class="card-stat">
+                        <span class="card-stat-label">Current VA</span>
+                        <span class="card-stat-value secondary" id="va-status-name">—</span>
+                    </div>
+                    <div class="card-stat">
+                        <span class="card-stat-label">VA Code</span>
+                        <span class="card-stat-value secondary" id="va-status-code">—</span>
+                    </div>
+                    <div class="card-stat">
+                        <span class="card-stat-label">Member Since</span>
+                        <span class="card-stat-value secondary" id="va-status-joined" style="font-size: 0.9rem;">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Affiliations Card -->
+            <div class="dashboard-card">
+                <div class="dashboard-card-title">🏢 Affiliations</div>
+                <div class="dashboard-card-content">
+                    <div id="affiliations-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem;"></div>
+                    <div style="font-size: 0.8rem; color: var(--nord4); margin-top: 1rem;" id="affiliations-count"></div>
+                </div>
+            </div>
+
+            <!-- Admin Panel Card (shown only for admins) -->
+            <div class="dashboard-card" id="admin-card" style="display: none;">
+                <div class="dashboard-card-title">⚙️ Admin Tools</div>
+                <div class="dashboard-card-content">
+                    <p style="font-size: 0.8rem; color: var(--nord4); margin-bottom: 1rem;">Quick access to management pages</p>
+                    <div class="admin-links" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <a href="/dashboard/pilots" class="admin-link-btn">👥 Pilots</a>
+                        <a href="/dashboard/settings/datasource" class="admin-link-btn">🔌 Datasource</a>
+                        <a href="/dashboard/settings/pirep" class="admin-link-btn">📋 PIREP</a>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Empty State Message -->
-    <div class="rounded-lg p-8 text-center" style="background-color: var(--nord1); border: 1px solid var(--nord3);">
-        <p class="text-lg" style="color: var(--nord4);">Select content from the sidebar or wait for dashboard features to be implemented</p>
+    <!-- Error State -->
+    <div id="dashboard-error" style="display: none; background-color: var(--nord1); border: 1px solid var(--nord11); border-radius: 0.5rem; padding: 1.5rem;">
+        <div style="color: var(--nord11); font-weight: 600; margin-bottom: 0.5rem;">Unable to load profile</div>
+        <p style="color: var(--nord4); font-size: 0.9rem;" id="error-message">Please try refreshing the page</p>
     </div>
 </div>
+
+<!-- Dashboard Data Loading Script -->
+<script>
+(function() {
+    const loadingEl = document.getElementById('dashboard-loading');
+    const cardsEl = document.getElementById('dashboard-cards');
+    const errorEl = document.getElementById('dashboard-error');
+    const errorMsg = document.getElementById('error-message');
+
+    async function loadDashboardData() {
+        try {
+            // Call the user details API endpoint
+            const response = await fetch('/api/v1/user/details', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`API returned ${response.status}`);
+            }
+
+            const apiResponse = await response.json();
+            const userData = apiResponse.data;
+
+            // Populate Profile Card
+            const callsign = userData.current_va?.callsign || userData.affiliations?.[0]?.callsign || '—';
+            document.getElementById('profile-callsign').textContent = callsign;
+            document.getElementById('profile-ifid').textContent = userData.if_community_id || '—';
+
+            // Populate role badge
+            const roleElement = document.getElementById('profile-role');
+            const role = userData.current_va?.role || userData.affiliations?.[0]?.role || 'pilot';
+            roleElement.innerHTML = `<span class="role-badge ${role.toLowerCase()}">${role}</span>`;
+
+            // Populate VA Status Card
+            let currentVAName = '—';
+            let currentVACode = '—';
+            let joinedDate = '—';
+
+            if (userData.affiliations && userData.affiliations.length > 0) {
+                const currentAff = userData.affiliations[0]; // First affiliation is current VA
+                currentVAName = currentAff.va_name;
+                currentVACode = currentAff.va_code;
+
+                // Format date
+                const joined = new Date(currentAff.joined_at);
+                joinedDate = joined.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            }
+
+            document.getElementById('va-status-name').textContent = currentVAName;
+            document.getElementById('va-status-code').textContent = currentVACode;
+            document.getElementById('va-status-joined').textContent = joinedDate;
+
+            // Populate Affiliations Card
+            if (userData.affiliations && userData.affiliations.length > 0) {
+                const affiliationsList = document.getElementById('affiliations-list');
+                affiliationsList.innerHTML = '';
+
+                userData.affiliations.forEach(aff => {
+                    const pill = document.createElement('div');
+                    pill.className = 'affiliation-pill';
+                    pill.innerHTML = `
+                        <strong>${aff.va_code}</strong>
+                        <span>${aff.role}</span>
+                    `;
+                    affiliationsList.appendChild(pill);
+                });
+
+                const count = userData.affiliations.length;
+                document.getElementById('affiliations-count').textContent =
+                    `Member of ${count} virtual airline${count !== 1 ? 's' : ''}`;
+            }
+
+            // Show admin card if user is admin
+            const isAdmin = userData.current_va?.role === 'admin' ||
+                           userData.affiliations?.some(aff => aff.role === 'admin');
+            if (isAdmin) {
+                document.getElementById('admin-card').style.display = 'block';
+            }
+
+            // Show cards, hide loading
+            loadingEl.style.display = 'none';
+            cardsEl.style.display = 'block';
+            errorEl.style.display = 'none';
+
+        } catch (err) {
+            console.error('Failed to load dashboard data:', err);
+            loadingEl.style.display = 'none';
+            cardsEl.style.display = 'none';
+            errorEl.style.display = 'block';
+            errorMsg.textContent = err.message || 'Failed to load profile data. Please try again.';
+        }
+    }
+
+    // Load data when page is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadDashboardData);
+    } else {
+        loadDashboardData();
+    }
+})();
+</script>
 {{end}}

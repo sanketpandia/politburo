@@ -36,6 +36,7 @@ COPY --from=css-builder /app/vizburo/ui/static/css/output.css ./vizburo/ui/stati
 RUN CGO_ENABLED=0 GOOS=linux go build -o bin/app ./cmd/server
 
 # ─── Stage 3: Production ──────────────────────────────────────────────────────
+# ─── Stage 3: Production ──────────────────────────────────────────────────────
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
 

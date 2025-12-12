@@ -267,26 +267,8 @@ func (h *AuthHandler) SwitchVAHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reload session to get updated data
-	updatedSession, err := h.sessionSvc.GetSession(r.Context(), session.SessionID)
-	if err != nil {
-		http.Error(w, "Failed to reload session", http.StatusInternalServerError)
-		return
-	}
-
-	// Fetch updated dashboard data for new VA
-	activeVA := updatedSession.GetActiveVA()
-
-	// Prepare template data
-	data := map[string]interface{}{
-		"ActiveVAID":      updatedSession.ActiveVAID,
-		"ActiveVA":        activeVA,
-		"VirtualAirlines": updatedSession.VirtualAirlines,
-		"Username":        updatedSession.Username,
-		"PageTitle":       activeVA.VAName,
-		"UserID":          updatedSession.UserID,
-	}
-
-	// Render dashboard content for HTMX swap (partial, no base layout)
-	RenderPartial(w, "pages/dashboard.html", data)
+	// Redirect to dashboard via HTMX (backend-driven redirect)
+	// HTMX will perform a client-side redirect when it receives this header
+	w.Header().Set("HX-Redirect", "/dashboard")
+	w.WriteHeader(http.StatusOK)
 }

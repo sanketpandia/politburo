@@ -415,3 +415,90 @@ func (e *ProviderError) Error() string {
 func (e *ProviderError) Unwrap() error {
 	return e.Err
 }
+
+// FetchTableFields fetches metadata for a specific table from Airtable
+// It calls the Airtable Metadata API to get all fields in a table
+func (p *AirtableProvider) FetchTableFields(ctx context.Context, config *dtos.ProviderConfigData, tableName string) ([]dtos.AirtableFieldMetadata, error) {
+	url := fmt.Sprintf("https://api.airtable.com/v0/meta/bases/%s/tables", config.Credentials.BaseID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+config.Credentials.APIKey)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, &ProviderError{
+			Code:    constants.ErrCodeNetworkError,
+			Message: constants.GetErrorMessage(constants.ErrCodeNetworkError),
+			Err:     err,
+		}
+	}
+	defer resp.Body.Close()
+
+	// Handle error responses
+	if err := p.handleHTTPError(resp); err != nil {
+		return nil, err
+	}
+
+	// Parse response
+	var baseMetadata dtos.AirtableBaseMetadata
+	if err := json.NewDecoder(resp.Body).Decode(&baseMetadata); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Find the requested table
+	for _, table := range baseMetadata.Tables {
+		if table.Name == tableName {
+			return table.Fields, nil
+		}
+	}
+
+	return nil, fmt.Errorf("table '%s' not found in base", tableName)
+}
+
+// FetchSampleRecord fetches the first record from a table to show sample data
+func (p *AirtableProvider) FetchSampleRecord(ctx context.Context, config *dtos.ProviderConfigData, tableName string) (map[string]interface{}, error) {
+	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s?pageSize=1",
+		config.Credentials.BaseID,
+		tableName,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+config.Credentials.APIKey)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, &ProviderError{
+			Code:    constants.ErrCodeNetworkError,
+			Message: constants.GetErrorMessage(constants.ErrCodeNetworkError),
+			Err:     err,
+		}
+	}
+	defer resp.Body.Close()
+
+	// Handle error responses
+	if err := p.handleHTTPError(resp); err != nil {
+		return nil, err
+	}
+
+	// Parse response
+	var airtableResp AirtableListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&airtableResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Return first record's fields if it exists
+	if len(airtableResp.Records) > 0 {
+		return airtableResp.Records[0].Fields, nil
+	}
+
+	// Return empty map if no records found
+	return make(map[string]interface{}), nil
+}

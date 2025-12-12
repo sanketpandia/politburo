@@ -159,55 +159,53 @@ func (s *DataProviderConfigService) validateConfigRequest(req *dtos.SaveProvider
 		}
 	}
 
-	// Validate at least one schema is provided
-	if len(req.ConfigData.Schemas) == 0 {
-		return fmt.Errorf("at least one schema must be configured")
-	}
-
-	// Validate each schema
-	for i, schema := range req.ConfigData.Schemas {
-		if schema.EntityType == "" {
-			return fmt.Errorf("schema[%d]: entity_type is required", i)
-		}
-		if schema.TableName == "" {
-			return fmt.Errorf("schema[%d]: table_name is required", i)
-		}
-		if len(schema.Fields) == 0 {
-			return fmt.Errorf("schema[%d]: at least one field mapping is required", i)
-		}
-
-		// Validate field mappings
-		for j, field := range schema.Fields {
-			if field.InternalName == "" {
-				return fmt.Errorf("schema[%d].fields[%d]: internal_name is required", i, j)
+	// Validate schemas if provided (empty schemas allowed for credentials-only saves)
+	if len(req.ConfigData.Schemas) > 0 {
+		// Validate each schema
+		for i, schema := range req.ConfigData.Schemas {
+			if schema.EntityType == "" {
+				return fmt.Errorf("schema[%d]: entity_type is required", i)
 			}
-			if field.AirtableName == "" {
-				return fmt.Errorf("schema[%d].fields[%d]: airtable_name is required", i, j)
+			if schema.TableName == "" {
+				return fmt.Errorf("schema[%d]: table_name is required", i)
 			}
-			if field.DataType == "" {
-				return fmt.Errorf("schema[%d].fields[%d]: data_type is required", i, j)
+			if len(schema.Fields) == 0 {
+				return fmt.Errorf("schema[%d]: at least one field mapping is required", i)
 			}
 
-			// Validate data type is one of the allowed types
-			allowedTypes := map[string]bool{
-				"string": true, "int": true, "float": true, "boolean": true, "date": true,
-			}
-			if !allowedTypes[field.DataType] {
-				return fmt.Errorf("schema[%d].fields[%d]: invalid data_type '%s' (allowed: string, int, float, boolean, date)", i, j, field.DataType)
-			}
-
-			// Validate display_format if provided
-			if field.DisplayFormat != nil {
-				allowedFormats := map[string]bool{
-					"duration": true, "date": true, "datetime": true, "number": true,
+			// Validate field mappings
+			for j, field := range schema.Fields {
+				if field.InternalName == "" {
+					return fmt.Errorf("schema[%d].fields[%d]: internal_name is required", i, j)
 				}
-				if !allowedFormats[*field.DisplayFormat] {
-					return fmt.Errorf("schema[%d].fields[%d]: invalid display_format '%s' (allowed: duration, date, datetime, number)", i, j, *field.DisplayFormat)
+				if field.AirtableName == "" {
+					return fmt.Errorf("schema[%d].fields[%d]: airtable_name is required", i, j)
 				}
-			}
+				if field.DataType == "" {
+					return fmt.Errorf("schema[%d].fields[%d]: data_type is required", i, j)
+				}
 
-			// Note: display_name and is_user_visible are optional and don't require validation
-			// If is_user_visible is not set, it defaults to false (field won't be shown in user APIs)
+				// Validate data type is one of the allowed types
+				allowedTypes := map[string]bool{
+					"string": true, "int": true, "float": true, "boolean": true, "date": true,
+				}
+				if !allowedTypes[field.DataType] {
+					return fmt.Errorf("schema[%d].fields[%d]: invalid data_type '%s' (allowed: string, int, float, boolean, date)", i, j, field.DataType)
+				}
+
+				// Validate display_format if provided
+				if field.DisplayFormat != nil {
+					allowedFormats := map[string]bool{
+						"duration": true, "date": true, "datetime": true, "number": true,
+					}
+					if !allowedFormats[*field.DisplayFormat] {
+						return fmt.Errorf("schema[%d].fields[%d]: invalid display_format '%s' (allowed: duration, date, datetime, number)", i, j, *field.DisplayFormat)
+					}
+				}
+
+				// Note: display_name and is_user_visible are optional and don't require validation
+				// If is_user_visible is not set, it defaults to false (field won't be shown in user APIs)
+			}
 		}
 	}
 

@@ -45,17 +45,11 @@ func DashboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get active VA
-	activeVA := sessionData.GetActiveVA()
-
-	// Prepare template data
-	data := map[string]interface{}{
-		"ActiveVA":        activeVA,
-		"VirtualAirlines": sessionData.VirtualAirlines,
-		"Username":        sessionData.Username,
-		"UserID":          sessionData.UserID,
-		"ActiveVAID":      sessionData.ActiveVAID,
-		"PageTitle":       "Dashboard",
+	// Prepare template data using common helper
+	data, err := PrepareTemplateData(sessionData, "Dashboard")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// Render template
@@ -76,21 +70,11 @@ func LogbookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get active VA
-	activeVA := sessionData.GetActiveVA()
-	if activeVA == nil {
-		http.Error(w, "No active VA found", http.StatusInternalServerError)
+	// Prepare template data using common helper
+	data, err := PrepareTemplateData(sessionData, "Logbook")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Prepare template data
-	data := map[string]interface{}{
-		"ActiveVA":        activeVA,
-		"VirtualAirlines": sessionData.VirtualAirlines,
-		"Username":        sessionData.Username,
-		"UserID":          sessionData.UserID,
-		"ActiveVAID":      sessionData.ActiveVAID,
-		"PageTitle":       "Logbook",
 	}
 
 	// Render template
@@ -566,23 +550,17 @@ func PilotsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activeVA := sessionData.GetActiveVA()
-	if activeVA == nil {
-		http.Error(w, "No active VA found", http.StatusInternalServerError)
+	// Prepare template data using common helper
+	data, err := PrepareTemplateData(sessionData, "Pilots")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Prepare template data
-	data := map[string]interface{}{
-		"ActiveVA":        activeVA,
-		"VirtualAirlines": sessionData.VirtualAirlines,
-		"Username":        sessionData.Username,
-		"UserID":          sessionData.UserID,
-		"ActiveVAID":      sessionData.ActiveVAID,
-		"PageTitle":       "Pilots",
+	if err := RenderTemplate(w, "pages/pilots.html", data); err != nil {
+		http.Error(w, "Error rendering pilots page", http.StatusInternalServerError)
+		return
 	}
-
-	RenderTemplate(w, "pages/pilots.html", data)
 }
 
 // PilotsListHandler returns a list of pilots for the active VA (HTMX partial)

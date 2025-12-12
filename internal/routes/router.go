@@ -69,12 +69,15 @@ func RegisterRoutes(upSince time.Time) http.Handler {
 	// Initialize VA repositories for UI
 	vaGormRepo := repositories.NewVAGORMRepository(db.PgDB)
 	vaUserRoleRepo := repositories.NewVAUserRoleRepository(db.PgDB)
+	eventRepo := repositories.NewVAEventRepository(db.PgDB)
+	routeRepo := repositories.NewRouteATSyncedRepo(db.PgDB)
 
 	// Update AuthMiddleware to use session service
 	// This will be passed to middleware when creating handlers
 
 	// Register UI routes (separate from API)
-	RegisterUIRoutes(r, metricsReg, sessionSvc, urlSigner, userRepoGorm, vaUserRoleRepo, vaGormRepo, flightSvc, deps.Services.Cache, &deps.Services.Live)
+	// Note: FlightModesConfigService will be created inside ui_routes to avoid circular imports
+	RegisterUIRoutes(r, metricsReg, sessionSvc, urlSigner, userRepoGorm, vaUserRoleRepo, vaGormRepo, flightSvc, deps.Services.Cache, &deps.Services.Live, deps.Services.DataProviderConfig, deps.Services.AirtableProvider, deps.Repo.VAGorm, eventRepo, routeRepo)
 
 	// Setup workers and jobs first
 	// Setup scheduled jobs (both pilot and route sync run every hour)

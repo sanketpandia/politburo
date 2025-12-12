@@ -2,11 +2,12 @@ package dtos
 
 // FormField represents a form field in a flight mode
 type FormField struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"` // text, textarea, number, date
-	Label    string `json:"label"`
-	Required bool   `json:"required"`
-	Value    string `json:"value,omitempty"` // Optional default/prepopulated value
+	Name           string `json:"name"`
+	Type           string `json:"type"` // text, textarea, number, date
+	Label          string `json:"label"`
+	Required       bool   `json:"required"`
+	Value          string `json:"value,omitempty"` // Optional default/prepopulated value
+	ShowInDiscord  bool   `json:"show_in_discord"` // Controls visibility in Discord modal form
 }
 
 // AutoRouteConfig represents an auto-mapped route for a flight mode
