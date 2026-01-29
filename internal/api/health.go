@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 )
 
 // HealthCheckHandler handles GET /healthCheck
@@ -16,7 +16,7 @@ import (
 // @Tags Misc
 // @Success 200 {string} string "ok"
 // @Router /healthCheck [get]
-func HealthCheckHandler(db *sqlx.DB, upSince time.Time) http.HandlerFunc {
+func HealthCheckHandler(db *gorm.DB, upSince time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		services := make(map[string]entities.ServiceStatus)
@@ -24,7 +24,11 @@ func HealthCheckHandler(db *sqlx.DB, upSince time.Time) http.HandlerFunc {
 		// Check postgres
 		pgstatus := "ok"
 		pgDetails := "Postgres Connected"
-		if err := db.Ping(); err != nil {
+		sqlDB, err := db.DB()
+		if err != nil {
+			pgstatus = "down"
+			pgDetails = err.Error()
+		} else if err := sqlDB.Ping(); err != nil {
 			pgstatus = "down"
 			pgDetails = err.Error()
 		}

@@ -19,12 +19,6 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Connect to DB with sqlx
-	if err := db.InitPostgres(); err != nil {
-		log.Fatalf("❌ Failed to connect to Postgres (sqlx): %v", err)
-	}
-	log.Println("✅ Connected to Postgres (sqlx)!")
-
 	// Connect to DB with GORM
 	host := os.Getenv("PG_HOST")
 	port := os.Getenv("PG_PORT")
@@ -34,9 +28,9 @@ func main() {
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbname)
 
 	if _, err := db.InitPostgresORM(dsn); err != nil {
-		log.Fatalf("❌ Failed to connect to Postgres (GORM): %v", err)
+		log.Fatalf("❌ Failed to connect to Postgres: %v", err)
 	}
-	log.Println("✅ Connected to Postgres (GORM)!")
+	log.Println("✅ Connected to Postgres!")
 
 	upSince := time.Now()
 

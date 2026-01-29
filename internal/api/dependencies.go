@@ -14,12 +14,10 @@ import (
 )
 
 type Repositories struct {
-	User                  repositories.UserRepository
-	UserGorm              *repositories.UserRepositoryGORM
-	Keys                  repositories.KeysRepo
-	UserVASync            repositories.SyncRepository
-	Va                    repositories.VARepository
-	VAGorm                *repositories.VAGormRepository
+	User                  *repositories.UserRepositoryGORM
+	Keys                  *repositories.KeysRepo
+	UserVASync            *repositories.SyncRepository
+	Va                    *repositories.VAGormRepository
 	DataProviderCfg       *repositories.DataProviderConfigRepo
 	VASyncHistory         *repositories.VASyncHistoryRepo
 	PilotATSynced         *repositories.PilotATSyncedRepo
@@ -32,22 +30,23 @@ type Repositories struct {
 }
 
 type Services struct {
-	Cache              common.CacheInterface // Changed to interface to support Redis or in-memory
-	LegacyCache        *common.CacheService  // For services that haven't been migrated to interface yet
-	Live               common.LiveAPIService
+	Cache              common.CacheInterface         // Interface - supports Redis or in-memory
+	RedisCache         *common.RedisCacheService     // Redis cache (for jobs that need specific Redis features)
+	LegacyCache        *common.CacheService          // For services that haven't been migrated to interface yet
+	Live               *common.LiveAPIService        // Changed to pointer
 	User               *services.UserService
-	Reg                services.RegistrationService
+	Reg                *services.RegistrationService // Changed to pointer
 	RegV2              *services.RegistrationServiceV2
-	Conf               common.VAConfigService
-	VaMgmt             services.VAManagementService
-	AirtableApi        common.AirtableApiService
+	Conf               *common.VAConfigService       // Changed to pointer
+	VaMgmt             *services.VAManagementService // Changed to pointer
+	AirtableApi        *common.AirtableApiService    // Changed to pointer
 	AirtableProvider   *providers.AirtableProvider
-	AirtableSync       services.AtSyncService
-	Flights            services.FlightsService
+	AirtableSync       *services.AtSyncService       // Changed to pointer
+	Flights            *services.FlightsService      // Changed to pointer
 	PilotStats         *services.PilotStatsService
 	DataProviderConfig *services.DataProviderConfigService
 	AircraftLivery     *common.AircraftLiveryService
-	RedisQueue         common.RedisQueueService
+	RedisQueue         *common.RedisQueueService     // Changed to pointer
 	URLSigner          *common.URLSignerService
 	Session            *common.SessionService
 	WorldTour          *services.WorldTourService
@@ -60,12 +59,10 @@ type Dependencies struct {
 func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error) {
 
 	repositories := &Repositories{
-		User:                  *repositories.NewUserRepository(db.DB),
-		UserGorm:              repositories.NewUserRepositoryGORM(db.PgDB),
-		Keys:                  *repositories.NewApiKeysRepo(db.DB),
-		Va:                    *repositories.NewVARepository(db.DB),
-		VAGorm:                repositories.NewVAGormRepository(db.PgDB),
-		UserVASync:            *repositories.NewSyncRepository(db.DB),
+		User:                  repositories.NewUserRepositoryGORM(db.PgDB),
+		Keys:                  repositories.NewApiKeysRepo(db.PgDB),
+		Va:                    repositories.NewVAGormRepository(db.PgDB),
+		UserVASync:            repositories.NewSyncRepository(db.PgDB),
 		DataProviderCfg:       repositories.NewDataProviderConfigRepo(db.PgDB),
 		VASyncHistory:         repositories.NewVASyncHistoryRepo(db.PgDB),
 		PilotATSynced:         repositories.NewPilotATSyncedRepo(db.PgDB),
@@ -79,6 +76,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 
 	// Initialize cache service (Redis or in-memory based on USE_REDIS_CACHE env var)
 	var cacheSvc common.CacheInterface
+	var redisCacheSvc *common.RedisCacheService
 	useRedis := os.Getenv("USE_REDIS_CACHE") == "true"
 	var redisClient *redis.Client
 	if useRedis {
@@ -91,6 +89,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		} else {
 			log.Println("Using Redis cache")
 			cacheSvc = redisCache
+			redisCacheSvc = redisCache // Store Redis cache service for jobs
 		}
 	} else {
 		log.Println("Using in-memory cache")
@@ -99,7 +98,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 
 	// Always initialize RedisQueueService (required for PIREP queue processing)
 	// Uses the same Redis client as cache for efficiency
-	redisQSvc := *common.NewRedisQueueService(redisClient)
+	redisQSvc := common.NewRedisQueueService(redisClient)
 
 	// Create legacy cache wrapper for services that still need *CacheService
 	var legacyCache *common.CacheService
@@ -111,16 +110,16 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 	}
 
 	liveSvc := common.NewLiveAPIService()
-	confSvc := common.NewVAConfigService(&repositories.Va, cacheSvc)
+	confSvc := common.NewVAConfigService(repositories.Va, cacheSvc)
 
 	// Initialize providers
 	liveAPIProvider := providers.NewLiveAPIProvider()
 
 	// Initialize pilot stats service first (needed by UserService)
-	pilotStatsSvc := services.NewPilotStatsService(db.DB, db.PgDB, legacyCache, repositories.DataProviderCfg, &repositories.User, confSvc, repositories.PirepATSynced, repositories.RouteATSynced)
+	pilotStatsSvc := services.NewPilotStatsService(db.PgDB, legacyCache, repositories.DataProviderCfg, repositories.User, confSvc, repositories.PirepATSynced, repositories.RouteATSynced)
 
-	// Initialize user service with both sqlx and GORM repositories and pilot stats service
-	userSvc := services.NewUserService(&repositories.User, repositories.UserGorm, pilotStatsSvc)
+	// Initialize user service with GORM repository and pilot stats service
+	userSvc := services.NewUserService(repositories.User, pilotStatsSvc)
 
 	// Initialize data provider config service
 	dataProviderConfigSvc := services.NewDataProviderConfigService(repositories.DataProviderCfg, cacheSvc)
@@ -154,20 +153,21 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 
 	svc := &Services{
 		User:               userSvc,
-		Reg:                *services.NewRegistrationService(liveSvc, *legacyCache, repositories.User, repositories.Va),
+		Reg:                nil, // TODO: Migrate RegistrationService to GORM or remove (use RegV2)
 		RegV2:              regServiceV2,
-		Conf:               *confSvc,
-		VaMgmt:             *services.NewVAManagementService(repositories.Va, repositories.User),
-		AirtableApi:        *common.NewAirtableApiService(confSvc),
+		Conf:               confSvc,
+		VaMgmt:             nil, // TODO: Migrate VAManagementService to GORM or deprecate
+		AirtableApi:        common.NewAirtableApiService(confSvc),
 		AirtableProvider:   airtableProvider,
-		AirtableSync:       *services.NewAtSyncService(legacyCache, &repositories.UserVASync),
-		Flights:            *services.NewFlightsService(legacyCache, liveSvc, confSvc, aircraftLiverySvc),
+		AirtableSync:       services.NewAtSyncService(legacyCache, repositories.UserVASync),
+		Flights:            services.NewFlightsService(legacyCache, liveSvc, confSvc, aircraftLiverySvc),
 		PilotStats:         pilotStatsSvc,
 		DataProviderConfig: dataProviderConfigSvc,
 		AircraftLivery:     aircraftLiverySvc,
 		Cache:              cacheSvc,
+		RedisCache:         redisCacheSvc, // Redis cache for jobs (nil if not using Redis)
 		LegacyCache:        legacyCache,
-		Live:               *liveSvc,
+		Live:               liveSvc,
 		RedisQueue:         redisQSvc,
 		URLSigner:          urlSignerSvc,
 		Session:            sessionSvc,

@@ -7,31 +7,29 @@ import (
 
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos/responses"
-	"infinite-experiment/politburo/internal/models/entities"
 )
 
 type UserService struct {
-	repo            *repositories.UserRepository
-	userRepoGorm    *repositories.UserRepositoryGORM
+	repo              *repositories.UserRepositoryGORM
 	pilotStatsService *PilotStatsService
 }
 
-func NewUserService(repo *repositories.UserRepository, repoGorm *repositories.UserRepositoryGORM, pilotStatsService *PilotStatsService) *UserService {
+func NewUserService(repo *repositories.UserRepositoryGORM, pilotStatsService *PilotStatsService) *UserService {
 	return &UserService{
-		repo:            repo,
-		userRepoGorm:    repoGorm,
+		repo:              repo,
 		pilotStatsService: pilotStatsService,
 	}
 }
 
-func (s *UserService) RegisterUser(ctx context.Context, user *entities.User) error {
-	return s.repo.InsertUser(ctx, user)
+func (s *UserService) RegisterUser(ctx context.Context, discordID, ifCommunityID string, ifApiID *string, isActive bool) error {
+	_, err := s.repo.InsertUser(ctx, discordID, ifCommunityID, ifApiID, isActive)
+	return err
 }
 
 // GetUserDetails retrieves user details with VA affiliations and current VA status
 func (s *UserService) GetUserDetails(ctx context.Context, userDiscordID, vaDiscordServerID string) (*responses.UserDetailResponse, error) {
 	// Fetch user with all VA affiliations
-	user, err := s.userRepoGorm.GetUserWithVAAffiliations(ctx, userDiscordID)
+	user, err := s.repo.GetUserWithVAAffiliations(ctx, userDiscordID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user details: %w", err)
 	}

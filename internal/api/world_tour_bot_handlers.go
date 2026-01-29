@@ -1,3 +1,8 @@
+// DEPRECATED: This file contains legacy world tour bot handlers.
+// New code should use WorldTourHandlers (world_tour_handlers.go) which consolidates
+// both admin and bot endpoints with standardized response utilities.
+// This file will be removed in a future release.
+
 package api
 
 import (
@@ -13,6 +18,7 @@ import (
 )
 
 // GetActiveTourHandler handles getting the active world tour for a VA
+// DEPRECATED: Use WorldTourHandlers.GetActiveTour() instead
 func (h *Handlers) GetActiveTourHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get VA ID from query parameter (for Discord bot)

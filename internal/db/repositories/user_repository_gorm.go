@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/entities"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
 
@@ -130,4 +131,78 @@ func (r *UserRepositoryGORM) FindUserMembership(ctx context.Context, discordServ
 	}
 
 	return result, nil
+}
+
+// InsertUser creates a new user in the database
+func (r *UserRepositoryGORM) InsertUser(ctx context.Context, discordID, ifCommunityID string, ifApiID *string, isActive bool) (*gormModels.User, error) {
+	user := &gormModels.User{
+		DiscordID:     discordID,
+		IFCommunityID: ifCommunityID,
+		IFApiID:       ifApiID,
+		IsActive:      isActive,
+	}
+
+	err := r.db.WithContext(ctx).Create(user).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert user: %w", err)
+	}
+
+	return user, nil
+}
+
+// DeleteAllUsers deletes all users, their roles, and VA associations (DANGER: God mode only)
+func (r *UserRepositoryGORM) DeleteAllUsers(ctx context.Context) error {
+	// Delete in correct order due to foreign keys
+	// 1. Delete all user-VA roles
+	if err := r.db.WithContext(ctx).Where("id IS NOT NULL").Delete(&gormModels.UserVARole{}).Error; err != nil {
+		return fmt.Errorf("failed to delete user roles: %w", err)
+	}
+
+	// 2. Delete all VAs
+	if err := r.db.WithContext(ctx).Where("id IS NOT NULL").Delete(&gormModels.VA{}).Error; err != nil {
+		return fmt.Errorf("failed to delete VAs: %w", err)
+	}
+
+	// 3. Delete all users
+	if err := r.db.WithContext(ctx).Where("discord_id IS NOT NULL").Delete(&gormModels.User{}).Error; err != nil {
+		return fmt.Errorf("failed to delete users: %w", err)
+	}
+
+	return nil
+}
+
+// InsertMembership creates a new membership (user-VA relationship) with a role
+func (r *UserRepositoryGORM) InsertMembership(ctx context.Context, userID, vaID string, role, callsign string) (*gormModels.UserVARole, error) {
+	membership := &gormModels.UserVARole{
+		UserID:   userID,
+		VAID:     vaID,
+		Role:     constants.VARole(role),
+		Callsign: callsign,
+		IsActive: true,
+	}
+
+	err := r.db.WithContext(ctx).Create(membership).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert membership: %w", err)
+	}
+
+	return membership, nil
+}
+
+// UpdateUserRole updates a user's role in a specific VA
+func (r *UserRepositoryGORM) UpdateUserRole(ctx context.Context, vaID, userID, newRole string) error {
+	result := r.db.WithContext(ctx).
+		Model(&gormModels.UserVARole{}).
+		Where("va_id = ? AND user_id = ?", vaID, userID).
+		Update("role", constants.VARole(newRole))
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update user role: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found in this VA")
+	}
+
+	return nil
 }

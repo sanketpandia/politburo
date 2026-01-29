@@ -44,13 +44,6 @@ func main() {
 	// Metrics registry will be initialized in router (see internal/routes/router.go)
 	logging.Info("Prometheus metrics will be initialized during router setup")
 
-	// Connect to DB with sqlx
-	if err := db.InitPostgres(); err != nil {
-		logging.Error("Failed to connect to Postgres (sqlx)", "error", err.Error())
-		log.Fatalf("❌ Failed to connect to Postgres (sqlx): %v", err)
-	}
-	logging.Info("Connected to Postgres (sqlx)")
-
 	// Connect to DB with GORM
 	host := os.Getenv("PG_HOST")
 	port := os.Getenv("PG_PORT")

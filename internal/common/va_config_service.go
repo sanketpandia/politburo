@@ -7,6 +7,7 @@ import (
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -73,11 +74,11 @@ func IsValidVAConfigKey(k string) bool {
 ///////////////////////////////////////////////////////////////////////////////
 
 type VAConfigService struct {
-	repo  *repositories.VARepository
+	repo  *repositories.VAGormRepository
 	cache CacheInterface
 }
 
-func NewVAConfigService(r *repositories.VARepository, c CacheInterface) *VAConfigService {
+func NewVAConfigService(r *repositories.VAGormRepository, c CacheInterface) *VAConfigService {
 	return &VAConfigService{repo: r, cache: c}
 }
 
@@ -138,8 +139,8 @@ func (s *VAConfigService) GetAllConfigValues(
 		if err != nil {
 			return nil, err
 		}
-		m := make(map[string]string, len(*rows))
-		for _, r := range *rows {
+		m := make(map[string]string, len(rows))
+		for _, r := range rows {
 			m[r.ConfigKey] = r.ConfigValue
 		}
 
@@ -219,4 +220,108 @@ func (s *VAConfigService) GetConfigValues(
 	}
 
 	return conf, true
+}
+
+// GetAllCallsigns retrieves callsign prefix/suffix configuration for all active VAs
+func (s *VAConfigService) GetAllCallsigns(ctx stdCtx.Context) ([]map[string]string, error) {
+	cacheKey := string(constants.CachePrefixVAConfig) + "all_callsigns"
+
+	val, err := s.cache.GetOrSet(cacheKey, 10*time.Minute, func() (any, error) {
+		return s.repo.GetAllActiveVACallsignConfigs(ctx)
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all callsigns: %w", err)
+	}
+
+	// Handle type conversion from cache
+	switch v := val.(type) {
+	case []map[string]string:
+		// Direct type match (from loader function)
+		return v, nil
+	case []interface{}:
+		// Cache deserialized as []interface{}, convert each element
+		result := make([]map[string]string, 0, len(v))
+		for i, item := range v {
+			switch m := item.(type) {
+			case map[string]string:
+				result = append(result, m)
+			case map[string]interface{}:
+				// Convert map[string]interface{} to map[string]string
+				converted := make(map[string]string)
+				for key, value := range m {
+					if strVal, ok := value.(string); ok {
+						converted[key] = strVal
+					} else {
+						return nil, fmt.Errorf("value for key %q at index %d is not a string", key, i)
+					}
+				}
+				result = append(result, converted)
+			default:
+				return nil, fmt.Errorf("unexpected map type at index %d: %T", i, item)
+			}
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("cache type assertion failed: expected []map[string]string or []interface{}, got %T", val)
+	}
+}
+
+// In-game suffixes that should be stripped before VA suffix matching
+var gameCallsignSuffixes = []string{
+	"HEAVY",
+	"SUPER",
+	"FLIGHT OF 1",
+	"FLIGHT OF 2",
+	"FLIGHT OF 3",
+	"FLIGHT OF 4",
+	"FLIGHT OF 5",
+	"FLIGHT OF 6",
+	"FLIGHT OF 7",
+	"FLIGHT OF 8",
+	"FLIGHT OF 9",
+	"FLIGHT OF 10",
+}
+
+// MatchesVAPattern checks if a callsign matches a specific VA prefix/suffix pattern
+func MatchesVAPattern(callsign string, prefix string, suffix string) bool {
+	callsignUpper := strings.ToUpper(strings.TrimSpace(callsign))
+
+	// Check prefix match
+	if prefix != "" {
+		prefixUpper := strings.ToUpper(strings.TrimSpace(prefix))
+		if !strings.HasPrefix(callsignUpper, prefixUpper) {
+			return false
+		}
+	}
+
+	// Check suffix match
+	if suffix != "" {
+		// Strip in-game suffixes before checking VA suffix
+		strippedCallsign := stripGameSuffixes(callsignUpper)
+
+		suffixUpper := strings.ToUpper(strings.TrimSpace(suffix))
+		// Use HasSuffix for accurate matching
+		if !strings.HasSuffix(strippedCallsign, suffixUpper) {
+			return false
+		}
+	}
+
+	// If we got here, all specified patterns match
+	return true
+}
+
+// stripGameSuffixes removes in-game callsign suffixes (HEAVY, SUPER, FLIGHT OF X)
+func stripGameSuffixes(callsign string) string {
+	trimmed := strings.TrimSpace(callsign)
+
+	for _, gameSuffix := range gameCallsignSuffixes {
+		if strings.HasSuffix(trimmed, gameSuffix) {
+			// Remove the game suffix and trim any trailing spaces
+			trimmed = strings.TrimSpace(trimmed[:len(trimmed)-len(gameSuffix)])
+			break // Only remove one game suffix
+		}
+	}
+
+	return trimmed
 }

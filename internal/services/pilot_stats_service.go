@@ -14,16 +14,14 @@ import (
 	"log"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"gorm.io/gorm"
 )
 
 type PilotStatsService struct {
-	db               *sqlx.DB
 	gormDB           *gorm.DB
 	cache            *common.CacheService
 	configRepo       *repositories.DataProviderConfigRepo
-	userRepo         *repositories.UserRepository
+	userRepo         *repositories.UserRepositoryGORM
 	vaConfigService  *common.VAConfigService
 	pirepRepo        *repositories.PirepATSyncedRepo
 	routeRepo        *repositories.RouteATSyncedRepo
@@ -32,17 +30,15 @@ type PilotStatsService struct {
 }
 
 func NewPilotStatsService(
-	db *sqlx.DB,
 	gormDB *gorm.DB,
 	cache *common.CacheService,
 	configRepo *repositories.DataProviderConfigRepo,
-	userRepo *repositories.UserRepository,
+	userRepo *repositories.UserRepositoryGORM,
 	vaConfigService *common.VAConfigService,
 	pirepRepo *repositories.PirepATSyncedRepo,
 	routeRepo *repositories.RouteATSyncedRepo,
 ) *PilotStatsService {
 	return &PilotStatsService{
-		db:               db,
 		gormDB:           gormDB,
 		cache:            cache,
 		configRepo:       configRepo,
@@ -74,7 +70,7 @@ func (s *PilotStatsService) getUserMembership(ctx context.Context, userDiscordID
 	`
 
 	var membership MembershipWithAirtable
-	err := s.db.GetContext(ctx, &membership, query, userDiscordID, vaID)
+	err := s.gormDB.WithContext(ctx).Raw(query, userDiscordID, vaID).Scan(&membership).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user membership: %w", err)
 	}

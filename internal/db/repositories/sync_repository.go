@@ -2,16 +2,20 @@ package repositories
 
 import (
 	"context"
-	"infinite-experiment/politburo/internal/models/entities"
+	"fmt"
 
-	"github.com/jmoiron/sqlx"
+	"infinite-experiment/politburo/internal/models/entities"
+	gormModels "infinite-experiment/politburo/internal/models/gorm"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type SyncRepository struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
-func NewSyncRepository(db *sqlx.DB) *SyncRepository {
+func NewSyncRepository(db *gorm.DB) *SyncRepository {
 	return &SyncRepository{
 		db: db,
 	}
@@ -20,38 +24,50 @@ func NewSyncRepository(db *sqlx.DB) *SyncRepository {
 func (svc SyncRepository) UpsertPilot(
 	ctx context.Context,
 	pilot *entities.PilotATSynced) error {
-	const query = `
-		INSERT INTO pilot_at_synced ( at_id, callsign, registered, server_id)
-		VALUES (:at_id, :callsign, :registered, :server_id)
-		ON CONFLICT (server_id, at_id) DO UPDATE
-		SET callsign = EXCLUDED.callsign,
-		    registered = EXCLUDED.registered
-	`
 
-	_, err := svc.db.NamedExecContext(ctx, query, pilot)
-	return err
+	gormPilot := &gormModels.PilotATSynced{
+		ATID:       pilot.ATID,
+		Callsign:   pilot.Callsign,
+		Registered: pilot.Registered,
+		ServerID:   pilot.ServerID,
+	}
 
+	err := svc.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "server_id"}, {Name: "at_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"callsign", "registered"}),
+		}).
+		Create(gormPilot).Error
+
+	if err != nil {
+		return fmt.Errorf("failed to upsert pilot: %w", err)
+	}
+
+	return nil
 }
-
-// func (svc SyncRepository) FindPilotByCallsign(
-// 	ctx context.Context,
-// 	callsign string,
-// ) (*entities.PilotATSynced, error) {
-// 	// Find pilot by callsign
-// }
 
 func (svc SyncRepository) UpsertRoute(
 	ctx context.Context,
 	route *entities.RouteATSynced) error {
-	const query = `
-		INSERT INTO route_at_synced (at_id, origin, destination, server_id, route)
-		VALUES (:at_id, :origin, :destination, :server_id, :route)
-		ON CONFLICT (server_id, at_id) DO UPDATE
-		SET origin = EXCLUDED.origin,
-			destination = EXCLUDED.destination,
-			route = EXCLUDED.route;
-	`
 
-	_, err := svc.db.NamedExecContext(ctx, query, route)
-	return err
+	gormRoute := &gormModels.RouteATSynced{
+		ATID:        route.ATID,
+		Origin:      route.Origin,
+		Destination: route.Destination,
+		ServerID:    route.ServerID,
+		Route:       route.Route,
+	}
+
+	err := svc.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "server_id"}, {Name: "at_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"origin", "destination", "route"}),
+		}).
+		Create(gormRoute).Error
+
+	if err != nil {
+		return fmt.Errorf("failed to upsert route: %w", err)
+	}
+
+	return nil
 }

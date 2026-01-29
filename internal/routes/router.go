@@ -41,7 +41,7 @@ func RegisterRoutes(upSince time.Time) http.Handler {
 
 	logging.Info("Router initialized with metrics and logging middleware")
 	// health check
-	r.Get("/healthCheck", api.HealthCheckHandler(db.DB, upSince))
+	r.Get("/healthCheck", api.HealthCheckHandler(db.PgDB, upSince))
 
 	// Initialize dependencies using DI pattern
 	deps, err := api.InitDependencies(metricsReg)
@@ -53,14 +53,14 @@ func RegisterRoutes(upSince time.Time) http.Handler {
 	handlers := api.NewHandlers(deps)
 
 	// Legacy: Keep individual references for old handlers that haven't been migrated yet
-	userRepoGorm := deps.Repo.UserGorm
-	keyRepo := &deps.Repo.Keys
+	userRepoGorm := deps.Repo.User
+	keyRepo := deps.Repo.Keys
 	legacyCacheSvc := deps.Services.LegacyCache
-	cfgSvc := &deps.Services.Conf
-	vaMgmtSvc := &deps.Services.VaMgmt
-	atApiSvc := &deps.Services.AirtableApi
-	syncSvc := &deps.Services.AirtableSync
-	flightSvc := &deps.Services.Flights
+	cfgSvc := deps.Services.Conf
+	vaMgmtSvc := deps.Services.VaMgmt
+	atApiSvc := deps.Services.AirtableApi
+	syncSvc := deps.Services.AirtableSync
+	flightSvc := deps.Services.Flights
 
 	// Get session and URL signer services from dependencies (reuses same Redis client)
 	sessionSvc := deps.Services.Session
@@ -77,14 +77,14 @@ func RegisterRoutes(upSince time.Time) http.Handler {
 
 	// Register UI routes (separate from API)
 	// Note: FlightModesConfigService will be created inside ui_routes to avoid circular imports
-	RegisterUIRoutes(r, metricsReg, sessionSvc, urlSigner, userRepoGorm, vaUserRoleRepo, vaGormRepo, flightSvc, deps.Services.Cache, &deps.Services.Live, deps.Services.DataProviderConfig, deps.Services.AirtableProvider, deps.Repo.VAGorm, eventRepo, routeRepo)
+	RegisterUIRoutes(r, metricsReg, sessionSvc, urlSigner, userRepoGorm, vaUserRoleRepo, vaGormRepo, flightSvc, deps.Services.Cache, deps.Services.Live, deps.Services.DataProviderConfig, deps.Services.AirtableProvider, deps.Repo.Va, eventRepo, routeRepo)
 
 	// Setup workers and jobs first
-	// Setup scheduled jobs (both pilot and route sync run every hour)
+	// Setup scheduled jobs (both pilot and route sync run every 10 minutes)
 	jobsContainer := jobs.InitializeJobs(
 		context.Background(),
 		db.PgDB,
-		deps.Services.Cache, // Use CacheInterface (supports Redis or in-memory)
+		deps.Services.Cache,      // Use CacheInterface (supports Redis or in-memory)
 		deps.Repo.DataProviderCfg,
 		deps.Repo.VASyncHistory,
 		deps.Repo.PilotATSynced,
@@ -92,15 +92,17 @@ func RegisterRoutes(upSince time.Time) http.Handler {
 		deps.Repo.PirepATSynced,
 		deps.Repo.AirportsRepo,
 		cfgSvc,
-		&deps.Services.RedisQueue,
+		deps.Services.RedisQueue,
+		deps.Services.Live,       // LiveAPIService for cache jobs
+		deps.Services.RedisCache, // RedisCacheService for cache jobs (nil if not using Redis)
 	)
 
 	workers.InitWorkers(
 		db.PgDB,
 		&deps.Services.Cache,
-		&deps.Services.Live,
+		deps.Services.Live,
 		deps.Services.AircraftLivery,
-		&deps.Services.RedisQueue,
+		deps.Services.RedisQueue,
 		deps.Repo.AircraftLivery,
 		deps.Repo.DataProviderCfg,
 		deps.Repo.PirepATSynced,

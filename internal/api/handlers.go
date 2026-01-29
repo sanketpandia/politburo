@@ -11,12 +11,19 @@ import (
 
 type Handlers struct {
 	deps *Dependencies
+	User *UserHandlers
 }
 
 // NewHandlers creates a new handlers instance with injected dependencies
 func NewHandlers(deps *Dependencies) *Handlers {
 	return &Handlers{
 		deps: deps,
+		User: NewUserHandlers(
+			deps.Repo.User,
+			deps.Repo.Va,
+			deps.Services.User,
+			deps.Services.RegV2,
+		),
 	}
 }
 

@@ -1,3 +1,8 @@
+// DEPRECATED: This file contains legacy world tour admin handlers.
+// New code should use WorldTourHandlers (world_tour_handlers.go) which consolidates
+// both admin and bot endpoints with standardized response utilities.
+// This file will be removed in a future release.
+
 package api
 
 import (
@@ -12,6 +17,7 @@ import (
 )
 
 // CreateWorldTourHandler handles creating a new world tour
+// DEPRECATED: Use WorldTourHandlers.CreateTour() instead
 func (h *Handlers) CreateWorldTourHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get user claims from auth middleware
