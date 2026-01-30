@@ -1,17 +1,21 @@
 package routes
 
 import (
+	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/metrics"
+	"infinite-experiment/politburo/infra/providers"
+	"infinite-experiment/politburo/infra/security"
+	"infinite-experiment/politburo/infra/session"
+	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/internal/db/repositories"
+	"infinite-experiment/politburo/internal/flights"
+	"infinite-experiment/politburo/internal/middleware"
+	"infinite-experiment/politburo/internal/pilots"
+	"infinite-experiment/politburo/internal/services"
+	vizbuUI "infinite-experiment/politburo/vizburo/ui"
 	"net/http"
 	"path/filepath"
 	"strings"
-
-	"infinite-experiment/politburo/internal/common"
-	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/middleware"
-	"infinite-experiment/politburo/internal/metrics"
-	"infinite-experiment/politburo/internal/providers"
-	"infinite-experiment/politburo/internal/services"
-	vizbuUI "infinite-experiment/politburo/vizburo/ui"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -20,13 +24,13 @@ import (
 func RegisterUIRoutes(
 	r chi.Router,
 	metricsReg *metrics.MetricsRegistry,
-	sessionSvc *common.SessionService,
-	urlSigner *common.URLSignerService,
+	sessionSvc *session.SessionService,
+	urlSigner *security.URLSignerService,
 	userRepo *repositories.UserRepositoryGORM,
 	vaRoleRepo *repositories.VAUserRoleRepository,
 	vaRepo *repositories.VAGORMRepository,
-	flightSvc *services.FlightsService,
-	cache common.CacheInterface,
+	flightSvc *flights.Service,
+	cache cache.CacheInterface,
 	liveAPI *common.LiveAPIService,
 	configSvc *services.DataProviderConfigService,
 	airtableProvider *providers.AirtableProvider,
@@ -36,8 +40,8 @@ func RegisterUIRoutes(
 ) {
 	authHandler := vizbuUI.NewAuthHandler(sessionSvc, urlSigner, userRepo, vaRoleRepo, vaRepo)
 
-	// Initialize pilot management service
-	pilotMgmtSvc := services.NewPilotManagementService(vaRoleRepo)
+	// Initialize pilot management service (migrated to pilots package)
+	pilotMgmtSvc := pilots.NewManagementService(vaRoleRepo)
 
 	// Import middleware
 	authMiddleware := middleware.AuthMiddleware(userRepo, nil, sessionSvc) // keysRepo is nil for UI routes

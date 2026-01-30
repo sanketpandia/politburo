@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"infinite-experiment/politburo/internal/db"
+	"infinite-experiment/politburo/infra/db"
 	"infinite-experiment/politburo/internal/routes"
 )
 

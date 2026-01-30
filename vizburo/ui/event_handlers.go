@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"infinite-experiment/politburo/infra/session"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/gorm"
 	"infinite-experiment/politburo/internal/services"
@@ -21,7 +21,7 @@ import (
 func EventsHandler(w http.ResponseWriter, r *http.Request) {
 	// Get session data from context (guaranteed by admin middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -55,7 +55,7 @@ func GetEventsListHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -112,7 +112,7 @@ func GetEventFormHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -192,7 +192,7 @@ func CreateEventHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -299,7 +299,7 @@ func UpdateEventHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -398,7 +398,7 @@ func DeleteEventHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -447,7 +447,7 @@ func RouteSearchHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return

@@ -1,13 +1,13 @@
 package ui
 
 import (
+	"infinite-experiment/politburo/infra/session"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/services"
 
@@ -18,7 +18,7 @@ import (
 func PirepConfigHandler(w http.ResponseWriter, r *http.Request) {
 	// Get session data from context (guaranteed by admin middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -51,7 +51,7 @@ func GetPirepConfigHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -117,7 +117,7 @@ func UpdatePirepModeHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -256,7 +256,7 @@ func TogglePirepModeHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -363,7 +363,7 @@ func GetPirepModeEditHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return

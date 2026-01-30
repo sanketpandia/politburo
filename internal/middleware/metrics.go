@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"infinite-experiment/politburo/internal/logging"
-	"infinite-experiment/politburo/internal/metrics"
+	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 )
 
 // MetricsMiddleware records HTTP metrics for each request

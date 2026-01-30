@@ -1,10 +1,10 @@
 package api
 
 import (
+	"infinite-experiment/politburo/internal/common"
 	"encoding/json"
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
-	"infinite-experiment/politburo/internal/jobs"
+	"infinite-experiment/politburo/internal/pilots"
 	"log"
 	"net/http"
 	"time"
@@ -12,11 +12,11 @@ import (
 
 // JobsHandler handles manual job triggering endpoints
 type JobsHandler struct {
-	pilotSyncJob *jobs.PilotSyncJob
+	pilotSyncJob *pilots.SyncJob
 }
 
 // NewJobsHandler creates a new jobs handler
-func NewJobsHandler(pilotSyncJob *jobs.PilotSyncJob) *JobsHandler {
+func NewJobsHandler(pilotSyncJob *pilots.SyncJob) *JobsHandler {
 	return &JobsHandler{
 		pilotSyncJob: pilotSyncJob,
 	}

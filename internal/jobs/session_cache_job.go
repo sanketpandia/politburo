@@ -1,9 +1,10 @@
 package jobs
 
 import (
+	"infinite-experiment/politburo/internal/common"
 	"context"
 	"fmt"
-	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/infra/cache"
 	"strings"
 	"time"
 
@@ -14,13 +15,13 @@ import (
 // Runs periodically to ensure fresh session data is available
 type SessionCacheJob struct {
 	liveAPISvc  *common.LiveAPIService
-	redisSvc    *common.RedisCacheService
+	redisSvc    *cache.RedisCacheService
 	logger      *zap.SugaredLogger
 	lastRunTime time.Time
 }
 
 // NewSessionCacheJob creates a new session cache job
-func NewSessionCacheJob(liveAPISvc *common.LiveAPIService, redisSvc *common.RedisCacheService, logger *zap.SugaredLogger) *SessionCacheJob {
+func NewSessionCacheJob(liveAPISvc *common.LiveAPIService, redisSvc *cache.RedisCacheService, logger *zap.SugaredLogger) *SessionCacheJob {
 	return &SessionCacheJob{
 		liveAPISvc: liveAPISvc,
 		redisSvc:   redisSvc,

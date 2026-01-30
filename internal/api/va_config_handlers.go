@@ -1,10 +1,10 @@
 package api
 
 import (
+	"infinite-experiment/politburo/internal/common"
 	"encoding/json"
 	"fmt"
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/services"
 	"net/http"

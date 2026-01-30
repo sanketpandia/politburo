@@ -1,6 +1,7 @@
 package api
 
 import (
+	"infinite-experiment/politburo/internal/common"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,8 +9,7 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
-	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
 )
@@ -72,7 +72,7 @@ func (h *VAHandlers) SyncUser() http.HandlerFunc {
 		}
 
 		// Insert membership with pilot role
-		_, err = h.userRepo.InsertMembership(r.Context(), user.ID, va.ID, string(constants.RolePilot), req.Callsign)
+		_, err = h.userRepo.InsertMembership(r.Context(), user.ID, va.ID, string(roles.RolePilot), req.Callsign)
 		if err != nil {
 			common.RespondError(w, initTime, err, fmt.Sprintf("Failed to sync user: %s", err.Error()), http.StatusInternalServerError)
 			return

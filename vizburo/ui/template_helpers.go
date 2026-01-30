@@ -1,14 +1,14 @@
 package ui
 
 import (
+	"infinite-experiment/politburo/infra/session"
 	"fmt"
-	"infinite-experiment/politburo/internal/common"
 	"log"
 )
 
 // PrepareTemplateData creates a standardized template data map with common fields and role flags
 // This eliminates code duplication across all page handlers
-func PrepareTemplateData(sessionData *common.SessionData, pageTitle string) (map[string]interface{}, error) {
+func PrepareTemplateData(sessionData *session.SessionData, pageTitle string) (map[string]interface{}, error) {
 	if sessionData == nil {
 		return nil, fmt.Errorf("session data cannot be nil")
 	}

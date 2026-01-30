@@ -1,6 +1,7 @@
 package services
 
 import (
+	"infinite-experiment/politburo/infra/cache"
 	"context"
 	"errors"
 	"fmt"
@@ -18,7 +19,7 @@ import (
 )
 
 type FlightsService struct {
-	Cache      common.CacheInterface
+	Cache      cache.CacheInterface
 	ApiService *common.LiveAPIService
 	Cfg        *common.VAConfigService
 	LiverySvc  *common.AircraftLiveryService
@@ -63,7 +64,7 @@ func SplitCallsign(raw string) (variable, prefix, suffix string) {
 }
 
 func NewFlightsService(
-	cache common.CacheInterface,
+	cache cache.CacheInterface,
 	liveApi *common.LiveAPIService,
 	cfgSvc *common.VAConfigService,
 	liverySvc *common.AircraftLiveryService,

@@ -3,12 +3,12 @@ package jobs
 import (
 	"context"
 	"fmt"
-	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
-	"infinite-experiment/politburo/internal/providers"
+	"infinite-experiment/politburo/infra/providers"
 	"log"
 	"strings"
 	"time"
@@ -19,7 +19,7 @@ import (
 // RouteSyncJob handles syncing route data from Airtable to local database
 type RouteSyncJob struct {
 	db                *gorm.DB
-	cache             common.CacheInterface
+	cache             cache.CacheInterface
 	configRepo        *repositories.DataProviderConfigRepo
 	syncHistoryRepo   *repositories.VASyncHistoryRepo
 	routeATSyncedRepo *repositories.RouteATSyncedRepo
@@ -30,7 +30,7 @@ type RouteSyncJob struct {
 // NewRouteSyncJob creates a new route sync job instance
 func NewRouteSyncJob(
 	db *gorm.DB,
-	cache common.CacheInterface,
+	cache cache.CacheInterface,
 	configRepo *repositories.DataProviderConfigRepo,
 	syncHistoryRepo *repositories.VASyncHistoryRepo,
 	routeATSyncedRepo *repositories.RouteATSyncedRepo,

@@ -3,6 +3,7 @@ package common
 import (
 	stdCtx "context"
 	"fmt"
+	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
@@ -74,12 +75,12 @@ func IsValidVAConfigKey(k string) bool {
 ///////////////////////////////////////////////////////////////////////////////
 
 type VAConfigService struct {
-	repo  *repositories.VAGormRepository
-	cache CacheInterface
+	repo       *repositories.VAGormRepository
+	cacheStore cache.CacheInterface
 }
 
-func NewVAConfigService(r *repositories.VAGormRepository, c CacheInterface) *VAConfigService {
-	return &VAConfigService{repo: r, cache: c}
+func NewVAConfigService(r *repositories.VAGormRepository, c cache.CacheInterface) *VAConfigService {
+	return &VAConfigService{repo: r, cacheStore: c}
 }
 
 func configCacheKey(vaID string) string {
@@ -114,7 +115,7 @@ func (s *VAConfigService) SetVaConfig(
 		cKey := configCacheKey(va_id)
 		fmt.Printf("Evicting: %s", cKey)
 
-		s.cache.Delete(cKey)
+		s.cacheStore.Delete(cKey)
 	}
 
 	cfgs, err := s.GetAllConfigValues(ctx, claims.ServerID())
@@ -134,7 +135,7 @@ func (s *VAConfigService) GetAllConfigValues(
 
 	cacheKey := configCacheKey(vaID)
 
-	val, err := s.cache.GetOrSet(cacheKey, 10*time.Minute, func() (any, error) {
+	val, err := s.cacheStore.GetOrSet(cacheKey, 10*time.Minute, func() (any, error) {
 		rows, err := s.repo.GetVAConfigs(ctx, vaID)
 		if err != nil {
 			return nil, err
@@ -226,7 +227,7 @@ func (s *VAConfigService) GetConfigValues(
 func (s *VAConfigService) GetAllCallsigns(ctx stdCtx.Context) ([]map[string]string, error) {
 	cacheKey := string(constants.CachePrefixVAConfig) + "all_callsigns"
 
-	val, err := s.cache.GetOrSet(cacheKey, 10*time.Minute, func() (any, error) {
+	val, err := s.cacheStore.GetOrSet(cacheKey, 10*time.Minute, func() (any, error) {
 		return s.repo.GetAllActiveVACallsignConfigs(ctx)
 	})
 

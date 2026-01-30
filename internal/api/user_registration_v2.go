@@ -1,17 +1,23 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/models/dtos"
-	"infinite-experiment/politburo/internal/services"
 	"net/http"
 	"time"
 )
 
+// UserRegistrationService interface for dependency injection
+type UserRegistrationService interface {
+	InitUserRegistration(ctx context.Context, discordUserID, discordServerID, ifcId, lastFlight string, callsign *string) (*dtos.InitApiResponse, error)
+	LinkUserToVA(ctx context.Context, discordUserID, discordServerID, callsign string) (map[string]interface{}, error)
+}
+
 // InitUserRegistrationHandlerV2 handles POST /api/v1/user/register/init using GORM and provider pattern
-func InitUserRegistrationHandlerV2(regServiceV2 *services.RegistrationServiceV2) http.HandlerFunc {
+func InitUserRegistrationHandlerV2(regServiceV2 UserRegistrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		initTime := time.Now()
 
@@ -69,7 +75,7 @@ func InitUserRegistrationHandlerV2(regServiceV2 *services.RegistrationServiceV2)
 
 // LinkUserToVAHandler handles POST /api/v1/user/register/link
 // Links an existing registered user to the current VA with a callsign
-func LinkUserToVAHandler(regServiceV2 *services.RegistrationServiceV2) http.HandlerFunc {
+func LinkUserToVAHandler(regServiceV2 UserRegistrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		initTime := time.Now()
 

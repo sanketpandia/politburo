@@ -22,6 +22,11 @@ func NewVASyncHistoryRepo(db *gormlib.DB) *VASyncHistoryRepo {
 // RecordSync records a successful sync operation for a VA
 // Simple method: just post the server ID (vaID) and sync event
 func (r *VASyncHistoryRepo) RecordSync(ctx context.Context, vaID string, event string) error {
+	// Handle nil receiver gracefully
+	if r == nil || r.db == nil {
+		return nil
+	}
+
 	now := time.Now()
 
 	syncHistory := gorm.VASyncHistory{
@@ -43,6 +48,11 @@ func (r *VASyncHistoryRepo) RecordSync(ctx context.Context, vaID string, event s
 // GetLastSyncTimeForEvent retrieves the most recent sync timestamp across all VAs for a specific event
 // Used to check if we should run initial sync on app restart
 func (r *VASyncHistoryRepo) GetLastSyncTimeForEvent(ctx context.Context, event string) (*time.Time, error) {
+	// Handle nil receiver gracefully
+	if r == nil || r.db == nil {
+		return nil, nil
+	}
+
 	var syncHistory gorm.VASyncHistory
 
 	err := r.db.WithContext(ctx).

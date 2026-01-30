@@ -1,12 +1,17 @@
 package routes
 
 import (
+	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/metrics"
+	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/internal/api"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/metrics"
+	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/middleware"
+	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/services"
+	"infinite-experiment/politburo/internal/va"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -14,16 +19,24 @@ import (
 // RegisterAPIRoutes registers all API v1 routes and handlers
 // This keeps API route registration separate from the main router setup
 func RegisterAPIRoutes(r chi.Router, metricsReg *metrics.MetricsRegistry, userRepoGorm *repositories.UserRepositoryGORM, keyRepo *repositories.KeysRepo,
-	handlers *api.Handlers, legacyCacheSvc *common.CacheService, cfgSvc *common.VAConfigService, vaMgmtSvc *services.VAManagementService,
-	atApiSvc *common.AirtableApiService, syncSvc *services.AtSyncService, flightSvc *services.FlightsService, jobsHandler *api.JobsHandler, deps *api.Dependencies, airportLoader *common.AirportLoaderService, sessionSvc *common.SessionService) {
+	handlers *api.Handlers, legacyCacheSvc *cache.CacheService, cfgSvc *common.VAConfigService, vaMgmtSvc *services.VAManagementService,
+	atApiSvc *common.AirtableApiService, syncSvc *services.AtSyncService, flightSvc *flights.Service, jobsHandler *api.JobsHandler, deps *api.Dependencies, airportLoader *common.AirportLoaderService, sessionSvc *session.SessionService) {
 
-	// Initialize feature-specific handlers (NEW PATTERN - Phase 2.1, 2.2)
-	pirepHandlers := api.NewPirepHandlers(deps)
-	vaConfigHandlers := api.NewVAConfigHandlers(deps)
-	pilotStatsHandlers := api.NewPilotStatsHandlers(deps)
+	// Initialize feature-specific handlers (NEW PATTERN - Phase 3)
+	// TODO: Re-enable when pirep service is added to dependencies
+	// pirepHandlers := pireps.NewHandler(...)
+	pilotStatsHandler := pilots.NewHandler(deps.Services.PilotStats)
 	worldTourHandlers := api.NewWorldTourHandlers(deps)
-	flightHandlers := api.NewFlightHandlers(deps)
-	vaHandlers := api.NewVAHandlers(deps)
+	flightHandlers := flights.NewHandler(deps.Services.Flights, cfgSvc, legacyCacheSvc)
+
+	// VA handlers (consolidated in va package)
+	vaHandler := va.NewHandler(
+		deps.Services.VAService,
+		deps.Services.VAConfig,
+		deps.Services.VAEventService,
+		userRepoGorm,
+		deps.Repo.Va, // Legacy repo for FlightModesConfigService compatibility
+	)
 
 	// Public routes with metrics
 	r.Group(func(public chi.Router) {
@@ -58,11 +71,12 @@ func RegisterAPIRoutes(r chi.Router, metricsReg *metrics.MetricsRegistry, userRe
 				member.Use(middleware.IsMemberMiddleware())
 
 				// Pilot stats endpoint - comprehensive stats including game stats (future) and provider data
-				member.Get("/pilot/stats", pilotStatsHandlers.GetPilotStats())
+				member.Get("/pilot/stats", pilotStatsHandler.GetPilotStats())
 
 				// PIREP filing endpoints
-				member.Get("/pireps/config", pirepHandlers.GetConfig())
-				member.Post("/pireps/submit", pirepHandlers.Submit())
+				// TODO: Re-enable when pirep handler is implemented
+				// member.Get("/pireps/config", pirepHandlers.GetConfig())
+				// member.Post("/pireps/submit", pirepHandlers.Submit())
 
 				member.Get("/va/live", flightHandlers.GetVALiveFlights())
 				member.Get("/live/sessions", flightHandlers.GetLiveSessions())
@@ -78,23 +92,23 @@ func RegisterAPIRoutes(r chi.Router, metricsReg *metrics.MetricsRegistry, userRe
 				member.Group(func(staff chi.Router) {
 					staff.Use(middleware.IsStaffMiddleware())
 					staff.Get("/user/{user_id}/flights", flightHandlers.GetUserFlights())
-					staff.Post("/va/userSync", vaHandlers.SyncUser())
+					staff.Post("/va/userSync", vaHandler.SyncUser())
 
 					// Admin-only group (staff + member + registered)
 					staff.Group(func(admin chi.Router) {
 						admin.Use(middleware.IsAdminMiddleware())
 
-						admin.Post("/va/setRole", vaHandlers.SetRole())
-						admin.Post("/va/configs", vaHandlers.SetConfigs())
-						admin.Get("/va/configs", vaHandlers.GetConfigs())
-						admin.Get("/va/configs/keys", vaHandlers.ListConfigKeys())
+						admin.Post("/va/setRole", vaHandler.SetRole())
+						admin.Post("/va/configs", vaHandler.SetConfigs())
+						admin.Get("/va/configs", vaHandler.GetConfigs())
+						admin.Get("/va/configs/keys", vaHandler.ListConfigKeys())
 						admin.Get("/debug", api.DebugHandler(*atApiSvc, *syncSvc))
 
 						// Data provider configuration management
 						admin.Post("/admin/data-provider/config", api.SaveDataProviderConfigHandler(deps))
 
 						// Flight mode configuration management
-						admin.Post("/va/flight-modes/config", vaConfigHandlers.SetFlightModesConfig())
+						admin.Post("/va/flight-modes/config", vaHandler.SetFlightModesConfig())
 
 						// Background jobs management
 						admin.Post("/admin/jobs/sync-pilots", jobsHandler.TriggerPilotSync())

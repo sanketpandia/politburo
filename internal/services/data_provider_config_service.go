@@ -1,10 +1,10 @@
 package services
 
 import (
+	"infinite-experiment/politburo/infra/cache"
 	"context"
 	"encoding/json"
 	"fmt"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models"
@@ -17,10 +17,10 @@ import (
 
 type DataProviderConfigService struct {
 	configRepo *repositories.DataProviderConfigRepo
-	cache      common.CacheInterface
+	cache      cache.CacheInterface
 }
 
-func NewDataProviderConfigService(configRepo *repositories.DataProviderConfigRepo, cache common.CacheInterface) *DataProviderConfigService {
+func NewDataProviderConfigService(configRepo *repositories.DataProviderConfigRepo, cache cache.CacheInterface) *DataProviderConfigService {
 	return &DataProviderConfigService{
 		configRepo: configRepo,
 		cache:      cache,

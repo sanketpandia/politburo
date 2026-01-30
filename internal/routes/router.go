@@ -1,18 +1,20 @@
 package routes
 
 import (
+	"infinite-experiment/politburo/internal/common"
 	"context"
 	"net/http"
 	"time"
 
+	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/internal/api"
-	"infinite-experiment/politburo/internal/common"
-	"infinite-experiment/politburo/internal/db"
+	"infinite-experiment/politburo/infra/db"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/jobs"
-	"infinite-experiment/politburo/internal/logging"
-	"infinite-experiment/politburo/internal/metrics"
 	"infinite-experiment/politburo/internal/middleware"
+	"infinite-experiment/politburo/internal/platform/aircraft"
+	"infinite-experiment/politburo/internal/sync"
 	"infinite-experiment/politburo/internal/workers"
 
 	"github.com/go-chi/chi/v5"
@@ -80,33 +82,50 @@ func RegisterRoutes(upSince time.Time) http.Handler {
 	RegisterUIRoutes(r, metricsReg, sessionSvc, urlSigner, userRepoGorm, vaUserRoleRepo, vaGormRepo, flightSvc, deps.Services.Cache, deps.Services.Live, deps.Services.DataProviderConfig, deps.Services.AirtableProvider, deps.Repo.Va, eventRepo, routeRepo)
 
 	// Setup workers and jobs first
-	// Setup scheduled jobs (both pilot and route sync run every 10 minutes)
+	logger := logging.GetLogger().Desugar() // Get non-sugared logger for sync jobs
+
+	// Initialize sync jobs (routes only) - runs every 10 minutes
+	_ = sync.InitializeJobs(
+		context.Background(),
+		db.PgDB,
+		deps.Services.Cache,
+		deps.Repo.DataProviderCfg,
+		deps.Repo.Sync, // Consolidated sync repository
+		deps.Repo.AirportsRepo,
+		logger,
+	)
+
+	// Initialize non-sync jobs (pilot sync, cache jobs, backfill)
+	// Note: Pilot sync still uses sync.Repository for history tracking
 	jobsContainer := jobs.InitializeJobs(
 		context.Background(),
 		db.PgDB,
 		deps.Services.Cache,      // Use CacheInterface (supports Redis or in-memory)
 		deps.Repo.DataProviderCfg,
-		deps.Repo.VASyncHistory,
-		deps.Repo.PilotATSynced,
-		deps.Repo.RouteATSynced,
-		deps.Repo.PirepATSynced,
-		deps.Repo.AirportsRepo,
+		nil,                      // TODO: Update pilot sync to use sync.Repository
+		deps.Repo.Pilots,
 		cfgSvc,
-		deps.Services.RedisQueue,
 		deps.Services.Live,       // LiveAPIService for cache jobs
 		deps.Services.RedisCache, // RedisCacheService for cache jobs (nil if not using Redis)
 	)
 
+	// Initialize aircraft worker separately (platform level)
+	aircraftWorker := aircraft.NewWorker(
+		&deps.Services.Cache,
+		deps.Services.Live,
+		deps.Repo.Aircraft,
+		deps.Services.Aircraft,
+	)
+	go aircraftWorker.Start()
+
+	// Initialize other workers (includes LogbookWorker)
 	workers.InitWorkers(
 		db.PgDB,
 		&deps.Services.Cache,
 		deps.Services.Live,
-		deps.Services.AircraftLivery,
+		deps.Services.Aircraft,
 		deps.Services.RedisQueue,
-		deps.Repo.AircraftLivery,
 		deps.Repo.DataProviderCfg,
-		deps.Repo.PirepATSynced,
-		deps.Repo.VASyncHistory,
 	)
 
 	// Initialize jobs handler for manual triggering

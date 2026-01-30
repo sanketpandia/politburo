@@ -1,11 +1,11 @@
 package ui
 
 import (
+	"infinite-experiment/politburo/infra/session"
 	"encoding/json"
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/models/dtos"
-	"infinite-experiment/politburo/internal/providers"
+	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/internal/services"
 	"net/http"
 )
@@ -14,7 +14,7 @@ import (
 func DatasourceSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	// Get session data from context (guaranteed by auth middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -47,7 +47,7 @@ func GetDatasourceConfigHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -92,7 +92,7 @@ func SaveDatasourceConfigHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -145,7 +145,7 @@ func TestConnectionHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -207,7 +207,7 @@ func FetchTableFieldsHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return

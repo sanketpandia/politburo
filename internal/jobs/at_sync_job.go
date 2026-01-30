@@ -1,9 +1,9 @@
 package jobs
 
 import (
+	"infinite-experiment/politburo/internal/common"
 	"context"
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/services"
 	"log"
 	"time"

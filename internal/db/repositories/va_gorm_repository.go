@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/roles"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
 
 	"gorm.io/gorm"
@@ -147,7 +147,7 @@ func (r *VAGormRepository) CreateWithAdmin(ctx context.Context, name, code, disc
 		membership = &gormModels.UserVARole{
 			UserID:   adminUserID,
 			VAID:     va.ID,
-			Role:     constants.RoleAdmin,
+			Role:     roles.RoleAdmin,
 			IsActive: true,
 			Callsign: "",
 		}

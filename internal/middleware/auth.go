@@ -1,10 +1,10 @@
 package middleware
 
 import (
+	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/internal/auth"
 	authCtx "infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
-	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"log"
 	"net/http"
@@ -15,7 +15,7 @@ import (
 func AuthMiddleware(
 	userRepo *repositories.UserRepositoryGORM,
 	keysRepo *repositories.KeysRepo,
-	sessionSvc *common.SessionService,
+	sessionSvc *session.SessionService,
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +44,7 @@ func AuthMiddleware(
 							claims = &auth.APIKeyClaims{
 								UserUUID:           session.UserID,
 								VaUUID:             session.ActiveVAID,
-								RoleValue:          constants.VARole(activeVA.Role),
+								RoleValue:          roles.VARole(activeVA.Role),
 								DiscordUIDVal:      session.DiscordID,
 								DiscordServerIDVal: activeVA.DiscordServerID,
 							}

@@ -7,14 +7,15 @@ import (
 
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos/responses"
+	"infinite-experiment/politburo/internal/pilots"
 )
 
 type UserService struct {
 	repo              *repositories.UserRepositoryGORM
-	pilotStatsService *PilotStatsService
+	pilotStatsService *pilots.StatsService
 }
 
-func NewUserService(repo *repositories.UserRepositoryGORM, pilotStatsService *PilotStatsService) *UserService {
+func NewUserService(repo *repositories.UserRepositoryGORM, pilotStatsService *pilots.StatsService) *UserService {
 	return &UserService{
 		repo:              repo,
 		pilotStatsService: pilotStatsService,

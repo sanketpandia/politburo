@@ -2,7 +2,7 @@ package auth
 
 import (
 	"context"
-	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"log"
 	"os"
@@ -28,7 +28,7 @@ func MakeClaimsFromApi(ctx context.Context, userRepo *repositories.UserRepositor
 	}
 
 	var userUUID, vaUUID string
-	var role constants.VARole
+	var role roles.VARole
 	if member.UserID != nil {
 		userUUID = *member.UserID
 	}

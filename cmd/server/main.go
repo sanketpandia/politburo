@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"infinite-experiment/politburo/internal/db"
-	"infinite-experiment/politburo/internal/logging"
+	"infinite-experiment/politburo/infra/db"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/routes"
 	// Swagger docs
 )

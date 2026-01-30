@@ -1,9 +1,9 @@
 package workers
 
 import (
+	"infinite-experiment/politburo/infra/queue"
 	"context"
 	"fmt"
-	"infinite-experiment/politburo/internal/common"
 	"log"
 	"time"
 
@@ -13,11 +13,11 @@ import (
 // PirepQueueMonitor monitors Redis queue health and metrics
 type PirepQueueMonitor struct {
 	db         *gorm.DB
-	redisQueue *common.RedisQueueService
+	redisQueue *queue.RedisQueueService
 }
 
 // NewPirepQueueMonitor creates a new queue monitor
-func NewPirepQueueMonitor(db *gorm.DB, redisQueue *common.RedisQueueService) *PirepQueueMonitor {
+func NewPirepQueueMonitor(db *gorm.DB, redisQueue *queue.RedisQueueService) *PirepQueueMonitor {
 	return &PirepQueueMonitor{
 		db:         db,
 		redisQueue: redisQueue,

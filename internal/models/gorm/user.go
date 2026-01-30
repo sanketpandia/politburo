@@ -1,7 +1,7 @@
 package gorm
 
 import (
-	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"time"
 )
 
@@ -29,7 +29,7 @@ type UserVARole struct {
 	ID              string           `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
 	UserID          string           `gorm:"column:user_id;type:uuid"`
 	VAID            string           `gorm:"column:va_id;type:uuid"`
-	Role            constants.VARole `gorm:"column:role;type:va_role"`
+	Role            roles.VARole `gorm:"column:role;type:va_role"`
 	IsActive        bool             `gorm:"column:is_active;default:true"`
 	JoinedAt        time.Time        `gorm:"column:joined_at;autoCreateTime"`
 	Callsign        string           `gorm:"column:callsign"`

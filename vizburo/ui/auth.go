@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"infinite-experiment/politburo/infra/security"
+	"infinite-experiment/politburo/infra/session"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,14 +12,13 @@ import (
 	"time"
 
 	authctx "infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
 )
 
 // AuthHandler manages authentication routes
 type AuthHandler struct {
-	sessionSvc *common.SessionService
-	urlSigner  *common.URLSignerService
+	sessionSvc *session.SessionService
+	urlSigner  *security.URLSignerService
 	userRepo   *repositories.UserRepositoryGORM
 	vaRoleRepo *repositories.VAUserRoleRepository
 	vaGormRepo *repositories.VAGORMRepository
@@ -25,8 +26,8 @@ type AuthHandler struct {
 
 // NewAuthHandler creates a new auth handler
 func NewAuthHandler(
-	sessionSvc *common.SessionService,
-	urlSigner *common.URLSignerService,
+	sessionSvc *session.SessionService,
+	urlSigner *security.URLSignerService,
 	userRepo *repositories.UserRepositoryGORM,
 	vaRoleRepo *repositories.VAUserRoleRepository,
 	vaGormRepo *repositories.VAGORMRepository,
@@ -83,13 +84,13 @@ func (h *AuthHandler) TokenLoginHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Convert to VAMembership array
-	var virtualAirlines []common.VAMembership
+	var virtualAirlines []session.VAMembership
 	for _, vaRole := range vaRoles {
 		va, err := h.vaGormRepo.GetByID(r.Context(), vaRole.VAID)
 		if err != nil {
 			continue // Skip VAs that can't be loaded
 		}
-		virtualAirlines = append(virtualAirlines, common.VAMembership{
+		virtualAirlines = append(virtualAirlines, session.VAMembership{
 			VAID:            va.ID,
 			VACode:          va.Code,
 			VAName:          va.Name,
@@ -254,7 +255,7 @@ func (h *AuthHandler) SwitchVAHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, ok := sessionData.(*common.SessionData)
+	session, ok := sessionData.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session", http.StatusUnauthorized)
 		return

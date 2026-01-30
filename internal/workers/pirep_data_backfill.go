@@ -5,27 +5,52 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/db/repositories"
-	models "infinite-experiment/politburo/internal/models/gorm"
+	"infinite-experiment/politburo/internal/pilots"
+	"infinite-experiment/politburo/internal/sync"
 	"log"
 	"time"
 
 	"gorm.io/gorm"
 )
 
+// PirepATSynced represents a PIREP record (local definition to avoid circular dependency)
+type PirepATSynced struct {
+	ID             string     `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
+	ATID           string     `gorm:"column:at_id;type:varchar(20);not null"`
+	ServerID       string     `gorm:"column:server_id;type:uuid;not null"`
+	Route          string     `gorm:"column:route;type:text"`
+	FlightMode     string     `gorm:"column:flight_mode;type:varchar(50)"`
+	FlightTime     *float64   `gorm:"column:flight_time;type:numeric(10,2)"`
+	PilotCallsign  string     `gorm:"column:pilot_callsign;type:varchar(50)"`
+	Aircraft       string     `gorm:"column:aircraft;type:varchar(100)"`
+	Livery         string     `gorm:"column:livery;type:varchar(100)"`
+	RouteATID      *string    `gorm:"column:route_at_id;type:varchar(20)"`
+	PilotATID      *string    `gorm:"column:pilot_at_id;type:varchar(20)"`
+	ATCreatedTime  *time.Time `gorm:"column:at_created_time"`
+	BackfillStatus int        `gorm:"column:backfill_status;type:integer;not null;default:0"`
+	CreatedAt      time.Time  `gorm:"column:created_at;default:now()"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;default:now()"`
+}
+
+// TableName specifies the table name for GORM
+func (PirepATSynced) TableName() string {
+	return "pirep_at_synced"
+}
+
 type PIREPBackfill struct {
 	RouteRepo repositories.RouteATSyncedRepo
-	PilotRepo repositories.PilotATSyncedRepo
+	PilotRepo pilots.Repository
 	DB        *gorm.DB
-	Cache     common.CacheInterface
+	Cache     cache.CacheInterface
 }
 
 func NewPIREPBackfill(
 	db *gorm.DB,
-	c common.CacheInterface,
+	c cache.CacheInterface,
 	r repositories.RouteATSyncedRepo,
-	p repositories.PilotATSyncedRepo) *PIREPBackfill {
+	p pilots.Repository) *PIREPBackfill {
 	return &PIREPBackfill{
 		RouteRepo: r,
 		PilotRepo: p,
@@ -56,7 +81,7 @@ func (w *PIREPBackfill) BackfillPireps(batchSize int, delayMs int) error {
 	// start streaming the repo
 	log.Printf("\n[BackfillPirepJob]Starting backfilling")
 	rows, err := w.DB.WithContext(context.Background()).
-		Model(&models.PirepATSynced{}).
+		Model(&PirepATSynced{}).
 		Where("backfill_status = 0").
 		Rows()
 	if err != nil {
@@ -68,7 +93,7 @@ func (w *PIREPBackfill) BackfillPireps(batchSize int, delayMs int) error {
 	count := 0
 	batchCount := 0
 	for rows.Next() {
-		var rec models.PirepATSynced
+		var rec PirepATSynced
 		if err := w.DB.ScanRows(rows, &rec); err != nil {
 			log.Printf("PIREP backfill scan error: %v", err)
 			return err
@@ -78,7 +103,7 @@ func (w *PIREPBackfill) BackfillPireps(batchSize int, delayMs int) error {
 		if rec.PilotATID == nil && rec.RouteATID == nil {
 			log.Printf("PIREP backfill skipping record id=%v: missing pilot or route AT ID", rec.ID)
 			w.DB.WithContext(context.Background()).
-				Model(&models.PirepATSynced{}).
+				Model(&PirepATSynced{}).
 				Where("id = ?", rec.ID).
 				Updates(map[string]interface{}{
 					"backfill_status": 2,
@@ -87,8 +112,8 @@ func (w *PIREPBackfill) BackfillPireps(batchSize int, delayMs int) error {
 		}
 
 		// Fetch related values
-		var pilot *models.PilotATSynced
-		var route *models.RouteATSynced
+		var pilot *pilots.PilotATSyncedGORM
+		var route *sync.RouteATSynced
 		var err error
 
 		// Fetch pilot only if PilotATID is present
@@ -109,7 +134,7 @@ func (w *PIREPBackfill) BackfillPireps(batchSize int, delayMs int) error {
 		if pilot == nil && route == nil {
 			log.Printf("PIREP backfill skipping record id=%v: both pilot and route not found", rec.ID)
 			w.DB.WithContext(context.Background()).
-				Model(&models.PirepATSynced{}).
+				Model(&PirepATSynced{}).
 				Where("id = ?", rec.ID).
 				Updates(map[string]interface{}{"backfill_status": 2})
 			continue
@@ -128,13 +153,13 @@ func (w *PIREPBackfill) BackfillPireps(batchSize int, delayMs int) error {
 
 		// Apply update
 		err = w.DB.WithContext(context.Background()).
-			Model(&models.PirepATSynced{}).
+			Model(&PirepATSynced{}).
 			Where("id = ?", rec.ID).
 			Updates(updates).Error
 		if err != nil {
 			log.Printf("PIREP backfill update error for id=%v: %v", rec.ID, err)
 			w.DB.WithContext(context.Background()).
-				Model(&models.PirepATSynced{}).
+				Model(&PirepATSynced{}).
 				Where("id = ?", rec.ID).
 				Updates(map[string]interface{}{"backfill_status": 2})
 		} else {
@@ -169,7 +194,7 @@ func (w *PIREPBackfill) BackfillPireps(batchSize int, delayMs int) error {
 
 }
 
-func (w *PIREPBackfill) GetCachedPilot(sID string, atID string) (*models.PilotATSynced, error) {
+func (w *PIREPBackfill) GetCachedPilot(sID string, atID string) (*pilots.PilotATSyncedGORM, error) {
 
 	cacheKey := fmt.Sprintf("pilot:%s:%s", sID, atID)
 	val, err := w.Cache.GetOrSet(cacheKey, 30*time.Minute, func() (any, error) {
@@ -192,7 +217,7 @@ func (w *PIREPBackfill) GetCachedPilot(sID string, atID string) (*models.PilotAT
 	}
 
 	// Try direct type assertion first
-	normalized, ok := val.(*models.PilotATSynced)
+	normalized, ok := val.(*pilots.PilotATSyncedGORM)
 	if ok {
 		return normalized, nil
 	}
@@ -204,7 +229,7 @@ func (w *PIREPBackfill) GetCachedPilot(sID string, atID string) (*models.PilotAT
 		return nil, errors.New("unable to marshal cached record")
 	}
 
-	normalized = &models.PilotATSynced{}
+	normalized = &pilots.PilotATSyncedGORM{}
 	if err := json.Unmarshal(jsonBytes, normalized); err != nil {
 		log.Printf("Unable to unmarshal cached pilot record: %v", err)
 		return nil, errors.New("unable to unmarshal cached record")
@@ -214,7 +239,7 @@ func (w *PIREPBackfill) GetCachedPilot(sID string, atID string) (*models.PilotAT
 
 }
 
-func (w *PIREPBackfill) GetCachedRoute(sID string, atID string) (*models.RouteATSynced, error) {
+func (w *PIREPBackfill) GetCachedRoute(sID string, atID string) (*sync.RouteATSynced, error) {
 
 	cacheKey := fmt.Sprintf("route:%s:%s", sID, atID)
 	val, err := w.Cache.GetOrSet(cacheKey, 30*time.Minute, func() (any, error) {
@@ -237,7 +262,7 @@ func (w *PIREPBackfill) GetCachedRoute(sID string, atID string) (*models.RouteAT
 	}
 
 	// Try direct type assertion first
-	normalized, ok := val.(*models.RouteATSynced)
+	normalized, ok := val.(*sync.RouteATSynced)
 	if ok {
 		return normalized, nil
 	}
@@ -249,7 +274,7 @@ func (w *PIREPBackfill) GetCachedRoute(sID string, atID string) (*models.RouteAT
 		return nil, errors.New("unable to marshal cached record")
 	}
 
-	normalized = &models.RouteATSynced{}
+	normalized = &sync.RouteATSynced{}
 	if err := json.Unmarshal(jsonBytes, normalized); err != nil {
 		log.Printf("Unable to unmarshal cached route record: %v", err)
 		return nil, errors.New("unable to unmarshal cached record")

@@ -1,23 +1,24 @@
 package api
 
 import (
+	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/internal/auth"
+	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/internal/flights"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
 
-	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
-	"infinite-experiment/politburo/internal/services"
-
 	"github.com/go-chi/chi/v5"
 )
 
 // FlightHandlers consolidates all flight-related API handlers
+// DEPRECATED: Use flights.Handler instead (Phase 3 refactoring)
 type FlightHandlers struct {
-	flightSvc   *services.FlightsService
+	flightSvc   *flights.Service
 	vaConfigSvc *common.VAConfigService
-	legacyCache *common.CacheService
+	legacyCache *cache.CacheService
 }
 
 // NewFlightHandlers creates a new FlightHandlers instance

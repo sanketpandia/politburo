@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/models/entities"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
 
@@ -176,7 +176,7 @@ func (r *UserRepositoryGORM) InsertMembership(ctx context.Context, userID, vaID 
 	membership := &gormModels.UserVARole{
 		UserID:   userID,
 		VAID:     vaID,
-		Role:     constants.VARole(role),
+		Role:     roles.VARole(role),
 		Callsign: callsign,
 		IsActive: true,
 	}
@@ -194,7 +194,7 @@ func (r *UserRepositoryGORM) UpdateUserRole(ctx context.Context, vaID, userID, n
 	result := r.db.WithContext(ctx).
 		Model(&gormModels.UserVARole{}).
 		Where("va_id = ? AND user_id = ?", vaID, userID).
-		Update("role", constants.VARole(newRole))
+		Update("role", roles.VARole(newRole))
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update user role: %w", result.Error)
