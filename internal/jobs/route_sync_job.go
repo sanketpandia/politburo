@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
-	"infinite-experiment/politburo/infra/providers"
 	"log"
 	"strings"
 	"time"
@@ -49,6 +49,9 @@ func NewRouteSyncJob(
 
 // Run executes the route sync job for all active VAs with Airtable enabled
 func (j *RouteSyncJob) Run(ctx context.Context) error {
+	if 1 == 1 {
+		return nil
+	}
 	start := time.Now()
 	log.Printf("[RouteSyncJob] Starting route sync at %s", start.Format(time.RFC3339))
 
@@ -91,6 +94,11 @@ func (j *RouteSyncJob) Run(ctx context.Context) error {
 
 // SyncVARoutes syncs routes for a specific VA (exported for manual triggering)
 func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, error) {
+
+	if 1 == 1 {
+		return 0, nil
+	}
+
 	start := time.Now()
 	log.Printf("[RouteSyncJob] Syncing routes for VA %s", vaID)
 

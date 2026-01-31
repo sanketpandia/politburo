@@ -7,10 +7,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"infinite-experiment/politburo/infra/db"
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/routes"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	// Swagger docs
 )
 

@@ -49,7 +49,7 @@ func RegisterAPIRoutes(r chi.Router, metricsReg *metrics.MetricsRegistry, userRe
 	r.Route("/api/v1", func(v1 chi.Router) {
 		v1.Use(middleware.MetricsMiddleware(metricsReg))
 		v1.Use(middleware.AuthMiddleware(userRepoGorm, keyRepo, sessionSvc)) // global: all routes must be authenticated (using GORM or session cookie)
-		v1.Get("/user/details", handlers.User.GetDetails())
+		v1.Get("/user/status", handlers.User.GetDetails())
 		v1.Get("/admin/verify-god", handlers.User.VerifyGodMode())
 
 		// Registered users group

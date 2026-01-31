@@ -31,7 +31,7 @@ func (r *UserRepositoryGORM) GetUserWithVAAffiliations(ctx context.Context, user
 
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("user not found with discord_id: %s", userDiscordID)
+			return nil, fmt.Errorf("user not found with discord_id %s: %w", userDiscordID, gorm.ErrRecordNotFound)
 		}
 		return nil, fmt.Errorf("failed to fetch user with affiliations: %w", err)
 	}

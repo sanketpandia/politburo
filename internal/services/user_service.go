@@ -2,13 +2,18 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 
+	"gorm.io/gorm"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos/responses"
 	"infinite-experiment/politburo/internal/pilots"
 )
+
+// ErrUserNotFound is returned when a user is not found in the database
+var ErrUserNotFound = errors.New("user not found")
 
 type UserService struct {
 	repo              *repositories.UserRepositoryGORM
@@ -32,6 +37,10 @@ func (s *UserService) GetUserDetails(ctx context.Context, userDiscordID, vaDisco
 	// Fetch user with all VA affiliations
 	user, err := s.repo.GetUserWithVAAffiliations(ctx, userDiscordID)
 	if err != nil {
+		// Return specific error if user not found
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
 		return nil, fmt.Errorf("failed to get user details: %w", err)
 	}
 

@@ -18,12 +18,12 @@ import (
 
 // SyncJob handles syncing pilot data from Airtable to local database
 type SyncJob struct {
-	db              *gorm.DB
-	cache           cache.CacheInterface
-	configRepo      *repositories.DataProviderConfigRepo
-	syncHistoryRepo *repositories.VASyncHistoryRepo
-	pilotRepo       *Repository
-	linkingJob      *LinkingJob
+	db               *gorm.DB
+	cache            cache.CacheInterface
+	configRepo       *repositories.DataProviderConfigRepo
+	syncHistoryRepo  *repositories.VASyncHistoryRepo
+	pilotRepo        *Repository
+	linkingJob       *LinkingJob
 	airtableProvider *providers.AirtableProvider
 }
 
@@ -37,18 +37,21 @@ func NewSyncJob(
 	vaConfigService *common.VAConfigService,
 ) *SyncJob {
 	return &SyncJob{
-		db:              db,
-		cache:           cache,
-		configRepo:      configRepo,
-		syncHistoryRepo: syncHistoryRepo,
-		pilotRepo:       pilotRepo,
-		linkingJob:      NewLinkingJob(db, vaConfigService, pilotRepo),
+		db:               db,
+		cache:            cache,
+		configRepo:       configRepo,
+		syncHistoryRepo:  syncHistoryRepo,
+		pilotRepo:        pilotRepo,
+		linkingJob:       NewLinkingJob(db, vaConfigService, pilotRepo),
 		airtableProvider: providers.NewAirtableProvider(cache),
 	}
 }
 
 // Run executes the pilot sync job for all active VAs with Airtable enabled
 func (j *SyncJob) Run(ctx context.Context) error {
+	if 1 == 1 {
+		return nil
+	}
 	start := time.Now()
 	log.Printf("[PilotSyncJob] Starting pilot sync at %s", start.Format(time.RFC3339))
 

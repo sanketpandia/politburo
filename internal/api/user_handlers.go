@@ -3,6 +3,7 @@ package api
 import (
 	"infinite-experiment/politburo/internal/common"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -54,6 +55,11 @@ func (h *UserHandlers) GetDetails() http.HandlerFunc {
 		// Call service to get user details
 		userDetails, err := h.userSvc.GetUserDetails(r.Context(), userDiscordID, vaDiscordServerID)
 		if err != nil {
+			// Return 404 if user not found
+			if errors.Is(err, services.ErrUserNotFound) {
+				common.RespondError(w, initTime, err, "User not found", http.StatusNotFound)
+				return
+			}
 			common.RespondError(w, initTime, err, "Failed to fetch user details", http.StatusInternalServerError)
 			return
 		}

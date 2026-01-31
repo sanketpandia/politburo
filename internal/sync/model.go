@@ -23,7 +23,7 @@ type RouteATSynced struct {
 
 // TableName specifies the table name for RouteATSynced
 func (RouteATSynced) TableName() string {
-	return "routes_at_synced"
+	return "route_at_synced"
 }
 
 // VASyncHistory tracks the last sync time for each VA and sync event type
