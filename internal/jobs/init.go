@@ -7,8 +7,6 @@ import (
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/flights"
-	"infinite-experiment/politburo/internal/pilots"
-	"infinite-experiment/politburo/internal/workers"
 	"time"
 
 	"go.uber.org/zap"
@@ -18,10 +16,8 @@ import (
 // JobsContainer holds all initialized non-sync jobs
 // Note: Sync jobs (routes, PIREPs) are now in sync.Container
 type JobsContainer struct {
-	PilotSync     *pilots.SyncJob
-	PIREPBackfill *workers.PIREPBackfill
-	SessionCache  *SessionCacheJob
-	FlightsCache  *flights.CacheJob
+	SessionCache *SessionCacheJob
+	FlightsCache *flights.CacheJob
 }
 
 // InitializeJobs initializes and starts all non-sync background jobs
@@ -32,33 +28,32 @@ func InitializeJobs(
 	cache cache.CacheInterface,
 	configRepo *repositories.DataProviderConfigRepo,
 	syncHistoryRepo *repositories.VASyncHistoryRepo, // Still needed by pilot sync job
-	pilotRepo *pilots.Repository,
 	vaConfigService *common.VAConfigService,
 	liveAPIService *common.LiveAPIService,
 	redisCache *cache.RedisCacheService,
 ) *JobsContainer {
 	// Initialize pilot sync job (syncs pilots from Airtable every 10 minutes)
-	pilotSyncJob := pilots.NewSyncJob(
-		db,
-		cache,
-		configRepo,
-		syncHistoryRepo,
-		pilotRepo,
-		vaConfigService,
-	)
+	// pilotSyncJob := pilots.NewSyncJob(
+	// 	db,
+	// 	cache,
+	// 	configRepo,
+	// 	syncHistoryRepo,
+	// 	pilotRepo,
+	// 	vaConfigService,
+	// )
 
 	// Initialize PIREP backfill job (backfills missing pilot/route data every 15 minutes)
-	// TODO: Update PIREPBackfill to accept sync.Repository instead of RouteATSyncedRepo
-	pirepBackfillJob := workers.NewPIREPBackfill(
-		db,
-		cache,
-		repositories.RouteATSyncedRepo{}, // Empty struct - TODO: migrate to sync.Repository
-		*pilotRepo,                       // Pilots repository (dereferenced)
-	)
+	// // TODO: Update PIREPBackfill to accept sync.Repository instead of RouteATSyncedRepo
+	// pirepBackfillJob := workers.NewPIREPBackfill(
+	// 	db,
+	// 	cache,
+	// 	repositories.RouteATSyncedRepo{}, // Empty struct - TODO: migrate to sync.Repository
+	// 	*pilotRepo,                       // Pilots repository (dereferenced)
+	// )
 
 	// Start scheduled jobs in background
-	go pilotSyncJob.RunScheduled(ctx, 10*time.Minute)
-	go pirepBackfillJob.RunScheduled(ctx, 10*time.Minute)
+	// go pilotSyncJob.RunScheduled(ctx, 10*time.Minute)
+	// go pirepBackfillJob.RunScheduled(ctx, 10*time.Minute)
 
 	// Initialize and start cache jobs (if Redis is enabled)
 	var sessionCacheJob *SessionCacheJob
@@ -94,9 +89,7 @@ func InitializeJobs(
 	}
 
 	return &JobsContainer{
-		PilotSync:     pilotSyncJob,
-		PIREPBackfill: pirepBackfillJob,
-		SessionCache:  sessionCacheJob,
-		FlightsCache:  flightsCacheJob,
+		SessionCache: sessionCacheJob,
+		FlightsCache: flightsCacheJob,
 	}
 }

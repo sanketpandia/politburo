@@ -26,21 +26,18 @@ func (User) TableName() string {
 }
 
 type UserVARole struct {
-	ID              string         `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
-	UserID          string         `gorm:"column:user_id;type:uuid"`
-	VAID            string         `gorm:"column:va_id;type:uuid"`
-	Role            roles.VARole   `gorm:"column:role;type:va_role"`
-	IsActive        bool           `gorm:"column:is_active;default:true"`
-	JoinedAt        time.Time      `gorm:"column:joined_at;autoCreateTime"`
-	Callsign        string         `gorm:"column:callsign"`
-	AirtablePilotID *string        `gorm:"column:airtable_pilot_id"`
-	UpdatedAt       time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+	ID              string       `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
+	UserID          string       `gorm:"column:user_id;type:uuid"`
+	VAID            string       `gorm:"column:va_id;type:uuid"`
+	Role            roles.VARole `gorm:"column:role;type:va_role"`
+	IsActive        bool         `gorm:"column:is_active;default:true"`
+	JoinedAt        time.Time    `gorm:"column:joined_at;autoCreateTime"`
+	Callsign        string       `gorm:"column:callsign"`
+	AirtablePilotID *string      `gorm:"column:airtable_pilot_id"`
+	UpdatedAt       time.Time    `gorm:"column:updated_at;autoUpdateTime"`
 
 	// Relationships
 	User User `gorm:"foreignKey:UserID"`
-	// Note: VA relationship commented out to avoid circular dependency
-	// VA will be defined in internal/va/ feature package
-	// VA   VA   `gorm:"foreignKey:VAID"`
 }
 
 // TableName specifies the table name for GORM

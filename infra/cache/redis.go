@@ -170,3 +170,8 @@ func (r *RedisCacheService) TTL(key string) (time.Duration, error) {
 func (r *RedisCacheService) Exists(keys ...string) (int64, error) {
 	return r.client.Exists(r.ctx, keys...).Result()
 }
+
+// Ping checks if Redis connection is healthy
+func (r *RedisCacheService) Ping() error {
+	return r.client.Ping(r.ctx).Err()
+}

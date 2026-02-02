@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"infinite-experiment/politburo/internal/platform/roles"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
 
 	"gorm.io/gorm"
@@ -22,8 +21,8 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 // GetByID retrieves a VA by its ID
-func (r *Repository) GetByID(ctx context.Context, vaID string) (*gormModels.VA, error) {
-	var va gormModels.VA
+func (r *Repository) GetByID(ctx context.Context, vaID string) (*VA, error) {
+	var va VA
 
 	err := r.db.WithContext(ctx).
 		Where("id = ?", vaID).
@@ -40,8 +39,8 @@ func (r *Repository) GetByID(ctx context.Context, vaID string) (*gormModels.VA, 
 }
 
 // GetByDiscordServerID retrieves a VA by Discord server ID
-func (r *Repository) GetByDiscordServerID(ctx context.Context, discordServerID string) (*gormModels.VA, error) {
-	var va gormModels.VA
+func (r *Repository) GetByDiscordServerID(ctx context.Context, discordServerID string) (*VA, error) {
+	var va VA
 
 	err := r.db.WithContext(ctx).
 		Where("discord_server_id = ?", discordServerID).
@@ -58,8 +57,8 @@ func (r *Repository) GetByDiscordServerID(ctx context.Context, discordServerID s
 }
 
 // GetByCode retrieves a VA by its code (e.g., "SIA", "UAL")
-func (r *Repository) GetByCode(ctx context.Context, code string) (*gormModels.VA, error) {
-	var va gormModels.VA
+func (r *Repository) GetByCode(ctx context.Context, code string) (*VA, error) {
+	var va VA
 
 	err := r.db.WithContext(ctx).
 		Where("code = ?", code).
@@ -76,8 +75,8 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*gormModels.VA
 }
 
 // GetAll retrieves all active VAs ordered by name
-func (r *Repository) GetAll(ctx context.Context) ([]gormModels.VA, error) {
-	var vas []gormModels.VA
+func (r *Repository) GetAll(ctx context.Context) ([]VA, error) {
+	var vas []VA
 
 	err := r.db.WithContext(ctx).
 		Where("is_active = ?", true).
@@ -92,7 +91,7 @@ func (r *Repository) GetAll(ctx context.Context) ([]gormModels.VA, error) {
 }
 
 // Create creates a new VA
-func (r *Repository) Create(ctx context.Context, va *gormModels.VA) error {
+func (r *Repository) Create(ctx context.Context, va *VA) error {
 	err := r.db.WithContext(ctx).Create(va).Error
 	if err != nil {
 		return fmt.Errorf("failed to create VA: %w", err)
@@ -101,8 +100,8 @@ func (r *Repository) Create(ctx context.Context, va *gormModels.VA) error {
 }
 
 // CreateWithParameters creates a new VA using individual parameters (legacy method)
-func (r *Repository) CreateWithParameters(ctx context.Context, name, code, discordID string, isActive bool) (*gormModels.VA, error) {
-	va := &gormModels.VA{
+func (r *Repository) CreateWithParameters(ctx context.Context, name, code, discordID string, isActive bool) (*VA, error) {
+	va := &VA{
 		Name:      name,
 		Code:      code,
 		DiscordID: discordID,
@@ -118,7 +117,7 @@ func (r *Repository) CreateWithParameters(ctx context.Context, name, code, disco
 }
 
 // Update updates an existing VA
-func (r *Repository) Update(ctx context.Context, va *gormModels.VA) error {
+func (r *Repository) Update(ctx context.Context, va *VA) error {
 	err := r.db.WithContext(ctx).Save(va).Error
 	if err != nil {
 		return fmt.Errorf("failed to update VA: %w", err)
@@ -126,52 +125,13 @@ func (r *Repository) Update(ctx context.Context, va *gormModels.VA) error {
 	return nil
 }
 
-// CreateWithAdmin creates a new VA and assigns an admin user in a single transaction
-func (r *Repository) CreateWithAdmin(ctx context.Context, name, code, discordID string, isActive bool, adminUserID string) (*gormModels.VA, *gormModels.UserVARole, error) {
-	var va *gormModels.VA
-	var membership *gormModels.UserVARole
-
-	// Execute in transaction
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Create VA
-		va = &gormModels.VA{
-			Name:      name,
-			Code:      code,
-			DiscordID: discordID,
-			IsActive:  isActive,
-		}
-
-		if err := tx.Create(va).Error; err != nil {
-			return fmt.Errorf("failed to create VA: %w", err)
-		}
-
-		// Create admin membership
-		membership = &gormModels.UserVARole{
-			UserID:   adminUserID,
-			VAID:     va.ID,
-			Role:     roles.RoleAdmin,
-			IsActive: true,
-			Callsign: "",
-		}
-
-		if err := tx.Create(membership).Error; err != nil {
-			return fmt.Errorf("failed to create admin membership: %w", err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return va, membership, nil
-}
+// CreateWithAdmin is deprecated - use Create() and memberships.Service.Create() separately
+// to avoid circular dependencies between va and memberships packages
 
 // UpdateFlightModesConfig updates the flight modes configuration for a VA
 func (r *Repository) UpdateFlightModesConfig(ctx context.Context, vaID string, config gormModels.JSONB) error {
 	result := r.db.WithContext(ctx).
-		Model(&gormModels.VA{}).
+		Model(&VA{}).
 		Where("id = ?", vaID).
 		Update("flight_modes_config", config)
 
@@ -187,8 +147,8 @@ func (r *Repository) UpdateFlightModesConfig(ctx context.Context, vaID string, c
 }
 
 // GetVAConfigs retrieves all configuration key-value pairs for a VA
-func (r *Repository) GetVAConfigs(ctx context.Context, vaID string) ([]gormModels.VAConfig, error) {
-	var configs []gormModels.VAConfig
+func (r *Repository) GetVAConfigs(ctx context.Context, vaID string) ([]VAConfig, error) {
+	var configs []VAConfig
 
 	err := r.db.WithContext(ctx).
 		Where("va_id = ?", vaID).

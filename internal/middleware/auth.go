@@ -4,8 +4,9 @@ import (
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/internal/auth"
 	authCtx "infinite-experiment/politburo/internal/auth"
+	"infinite-experiment/politburo/internal/platform/apikeys"
+	"infinite-experiment/politburo/internal/platform/claims"
 	"infinite-experiment/politburo/internal/platform/roles"
-	"infinite-experiment/politburo/internal/db/repositories"
 	"log"
 	"net/http"
 	"strings"
@@ -13,8 +14,8 @@ import (
 )
 
 func AuthMiddleware(
-	userRepo *repositories.UserRepositoryGORM,
-	keysRepo *repositories.KeysRepo,
+	claimsRepo *claims.Repository,
+	keysRepo *apikeys.Repository,
 	sessionSvc *session.SessionService,
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -95,7 +96,7 @@ func AuthMiddleware(
 					return
 				}
 
-				claims = auth.MakeClaimsFromApi(r.Context(), userRepo, serverId, userId)
+				claims = auth.MakeClaimsFromApi(r.Context(), claimsRepo, serverId, userId)
 				ctx := authCtx.SetUserClaims(r.Context(), claims)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return

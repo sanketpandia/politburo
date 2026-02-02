@@ -1,141 +1,58 @@
 package routes
 
 import (
-	"infinite-experiment/politburo/internal/common"
-	"context"
 	"net/http"
-	"time"
 
 	"infinite-experiment/politburo/infra/logging"
-	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/internal/api"
-	"infinite-experiment/politburo/infra/db"
-	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/jobs"
+	"infinite-experiment/politburo/internal/app"
 	"infinite-experiment/politburo/internal/middleware"
-	"infinite-experiment/politburo/internal/platform/aircraft"
-	"infinite-experiment/politburo/internal/sync"
-	"infinite-experiment/politburo/internal/workers"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
 )
 
-func RegisterRoutes(upSince time.Time) http.Handler {
-
-	// initialize Chi router
+// NewRouter creates and configures the HTTP router with all routes
+// This is a pure routing function - all dependencies are injected via the App struct
+func NewRouter(application *app.App) http.Handler {
 	r := chi.NewRouter()
 
-	// Initialize metrics registry
-	metricsReg := metrics.NewMetricsRegistry()
-
-	// global middleware
+	// Global middleware
 	r.Use(middleware.RequestIDMiddleware)
 
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://*", "http://localhost:8081"}, // Allow all origins
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-API-Key", "X-Server-Id", "X-Discord-Id"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: false,
-		MaxAge:           300, // Maximum value not ignored by any of major browsers
-	}))
+	logging.Info("Router initialized with request ID middleware")
 
-	logging.Info("Router initialized with metrics and logging middleware")
-	// health check
-	r.Get("/healthCheck", api.HealthCheckHandler(db.PgDB, upSince))
+	// Health check endpoint
+	r.Get("/healthCheck", api.HealthCheckHandler(
+		application.Infra.DB,
+		application.Infra.RedisCache,
+		application.UpSince,
+	))
 
-	// Initialize dependencies using DI pattern
-	deps, err := api.InitDependencies(metricsReg)
-	if err != nil {
-		panic("Failed to initialize dependencies: " + err.Error())
-	}
+	// API v1 routes with authentication
+	r.Route("/api/v1", func(v1 chi.Router) {
+		// Apply auth middleware to populate claims for all routes
+		v1.Use(middleware.AuthMiddleware(
+			application.Platform.ClaimsRepo,
+			application.Platform.KeysRepo,
+			application.Infra.SessionSvc,
+		))
 
-	// Initialize handlers with dependencies
-	handlers := api.NewHandlers(deps)
+		logging.Info("Auth middleware applied to /api/v1 routes")
 
-	// Legacy: Keep individual references for old handlers that haven't been migrated yet
-	userRepoGorm := deps.Repo.User
-	keyRepo := deps.Repo.Keys
-	legacyCacheSvc := deps.Services.LegacyCache
-	cfgSvc := deps.Services.Conf
-	vaMgmtSvc := deps.Services.VaMgmt
-	atApiSvc := deps.Services.AirtableApi
-	syncSvc := deps.Services.AirtableSync
-	flightSvc := deps.Services.Flights
+		// User status endpoint
+		v1.Get("/user/status", application.Features.MembershipsHandler.GetUserStatus())
 
-	// Get session and URL signer services from dependencies (reuses same Redis client)
-	sessionSvc := deps.Services.Session
-	urlSigner := deps.Services.URLSigner
+		// Pilot registration endpoint
+		v1.Post("/pilots/register", application.Features.PilotsHandler.RegisterPilot())
 
-	// Initialize VA repositories for UI
-	vaGormRepo := repositories.NewVAGORMRepository(db.PgDB)
-	vaUserRoleRepo := repositories.NewVAUserRoleRepository(db.PgDB)
-	eventRepo := repositories.NewVAEventRepository(db.PgDB)
-	routeRepo := repositories.NewRouteATSyncedRepo(db.PgDB)
+		// Server initialization endpoint
+		v1.Post("/server/init", application.Features.ServersHandler.InitServer())
 
-	// Update AuthMiddleware to use session service
-	// This will be passed to middleware when creating handlers
+		// Membership join endpoint
+		v1.Post("/memberships/join", application.Features.MembershipsHandler.JoinVA())
 
-	// Register UI routes (separate from API)
-	// Note: FlightModesConfigService will be created inside ui_routes to avoid circular imports
-	RegisterUIRoutes(r, metricsReg, sessionSvc, urlSigner, userRepoGorm, vaUserRoleRepo, vaGormRepo, flightSvc, deps.Services.Cache, deps.Services.Live, deps.Services.DataProviderConfig, deps.Services.AirtableProvider, deps.Repo.Va, eventRepo, routeRepo)
-
-	// Setup workers and jobs first
-	logger := logging.GetLogger().Desugar() // Get non-sugared logger for sync jobs
-
-	// Initialize sync jobs (routes only) - runs every 10 minutes
-	_ = sync.InitializeJobs(
-		context.Background(),
-		db.PgDB,
-		deps.Services.Cache,
-		deps.Repo.DataProviderCfg,
-		deps.Repo.Sync, // Consolidated sync repository
-		deps.Repo.AirportsRepo,
-		logger,
-	)
-
-	// Initialize non-sync jobs (pilot sync, cache jobs, backfill)
-	// Note: Pilot sync still uses sync.Repository for history tracking
-	jobsContainer := jobs.InitializeJobs(
-		context.Background(),
-		db.PgDB,
-		deps.Services.Cache,      // Use CacheInterface (supports Redis or in-memory)
-		deps.Repo.DataProviderCfg,
-		nil,                      // TODO: Update pilot sync to use sync.Repository
-		deps.Repo.Pilots,
-		cfgSvc,
-		deps.Services.Live,       // LiveAPIService for cache jobs
-		deps.Services.RedisCache, // RedisCacheService for cache jobs (nil if not using Redis)
-	)
-
-	// Initialize aircraft worker separately (platform level)
-	aircraftWorker := aircraft.NewWorker(
-		&deps.Services.Cache,
-		deps.Services.Live,
-		deps.Repo.Aircraft,
-		deps.Services.Aircraft,
-	)
-	go aircraftWorker.Start()
-
-	// Initialize other workers (includes LogbookWorker)
-	workers.InitWorkers(
-		db.PgDB,
-		&deps.Services.Cache,
-		deps.Services.Live,
-		deps.Services.Aircraft,
-		deps.Services.RedisQueue,
-		deps.Repo.DataProviderCfg,
-	)
-
-	// Initialize jobs handler for manual triggering
-	jobsHandler := api.NewJobsHandler(jobsContainer.PilotSync)
-
-	// Initialize airport loader service
-	airportLoader := common.NewAirportLoaderService(db.PgDB)
-
-	// Register API routes (after jobsHandler is initialized)
-	RegisterAPIRoutes(r, metricsReg, userRepoGorm, keyRepo, handlers, legacyCacheSvc, cfgSvc, vaMgmtSvc, atApiSvc, syncSvc, flightSvc, jobsHandler, deps, airportLoader, sessionSvc)
+		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join")
+	})
 
 	return r
 }

@@ -1,5 +1,9 @@
 package api
 
+// DEPRECATED: This file is deprecated in favor of feature-layer handlers
+// Handlers are now initialized directly in router.go for clean architecture
+// See: internal/memberships/handler.go for the new pattern
+
 import (
 	"encoding/json"
 	"net/http"
@@ -9,21 +13,15 @@ import (
 	"infinite-experiment/politburo/internal/auth"
 )
 
+// Handlers struct is deprecated - handlers are now initialized directly in router.go
 type Handlers struct {
 	deps *Dependencies
-	User *UserHandlers
 }
 
-// NewHandlers creates a new handlers instance with injected dependencies
+// NewHandlers is deprecated - not used in new architecture
 func NewHandlers(deps *Dependencies) *Handlers {
 	return &Handlers{
 		deps: deps,
-		User: NewUserHandlers(
-			deps.Repo.User,
-			deps.Repo.Va,
-			deps.Services.User,
-			deps.Services.RegV2,
-		),
 	}
 }
 

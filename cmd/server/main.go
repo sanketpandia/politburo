@@ -1,18 +1,19 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"infinite-experiment/politburo/infra/db"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/internal/app"
 	"infinite-experiment/politburo/internal/routes"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	// Swagger docs
 )
 
 // @title Infinite Experiment API
@@ -26,44 +27,41 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Initialize structured logging
-	appEnv := os.Getenv("APP_ENV")
-	if appEnv == "" {
-		appEnv = "development"
-	}
+	// ==========================================
+	// Phase 1: Load Configuration
+	// ==========================================
+	cfg := app.LoadConfig()
+	log.Printf("✓ Configuration loaded (env=%s, port=%s)", cfg.AppEnv, cfg.Port)
 
-	if err := logging.Init(appEnv); err != nil {
-		log.Fatalf("❌ Failed to initialize logger: %v", err)
+	// ==========================================
+	// Phase 2: Initialize Logging
+	// ==========================================
+	if err := logging.Init(cfg.AppEnv); err != nil {
+		log.Fatalf("❌ Failed to initialize logging: %v", err)
 	}
 	defer logging.Close()
 
 	logging.Info("Politburo starting up",
-		"environment", appEnv,
+		"environment", cfg.AppEnv,
+		"debug", cfg.Debug,
 		"timestamp", time.Now().Format(time.RFC3339),
 	)
 
-	// Metrics registry will be initialized in router (see internal/routes/router.go)
-	logging.Info("Prometheus metrics will be initialized during router setup")
-
-	// Connect to DB with GORM
-	host := os.Getenv("PG_HOST")
-	port := os.Getenv("PG_PORT")
-	user := os.Getenv("PG_USER")
-	dbname := os.Getenv("PG_DB")
-	password := os.Getenv("PG_PASSWORD")
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbname)
-
-	if _, err := db.InitPostgresORM(dsn); err != nil {
-		logging.Error("Failed to connect to Postgres (GORM)", "error", err.Error())
-		log.Fatalf("❌ Failed to connect to Postgres (GORM): %v", err)
+	// ==========================================
+	// Phase 3: Initialize Application (DI)
+	// ==========================================
+	application, err := app.New(cfg)
+	if err != nil {
+		logging.Error("Failed to initialize application", "error", err)
+		log.Fatalf("❌ Failed to initialize application: %v", err)
 	}
-	logging.Info("Connected to Postgres (GORM)")
+	logging.Info("Application initialized successfully")
 
-	upSince := time.Now()
-
-	// Initialize router with Chi
-	// Note: metricsReg is created in RegisterRoutes and applied as global middleware
-	router := routes.RegisterRoutes(upSince)
+	// ==========================================
+	// Phase 4: Setup Routes
+	// ==========================================
+	router := routes.NewRouter(application)
+	logging.Info("Router configured with all routes")
 
 	// Setup metrics endpoint outside of Chi router
 	mux := http.NewServeMux()
@@ -71,11 +69,76 @@ func main() {
 	mux.Handle("/", router) // Mount Chi router at root
 	logging.Info("Prometheus metrics endpoint registered at /metrics")
 
-	logging.Info("Server starting",
-		"port", 8080,
-		"environment", appEnv,
+	// ==========================================
+	// Phase 5: Register and Start Scheduled Jobs
+	// ==========================================
+	if err := routes.RegisterScheduledJobs(application); err != nil {
+		logging.Error("Failed to register scheduled jobs", "error", err)
+		log.Fatalf("❌ Failed to register jobs: %v", err)
+	}
+	application.Infra.Scheduler.Start()
+	logging.Info("Scheduler started with registered jobs")
+
+	// ==========================================
+	// Phase 6: Configure HTTP Server
+	// ==========================================
+	srv := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	logging.Info("HTTP server configured",
+		"port", cfg.Port,
+		"read_timeout", "15s",
+		"write_timeout", "15s",
+		"idle_timeout", "60s",
 	)
 
-	log.Println("Starting server on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	// ==========================================
+	// Phase 7: Start Server and Wait for Shutdown
+	// ==========================================
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	// Start HTTP server in goroutine
+	serverErr := make(chan error, 1)
+	go func() {
+		logging.Info("HTTP server starting", "address", srv.Addr)
+		log.Printf("🚀 Server listening on %s", srv.Addr)
+		serverErr <- srv.ListenAndServe()
+	}()
+
+	// Wait for shutdown signal or server error
+	select {
+	case err := <-serverErr:
+		logging.Error("Server error", "error", err)
+		log.Fatalf("❌ Server error: %v", err)
+	case sig := <-shutdown:
+		logging.Info("Shutdown signal received", "signal", sig.String())
+		log.Printf("⚠️  Shutdown signal received: %s", sig.String())
+	}
+
+	// ==========================================
+	// Phase 8: Graceful Shutdown
+	// ==========================================
+	logging.Info("Initiating graceful shutdown...")
+
+	// Shutdown HTTP server with 30-second deadline
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logging.Error("HTTP server shutdown error", "error", err)
+	} else {
+		logging.Info("HTTP server stopped gracefully")
+	}
+
+	// Shutdown application resources (scheduler, redis, db)
+	application.Shutdown(shutdownCtx)
+
+	logging.Info("Shutdown complete")
+	log.Println("✓ Politburo shutdown complete")
 }

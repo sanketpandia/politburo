@@ -17,24 +17,28 @@ import (
 	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/aircraft"
+	"infinite-experiment/politburo/internal/platform/claims"
+	"infinite-experiment/politburo/internal/platform/memberships"
+	"infinite-experiment/politburo/internal/platform/users"
+	"infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/services"
 	"infinite-experiment/politburo/internal/sync"
-	"infinite-experiment/politburo/internal/va"
 
 	goredis "github.com/redis/go-redis/v9"
 )
 
 type Repositories struct {
-	User            *repositories.UserRepositoryGORM
+	User            *users.Repository
 	Keys            *repositories.KeysRepo
 	UserVASync      *repositories.SyncRepository
-	Va              *repositories.VAGormRepository      // Legacy: kept for compatibility
-	VANew           *va.Repository                      // NEW: VA repository in va package
-	VARoleRepo      *va.RoleRepository                  // NEW: VA role repository
-	VAEventRepo     *va.EventRepository                 // NEW: VA event repository
+	Va              *repositories.VAGormRepository // Legacy: kept for compatibility
+	VANew           *va.Repository                 // NEW: VA repository in va package
+	Claims          *claims.Repository             // NEW: Claims repository for auth (lightweight, no circular deps)
+	Memberships     *memberships.Repository        // NEW: Membership repository
+	VAEventRepo     *va.EventRepository            // NEW: VA event repository
 	DataProviderCfg *repositories.DataProviderConfigRepo
-	Sync            *sync.Repository // Consolidated sync repository (routes, PIREPs, history)
-	Pilots          *pilots.Repository // Pilot repository (migrated from PilotATSyncedRepo)
+	Sync            *sync.Repository     // Consolidated sync repository (routes, PIREPs, history)
+	Pilots          *pilots.Repository   // Pilot repository (migrated from PilotATSyncedRepo)
 	Aircraft        *aircraft.Repository // Combined aircraft repository
 	AirportsRepo    *repositories.AirportRepository
 	WorldTour       *repositories.WorldTourRepository
@@ -42,27 +46,28 @@ type Repositories struct {
 }
 
 type Services struct {
-	Cache              cache.CacheInterface             // Interface - supports Redis or in-memory
-	RedisCache         *cache.RedisCacheService         // Redis cache (for jobs that need specific Redis features)
-	LegacyCache        *cache.CacheService              // For services that haven't been migrated to interface yet
-	Live               *common.LiveAPIService           // Changed to pointer
-	User               *services.UserService
-	Reg                *services.RegistrationService    // Changed to pointer
+	Cache              cache.CacheInterface     // Interface - supports Redis or in-memory
+	RedisCache         *cache.RedisCacheService // Redis cache (for jobs that need specific Redis features)
+	LegacyCache        *cache.CacheService      // For services that haven't been migrated to interface yet
+	Live               *common.LiveAPIService   // Changed to pointer
+	User               *users.Service
+	Reg                *services.RegistrationService // Changed to pointer
 	RegV2              *services.RegistrationServiceV2
-	Conf               *common.VAConfigService          // Legacy: kept for compatibility
-	VAConfig           *va.ConfigService                // NEW: VA config service in va package
-	VAService          *va.Service                      // NEW: Core VA service
-	VAEventService     *va.EventService                 // NEW: VA event service
-	VaMgmt             *services.VAManagementService    // Changed to pointer
-	AirtableApi        *common.AirtableApiService       // Changed to pointer
+	Conf               *common.VAConfigService       // Legacy: kept for compatibility
+	VAConfig           *va.ConfigService             // NEW: VA config service in va package
+	VAService          *va.Service                   // NEW: Core VA service
+	VAEventService     *va.EventService              // NEW: VA event service
+	Memberships        *memberships.Service          // NEW: Membership service
+	VaMgmt             *services.VAManagementService // Changed to pointer
+	AirtableApi        *common.AirtableApiService    // Changed to pointer
 	AirtableProvider   *providers.AirtableProvider
-	AirtableSync       *services.AtSyncService          // Changed to pointer
-	Flights            *flights.Service                 // NEW: Moved to flights package
-	PilotStats         *pilots.StatsService             // NEW: Moved to pilots package
-	PilotMgmt          *pilots.ManagementService        // NEW: Pilot management service
+	AirtableSync       *services.AtSyncService   // Changed to pointer
+	Flights            *flights.Service          // NEW: Moved to flights package
+	PilotStats         *pilots.StatsService      // NEW: Moved to pilots package
+	PilotMgmt          *pilots.ManagementService // NEW: Pilot management service
 	DataProviderConfig *services.DataProviderConfigService
-	Aircraft           *aircraft.Service                // NEW: Platform aircraft service
-	RedisQueue         *queue.RedisQueueService         // Changed to pointer
+	Aircraft           *aircraft.Service        // NEW: Platform aircraft service
+	RedisQueue         *queue.RedisQueueService // Changed to pointer
 	URLSigner          *security.URLSignerService
 	Session            *session.SessionService
 	WorldTour          *services.WorldTourService
@@ -78,16 +83,22 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 
 	// Initialize VA repositories (new package)
 	vaRepo := va.NewRepository(db.PgDB)
-	vaRoleRepo := va.NewRoleRepository(db.PgDB)
 	vaEventRepo := va.NewEventRepository(db.PgDB)
 
+	// Initialize claims repository (lightweight, for auth only)
+	claimsRepo := claims.NewRepository(db.PgDB)
+
+	// Initialize memberships repository
+	membershipsRepo := memberships.NewRepository(db.PgDB)
+
 	repositories := &Repositories{
-		User:            repositories.NewUserRepositoryGORM(db.PgDB),
+		User:            users.NewRepository(db.PgDB),
 		Keys:            repositories.NewApiKeysRepo(db.PgDB),
 		Va:              repositories.NewVAGormRepository(db.PgDB), // Legacy: kept for compatibility
-		VANew:           vaRepo,                                     // NEW: VA repository
-		VARoleRepo:      vaRoleRepo,                                 // NEW: VA role repository
-		VAEventRepo:     vaEventRepo,                                // NEW: VA event repository
+		VANew:           vaRepo,                                    // NEW: VA repository
+		Claims:          claimsRepo,                                // NEW: Claims repository (for auth)
+		Memberships:     membershipsRepo,                           // NEW: Membership repository
+		VAEventRepo:     vaEventRepo,                               // NEW: VA event repository
 		UserVASync:      repositories.NewSyncRepository(db.PgDB),
 		DataProviderCfg: repositories.NewDataProviderConfigRepo(db.PgDB),
 		Sync:            syncRepo, // Consolidated sync repository
@@ -95,7 +106,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		Aircraft:        aircraft.NewRepository(db.PgDB),
 		AirportsRepo:    repositories.NewAirportRepository(db.PgDB),
 		WorldTour:       repositories.NewWorldTourRepository(db.PgDB, nil), // TODO: Update WorldTourRepository to use sync.Repository
-		VAUserRole:      repositories.NewVAUserRoleRepository(db.PgDB), // Legacy: kept for compatibility
+		VAUserRole:      repositories.NewVAUserRoleRepository(db.PgDB),     // Legacy: kept for compatibility
 	}
 
 	// Initialize cache service (Redis or in-memory based on USE_REDIS_CACHE env var)
@@ -138,8 +149,12 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 
 	// Initialize VA services (new package)
 	vaConfigSvc := va.NewConfigService(vaRepo, cacheSvc)
-	vaService := va.NewService(vaRepo, vaRoleRepo)
+	vaService := va.NewService(vaRepo)
 	vaEventSvc := va.NewEventService(vaEventRepo)
+
+	// Initialize memberships service
+	// TODO: Re-enable when memberships service is fixed
+	// membershipsService := memberships.NewService(membershipsRepo)
 
 	// Initialize providers
 	liveAPIProvider := providers.NewLiveAPIProvider()
@@ -149,7 +164,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 	pilotMgmtSvc := pilots.NewManagementService(repositories.VAUserRole)
 
 	// Initialize user service with GORM repository (pilot stats service removed from dependency)
-	userSvc := services.NewUserService(repositories.User, nil)
+	userSvc := users.NewService(repositories.User)
 
 	// Initialize data provider config service
 	dataProviderConfigSvc := services.NewDataProviderConfigService(repositories.DataProviderCfg, cacheSvc)
@@ -185,11 +200,12 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		User:               userSvc,
 		Reg:                nil, // TODO: Migrate RegistrationService to GORM or remove (use RegV2)
 		RegV2:              regServiceV2,
-		Conf:               confSvc,      // Legacy: kept for compatibility
-		VAConfig:           vaConfigSvc,  // NEW: VA config service
-		VAService:          vaService,    // NEW: Core VA service
-		VAEventService:     vaEventSvc,   // NEW: VA event service
-		VaMgmt:             nil, // TODO: Migrate VAManagementService to GORM or deprecate
+		Conf:               confSvc,            // Legacy: kept for compatibility
+		VAConfig:           vaConfigSvc, // NEW: VA config service
+		VAService:          vaService,   // NEW: Core VA service
+		VAEventService:     vaEventSvc,  // NEW: VA event service
+		// Memberships:        membershipsService, // TODO: Re-enable when service is fixed
+		VaMgmt: nil, // TODO: Migrate VAManagementService to GORM or deprecate
 		AirtableApi:        common.NewAirtableApiService(confSvc),
 		AirtableProvider:   airtableProvider,
 		AirtableSync:       services.NewAtSyncService(legacyCache, repositories.UserVASync),

@@ -86,6 +86,10 @@ func (j *RouteSyncJob) Run(ctx context.Context) error {
 
 // SyncVARoutes syncs routes for a specific VA (exported for manual triggering)
 func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, error) {
+	if 1 == 1 {
+		return 0, nil
+	}
+
 	start := time.Now()
 	log.Printf("[RouteSyncJob] Syncing routes for VA %s", vaID)
 

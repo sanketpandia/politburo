@@ -1,59 +1,165 @@
 package pilots
 
 import (
-	"fmt"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/httpdto"
 )
 
-// Handler handles pilot statistics endpoints
+// Handler handles pilot statistics and registration endpoints
 type Handler struct {
 	statsSvc *StatsService
+	regSvc   *RegistrationService
 }
 
-// NewHandler creates a new pilot stats handler instance
-func NewHandler(statsSvc *StatsService) *Handler {
+// NewHandler creates a new pilot handler instance
+func NewHandler(statsSvc *StatsService, regSvc *RegistrationService) *Handler {
 	return &Handler{
 		statsSvc: statsSvc,
+		regSvc:   regSvc,
 	}
 }
 
-// GetPilotStats handles GET /api/v1/pilot/stats
-// Returns comprehensive pilot statistics from the configured data provider
-func (h *Handler) GetPilotStats() http.HandlerFunc {
+// RegisterPilot handles POST /api/v1/pilots/register
+// Registers a new pilot with IFC credentials and returns VA registration status
+func (h *Handler) RegisterPilot() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		initTime := time.Now()
 
-		// Get claims from context
+		// 1. Extract and validate claims
 		claims := auth.GetUserClaims(r.Context())
 		if claims == nil {
-			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
+			logging.Warn("Unauthorized request to /pilots/register - missing claims")
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Missing authentication claims", http.StatusUnauthorized)
 			return
 		}
 
-		userDiscordID := claims.DiscordUserID()
-		vaDiscordServerID := claims.DiscordServerID()
-		vaUUID := claims.ServerID()
+		discordUserID := claims.DiscordUserID()
+		discordServerID := claims.DiscordServerID()
+		userID := claims.UserID()
 
-		// Validate VA exists
-		if vaDiscordServerID == "" {
-			common.RespondError(w, initTime, fmt.Errorf("not in a VA Server"), "Virtual airline not found", http.StatusNotFound)
+		// 2. Duplicate check (simplified via claims)
+		if userID != "" {
+			logging.Warn("User already registered", "user_id", userID, "discord_id", discordUserID)
+			httpdto.WriteError(w, initTime, "USER_ALREADY_REGISTERED", "User is already registered", http.StatusConflict)
 			return
 		}
 
-		// Fetch pilot stats (returns standardized mapped data)
-		stats, err := h.statsSvc.GetPilotStats(r.Context(), userDiscordID, vaUUID)
+		// 3. Parse request body
+		var req RegisterPilotRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			logging.Warn("Invalid request body", "error", err)
+			httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// 4. Validate required fields
+		if req.IfcId == "" {
+			logging.Warn("Missing IFC ID in request")
+			httpdto.WriteError(w, initTime, "MISSING_FIELD", "IFC ID is required", http.StatusBadRequest)
+			return
+		}
+
+		if req.LastFlight == "" {
+			logging.Warn("Missing last flight in request")
+			httpdto.WriteError(w, initTime, "MISSING_FIELD", "Last flight is required", http.StatusBadRequest)
+			return
+		}
+
+		logging.Info("Pilot registration request", "discord_id", discordUserID, "ifc_id", req.IfcId, "server_id", discordServerID)
+
+		// 5. Call service
+		result, err := h.regSvc.RegisterPilot(
+			r.Context(),
+			discordUserID,
+			discordServerID,
+			req.IfcId,
+			req.LastFlight,
+		)
+
 		if err != nil {
-			h.handlePilotStatsError(w, initTime, err)
+			logging.Error("Failed to register pilot", "error", err, "discord_id", discordUserID)
+			h.handleRegistrationError(w, initTime, err)
 			return
 		}
 
-		common.RespondSuccess(w, initTime, "Pilot stats fetched successfully", stats)
+		logging.Info("Pilot registered successfully", "discord_id", discordUserID, "is_va", result.IsVARegistered)
+		httpdto.WriteSuccess(w, initTime, result, http.StatusCreated)
 	}
+}
+
+func (h *Handler) PilotStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+	}
+}
+
+// // GetPilotStats handles GET /api/v1/pilot/stats
+// // Returns comprehensive pilot statistics from the configured data provider
+// func (h *Handler) GetPilotStats() http.HandlerFunc {
+// 	return func(w http.ResponseWriter, r *http.Request) {
+// 		initTime := time.Now()
+
+// 		// Get claims from context
+// 		claims := auth.GetUserClaims(r.Context())
+// 		if claims == nil {
+// 			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
+// 			return
+// 		}
+
+// 		userDiscordID := claims.DiscordUserID()
+// 		vaDiscordServerID := claims.DiscordServerID()
+// 		vaUUID := claims.ServerID()
+
+// 		// Validate VA exists
+// 		if vaDiscordServerID == "" {
+// 			common.RespondError(w, initTime, fmt.Errorf("not in a VA Server"), "Virtual airline not found", http.StatusNotFound)
+// 			return
+// 		}
+
+// 		// Fetch pilot stats (returns standardized mapped data)
+// 		stats, err := h.statsSvc.GetPilotStats(r.Context(), userDiscordID, vaUUID)
+// 		if err != nil {
+// 			h.handlePilotStatsError(w, initTime, err)
+// 			return
+// 		}
+
+// 		common.RespondSuccess(w, initTime, "Pilot stats fetched successfully", stats)
+// 	}
+// }
+
+// handleRegistrationError maps registration service errors to appropriate HTTP responses
+func (h *Handler) handleRegistrationError(w http.ResponseWriter, initTime time.Time, err error) {
+	// Check specific error types
+	if errors.Is(err, ErrIFCUserNotFound) {
+		httpdto.WriteError(w, initTime, "IFC_USER_NOT_FOUND", "IFC user not found. Please verify your IFC username.", http.StatusNotFound)
+		return
+	}
+
+	if errors.Is(err, ErrNoRecentFlights) {
+		httpdto.WriteError(w, initTime, "NO_RECENT_FLIGHTS", "No recent flights found in your logbook.", http.StatusBadRequest)
+		return
+	}
+
+	if errors.Is(err, ErrFlightMismatch) {
+		httpdto.WriteError(w, initTime, "FLIGHT_MISMATCH", "Last flight verification failed. Please verify your last flight route.", http.StatusBadRequest)
+		return
+	}
+
+	if errors.Is(err, ErrRegistrationFailed) {
+		httpdto.WriteError(w, initTime, "REGISTRATION_FAILED", "Failed to register user. Please try again.", http.StatusInternalServerError)
+		return
+	}
+
+	// Default to internal server error
+	httpdto.WriteError(w, initTime, "INTERNAL_ERROR", "An unexpected error occurred during registration.", http.StatusInternalServerError)
 }
 
 // handlePilotStatsError maps service errors to appropriate HTTP responses

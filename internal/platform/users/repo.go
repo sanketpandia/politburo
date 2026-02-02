@@ -192,6 +192,28 @@ func (r *Repository) InsertMembership(ctx context.Context, userID, vaID string, 
 	return membership, nil
 }
 
+// GetUserByCallsignAndVA retrieves a membership by callsign within a specific VA
+// Returns the membership if callsign is taken, nil if callsign is available
+func (r *Repository) GetUserByCallsignAndVA(ctx context.Context, callsign string, vaID string) (*UserVARole, error) {
+	var membership UserVARole
+
+	err := r.db.WithContext(ctx).
+		Table("va_user_roles").
+		Where("va_id = ? AND callsign = ? AND is_active = ?", vaID, callsign, true).
+		First(&membership).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// Callsign is available
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to check callsign: %w", err)
+	}
+
+	// Callsign is taken - return the membership
+	return &membership, nil
+}
+
 // UpdateUserRole updates a user's role in a specific VA
 func (r *Repository) UpdateUserRole(ctx context.Context, vaID, userID, newRole string) error {
 	result := r.db.WithContext(ctx).
