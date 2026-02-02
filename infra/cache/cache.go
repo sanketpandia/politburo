@@ -3,7 +3,8 @@ package cache
 import "time"
 
 // CacheInterface defines the contract for cache implementations
-type CacheInterface interface {
+type                  CacheInterface interface 
+{
 	// Set stores a value in cache with the given key and duration
 	Set(key string, value interface{}, duration time.Duration)
 

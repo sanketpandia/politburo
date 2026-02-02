@@ -5,9 +5,9 @@ package cache
 
 const (
 	// Session keys - Infinite Flight multiplayer sessions
-	KeySessionPrefix    = "game:session:"     // game:session:<session_id> -> Full session object
+	KeySessionPrefix     = "game:session:"      // game:session:<session_id> -> Full session object
 	KeySessionNamePrefix = "game:session:name:" // game:session:name:<session_id> -> Session name string
-	KeySessionList      = "game:sessions"      // game:sessions -> pipe-separated list of session IDs
+	KeySessionList       = "game:sessions"      // game:sessions -> pipe-separated list of session IDs
 
 	// Aircraft keys - Infinite Flight aircraft data
 	KeyAircraftPrefix = "game:aircraft:" // game:aircraft:<aircraft_id> -> Aircraft object/name
@@ -30,6 +30,11 @@ const (
 	// Format: game:live:vaflights:<va_id>
 	// TTL: 5 minutes
 	KeyLiveVAFlightsPrefix = "game:live:vaflights:"
+
+	// Flight plan data (full FPL response)
+	// Format: game:flightplan:<flight_id>
+	// TTL: 7 days
+	KeyFlightPlanPrefix = "game:flightplan:"
 )
 
 // Helper functions to build cache keys
@@ -67,4 +72,9 @@ func LiveFlightKey(flightID string) string {
 // LiveVAFlightsKey returns the cache key for all flights for a specific VA
 func LiveVAFlightsKey(vaID string) string {
 	return KeyLiveVAFlightsPrefix + vaID
+}
+
+// FlightPlanKey returns the cache key for a flight plan
+func FlightPlanKey(flightID string) string {
+	return KeyFlightPlanPrefix + flightID
 }

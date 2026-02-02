@@ -15,12 +15,12 @@ import (
 
 // Service provides aircraft livery lookup with cache-first strategy
 type Service struct {
-	cache *cache.CacheService
+	cache cache.CacheInterface // Redis cache interface
 	repo  *Repository
 }
 
 // NewService creates a new aircraft livery service
-func NewService(cache *cache.CacheService, repo *Repository) *Service {
+func NewService(cache cache.CacheInterface, repo *Repository) *Service {
 	return &Service{
 		cache: cache,
 		repo:  repo,
@@ -77,6 +77,42 @@ func (s *Service) GetLiveryName(ctx context.Context, liveryID string) string {
 		return ""
 	}
 	return livery.LiveryName
+}
+
+// GetAircraftNameByID retrieves aircraft name directly from cache by aircraft ID
+// This uses the cache populated by the aircraft cache_job
+func (s *Service) GetAircraftNameByID(aircraftID string) string {
+	if aircraftID == "" || s.cache == nil {
+		return ""
+	}
+	aircraftKey := cache.AircraftKey(aircraftID)
+	val, found := s.cache.Get(aircraftKey)
+	if !found {
+		return ""
+	}
+	// Cache stores aircraft name as a string
+	if name, ok := val.(string); ok {
+		return name
+	}
+	return ""
+}
+
+// GetLiveryNameByID retrieves livery name directly from cache by livery ID
+// This uses the cache populated by the aircraft cache_job
+func (s *Service) GetLiveryNameByID(liveryID string) string {
+	if liveryID == "" || s.cache == nil {
+		return ""
+	}
+	liveryKey := cache.LiveryKey(liveryID)
+	val, found := s.cache.Get(liveryKey)
+	if !found {
+		return ""
+	}
+	// Cache stores livery name as a string
+	if name, ok := val.(string); ok {
+		return name
+	}
+	return ""
 }
 
 // WarmCache loads all active liveries into cache

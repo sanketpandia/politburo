@@ -6,6 +6,7 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/api"
 	"infinite-experiment/politburo/internal/app"
+	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/middleware"
 
 	"github.com/go-chi/chi/v5"
@@ -51,7 +52,14 @@ func NewRouter(application *app.App) http.Handler {
 		// Membership join endpoint
 		v1.Post("/memberships/join", application.Features.MembershipsHandler.JoinVA())
 
-		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join")
+		// Live flights endpoint - returns cached live flights for the current VA
+		// Reads from prepopulated cache (game:live:vaflights:<va_id> and game:live:flight:<flight_id>)
+		v1.Get("/flights/va", flights.GetVALiveFlightsFromCache(application.Infra.RedisCache))
+
+		// Get single flight by ID - returns CompleteFlight from cache
+		v1.Get("/flights/{flight_id}", flights.GetFlightByID(application.Infra.RedisCache))
+
+		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}")
 	})
 
 	return r

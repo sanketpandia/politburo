@@ -325,7 +325,7 @@ func (svc *Service) mapToLiveFlight(resp *dtos.FlightsResponse, sId string) *[]d
 		cVar, pfx, sfx := SplitCallsign(flt.Callsign)
 
 		// Last report
-		lastReport, err := common.ParseLiveAPITime(flt.LastReport)
+		lastReport, err := parseLiveAPITime(flt.LastReport)
 
 		if err != nil {
 			fmt.Printf("Couldn't parse to time: %s", flt.LastReport)

@@ -1,6 +1,9 @@
 package liveapi
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Request DTOs
 
@@ -113,15 +116,16 @@ type FlightsResponse struct {
 }
 
 // FlightEntry represents an active flight
+// Note: Raw API values are stored here, normalization happens during cache processing
 type FlightEntry struct {
 	Username            string  `json:"username"`
 	Callsign            string  `json:"callsign"`
 	Latitude            float64 `json:"latitude"`
 	Longitude           float64 `json:"longitude"`
-	Altitude            float64 `json:"altitude"`
-	Speed               float64 `json:"speed"`
-	VerticalSpeed       float64 `json:"verticalSpeed"`
-	Track               float64 `json:"track"`
+	Altitude            float64 `json:"altitude"`      // Raw feet from API
+	Speed               float64 `json:"speed"`         // Raw knots from API
+	VerticalSpeed       float64 `json:"verticalSpeed"` // Raw ft/min from API
+	Track               float64 `json:"track"`         // Raw degrees from API
 	LastReport          string  `json:"lastReport"`
 	FlightID            string  `json:"flightId"`
 	UserID              string  `json:"userId"`
@@ -250,16 +254,43 @@ type APITime struct{ time.Time }
 const apiLayout = "2006-01-02 15:04:05Z07:00"
 
 // UnmarshalJSON parses the custom API time format
+// Also handles ISO 8601 format (RFC3339) that comes from cached JSON
 func (t *APITime) UnmarshalJSON(b []byte) error {
 	s := string(b)
 	s = s[1 : len(s)-1] // strip quotes
 	if s == "" || s == "null" {
 		return nil
 	}
+	
+	// Try the original API format first
 	tt, err := time.Parse(apiLayout, s)
-	if err != nil {
-		return err
+	if err == nil {
+		t.Time = tt
+		return nil
 	}
-	t.Time = tt
-	return nil
+	
+	// Try ISO 8601 / RFC3339 format (used by Go's standard JSON encoding)
+	tt, err = time.Parse(time.RFC3339, s)
+	if err == nil {
+		t.Time = tt
+		return nil
+	}
+	
+	// Try ISO 8601 with nanoseconds
+	tt, err = time.Parse(time.RFC3339Nano, s)
+	if err == nil {
+		t.Time = tt
+		return nil
+	}
+	
+	// If all formats fail, return the original error
+	return fmt.Errorf("failed to parse time %q: %w", s, err)
+}
+
+// MarshalJSON ensures consistent JSON encoding
+func (t APITime) MarshalJSON() ([]byte, error) {
+	if t.Time.IsZero() {
+		return []byte("null"), nil
+	}
+	return []byte(`"` + t.Time.Format(time.RFC3339) + `"`), nil
 }

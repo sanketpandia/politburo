@@ -1,12 +1,15 @@
 package flights
 
 import (
+	"encoding/json"
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -160,5 +163,127 @@ func (h *Handler) GetUserFlightsFromCache() http.HandlerFunc {
 		}
 
 		common.RespondSuccess(w, initTime, "Data found", result)
+	}
+}
+
+// GetVALiveFlightsFromCache handles GET /api/v1/flights/va
+// Returns live flights for the current VA from prepopulated cache (new cache structure)
+// Reads flight IDs from game:live:vaflights:<va_id> and fetches each CompleteFlight object
+// This is more efficient than the old approach as it reads directly from cache populated by FlightsCacheJob
+func GetVALiveFlightsFromCache(redisCache *cache.RedisCacheService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		// Get claims from context
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
+			return
+		}
+
+		// Get VA ID from claims (auth already processes Discord ID to UUID)
+		vaID := claims.ServerID()
+		if vaID == "" {
+			common.RespondError(w, initTime, nil, "VA ID not found in claims", http.StatusBadRequest)
+			return
+		}
+
+		// Get flight IDs list from cache
+		vaFlightsKey := cache.LiveVAFlightsKey(vaID)
+		flightIDsVal, found := redisCache.Get(vaFlightsKey)
+		if !found {
+			// No flights cached for this VA - return empty array
+			common.RespondSuccess(w, initTime, "No live flights found", []VALiveFlightDTO{})
+			return
+		}
+
+		// Parse flight IDs string (pipe-separated)
+		flightIDsStr, ok := flightIDsVal.(string)
+		if !ok {
+			logging.Warn("Invalid flight IDs format in cache", "vaID", vaID, "type", "%T", flightIDsVal)
+			common.RespondError(w, initTime, nil, "Invalid cache format", http.StatusInternalServerError)
+			return
+		}
+
+		if flightIDsStr == "" {
+			common.RespondSuccess(w, initTime, "No live flights found", []VALiveFlightDTO{})
+			return
+		}
+
+		flightIDs := strings.Split(flightIDsStr, "|")
+		flights := make([]VALiveFlightDTO, 0, len(flightIDs))
+
+		// Fetch each flight object from cache
+		for _, flightID := range flightIDs {
+			if flightID == "" {
+				continue
+			}
+
+			flightKey := cache.LiveFlightKey(flightID)
+			flightVal, found := redisCache.Get(flightKey)
+			if !found {
+				logging.Debug("Flight not found in cache", "flightID", flightID)
+				continue
+			}
+
+			// Convert cached value to CompleteFlight
+			jsonBytes, err := json.Marshal(flightVal)
+			if err != nil {
+				logging.Warn("Failed to marshal cached flight", "flightID", flightID, "error", err)
+				continue
+			}
+
+			var flight CompleteFlight
+			if err := json.Unmarshal(jsonBytes, &flight); err != nil {
+				logging.Warn("Failed to unmarshal cached flight", "flightID", flightID, "error", err)
+				continue
+			}
+
+			// Convert to DTO (excludes internal fields and ensures UTC timestamps)
+			dto := ToVALiveFlightDTO(&flight)
+			flights = append(flights, *dto)
+		}
+
+		common.RespondSuccess(w, initTime, "Live flights fetched", flights)
+	}
+}
+
+// GetFlightByID handles GET /api/v1/flights/{flight_id}
+// Returns a single CompleteFlight from cache by flight ID
+func GetFlightByID(redisCache *cache.RedisCacheService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		// Get flight ID from path parameter
+		flightID := chi.URLParam(r, "flight_id")
+		if flightID == "" {
+			common.RespondError(w, initTime, nil, "Missing flight_id parameter", http.StatusBadRequest)
+			return
+		}
+
+		// Get flight from cache
+		flightKey := cache.LiveFlightKey(flightID)
+		flightVal, found := redisCache.Get(flightKey)
+		if !found {
+			common.RespondError(w, initTime, nil, "Flight not found", http.StatusNotFound)
+			return
+		}
+
+		// Convert cached value to CompleteFlight
+		jsonBytes, err := json.Marshal(flightVal)
+		if err != nil {
+			logging.Warn("Failed to marshal cached flight", "flightID", flightID, "error", err)
+			common.RespondError(w, initTime, err, "Failed to process flight data", http.StatusInternalServerError)
+			return
+		}
+
+		var flight CompleteFlight
+		if err := json.Unmarshal(jsonBytes, &flight); err != nil {
+			logging.Warn("Failed to unmarshal cached flight", "flightID", flightID, "error", err)
+			common.RespondError(w, initTime, err, "Failed to parse flight data", http.StatusInternalServerError)
+			return
+		}
+
+		common.RespondSuccess(w, initTime, "Flight fetched", flight)
 	}
 }

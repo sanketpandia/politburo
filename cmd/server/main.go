@@ -80,6 +80,15 @@ func main() {
 	logging.Info("Scheduler started with registered jobs")
 
 	// ==========================================
+	// Phase 5b: Register and Start Background Workers
+	// ==========================================
+	if err := routes.RegisterWorkers(application); err != nil {
+		logging.Error("Failed to register workers", "error", err)
+		log.Fatalf("❌ Failed to register workers: %v", err)
+	}
+	logging.Info("Background workers started")
+
+	// ==========================================
 	// Phase 6: Configure HTTP Server
 	// ==========================================
 	srv := &http.Server{

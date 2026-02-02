@@ -11,11 +11,13 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/providers"
+	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/infra/redis"
 	"infinite-experiment/politburo/infra/scheduler"
 	"infinite-experiment/politburo/infra/session"
 	membershipsFeature "infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
+	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/platform/apikeys"
 	"infinite-experiment/politburo/internal/platform/claims"
 	"infinite-experiment/politburo/internal/platform/memberships"
@@ -41,6 +43,7 @@ type InfraDeps struct {
 	DB          *gorm.DB
 	RedisClient *goredis.Client
 	RedisCache  *cache.RedisCacheService
+	RedisQueue  *queue.RedisQueueService
 	SessionSvc  *session.SessionService
 	MetricsReg  *metrics.MetricsRegistry
 	LiveAPI     *liveapi.Client
@@ -55,11 +58,13 @@ type PlatformDeps struct {
 	UsersRepo       *users.Repository
 	VARepo          *va.Repository
 	MembershipsRepo *memberships.Repository
+	AircraftRepo    *aircraft.Repository
 
 	// Services
 	UsersSvc       *users.Service
 	VASvc          *va.Service
 	MembershipsSvc *memberships.Service
+	AircraftSvc    *aircraft.Service
 }
 
 // FeatureDeps holds all feature-layer services and handlers
@@ -148,10 +153,15 @@ func (a *App) initInfra() error {
 	sched := scheduler.NewScheduler()
 	logging.Info("Scheduler initialized")
 
+	// Initialize Redis queue service
+	redisQueue := queue.NewRedisQueueService(redisClient)
+	logging.Info("Redis queue service initialized")
+
 	a.Infra = InfraDeps{
 		DB:          pgDB,
 		RedisClient: redisClient,
 		RedisCache:  redisCache,
+		RedisQueue:  redisQueue,
 		SessionSvc:  sessionSvc,
 		MetricsReg:  metricsReg,
 		LiveAPI:     liveAPI,
@@ -172,6 +182,7 @@ func (a *App) initPlatform() error {
 	usersRepo := users.NewRepository(a.Infra.DB)
 	vaRepo := va.NewRepository(a.Infra.DB)
 	membershipsRepo := memberships.NewRepository(a.Infra.DB)
+	aircraftRepo := aircraft.NewRepository(a.Infra.DB)
 
 	logging.Debug("Platform repositories initialized")
 
@@ -179,6 +190,8 @@ func (a *App) initPlatform() error {
 	usersSvc := users.NewService(usersRepo)
 	vaSvc := va.NewService(vaRepo)
 	membershipsSvc := memberships.NewService(membershipsRepo)
+	// Aircraft service uses Redis cache directly (no legacy cache)
+	aircraftSvc := aircraft.NewService(a.Infra.RedisCache, aircraftRepo)
 
 	logging.Debug("Platform services initialized")
 
@@ -188,9 +201,11 @@ func (a *App) initPlatform() error {
 		UsersRepo:       usersRepo,
 		VARepo:          vaRepo,
 		MembershipsRepo: membershipsRepo,
+		AircraftRepo:    aircraftRepo,
 		UsersSvc:        usersSvc,
 		VASvc:           vaSvc,
 		MembershipsSvc:  membershipsSvc,
+		AircraftSvc:     aircraftSvc,
 	}
 
 	logging.Info("Platform layer initialized")

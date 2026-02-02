@@ -75,17 +75,10 @@ func InitializeJobs(
 		go sessionCacheJob.RunScheduled(ctx, 5*time.Minute)
 		logger.Info("Session cache job scheduled (every 5 minutes)")
 
-		// Initialize flights cache job (runs every 1 minute)
-		flightsCacheJob = flights.NewCacheJob(liveAPIService, redisCache, vaConfigService, logger)
-
-		// Run flights cache job immediately (depends on session cache)
-		if err := flightsCacheJob.Run(ctx); err != nil {
-			logger.Warn("Initial flights cache job failed", zap.Error(err))
-		}
-
-		// Start scheduled flights cache job
-		go flightsCacheJob.RunScheduled(ctx, 1*time.Minute)
-		logger.Info("Flights cache job scheduled (every 1 minute)")
+		// NOTE: Flights cache job is now registered via routes.RegisterScheduledJobs()
+		// This legacy initialization is kept for backwards compatibility but is not used
+		// The new scheduler system handles flights cache job registration
+		// flightsCacheJob = flights.NewCacheJob(...) // Moved to routes.RegisterScheduledJobs
 	}
 
 	return &JobsContainer{
