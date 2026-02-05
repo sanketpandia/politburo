@@ -1,0 +1,44 @@
+{
+	"name": "glii",
+	"version": "0.11.1",
+	"module": "src/index.mjs",
+	"author": "Iván Sánchez Ortega <ivan@sanchezortega.es>",
+	"license": "GPLv3",
+	"repository": {
+		"type": "git",
+		"url": "https://gitlab.com/IvanSanchez/glii"
+	},
+	"bugs": {
+		"url": "https://gitlab.com/IvanSanchez/glii/issues"
+	},
+	"keywords": [
+		"webgl"
+	],
+	"scripts": {
+		"docs": "npm run docs-api && npm run docs-uml",
+		"docs-api": "leafdoc -t build/leafdoc-templates/plain -o docs/api-reference.html -c \"@\" src/*.leafdoc src/*.mjs src/**/*.mjs src/**/*.leafdoc -e true",
+		"docs-uml": "leafdoc -t build/leafdoc-templates/graphviz-class-diagram -o docs/class-diagram.dot -c \"@\" src/*.mjs src/**/*.leafdoc src/**/*.mjs",
+		"test": "npm run test-node && npm run test-puppeteer",
+		"test-node": "jasmine",
+		"test-puppeteer": "node spec/launch-puppeteer.mjs",
+		"lintfix": "prettier src/**.mjs src/**/**.mjs spec/**.mjs spec/**/**.mjs spec/**/**/**.mjs browser-demos/*.html *.json --write"
+	},
+	"devDependencies": {
+		"gl": "^8.0.2",
+		"icomesh": "^1.1.0",
+		"jasmine": "^4.4.0",
+		"leafdoc": "^2.3.0",
+		"pixelmatch": "^5.3.0",
+		"pngjs": "^6.0.0",
+		"prettier": "^2.7.1",
+		"puppeteer": "^22.9.0",
+		"serve": "^14.1.2"
+	},
+	"prettier": {
+		"printWidth": 90,
+		"tabWidth": 4,
+		"useTabs": true,
+		"trailingComma": "es5",
+		"arrowParens": "always"
+	}
+}

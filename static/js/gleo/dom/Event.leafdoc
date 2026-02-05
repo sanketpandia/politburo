@@ -1,0 +1,241 @@
+
+Pretty much copied from developer.mozilla.org, for completeness of the API docs
+
+
+@class Event
+
+This class is not defined by Gleo, but rather by the web browser itself. Gleo just leverages it for event handling.
+
+See [DOM Event at MDN](https://developer.mozilla.org/docs/Web/API/Event) for the full documentation.
+
+@property bubbles: Boolean
+A boolean value indicating whether or not the event bubbles up through the DOM.
+
+@property cancelable: Boolean
+A boolean value indicating whether the event is cancelable.
+
+@property composed: Boolean
+A boolean indicating whether or not the event can bubble across the boundary between the shadow DOM and the regular DOM.
+
+@property currentTarget: Boolean
+A reference to the currently registered target for the event. This is the object to which the event is currently slated to be sent. It's possible this has been changed along the way through retargeting.
+
+@property defaultPrevented: Boolean
+Indicates whether or not the call to event.preventDefault() canceled the event.
+
+@property eventPhase: Number
+Indicates which phase of the event flow is being processed. It is one of the following numbers: `NONE`, `CAPTURING_PHASE`, `AT_TARGET`, `BUBBLING_PHASE`.
+
+@property isTrusted: Boolean
+Indicates whether or not the event was initiated by the browser (after a user click, for instance) or by a script (using an event creation method, for example).
+
+@property target: Object
+A reference to the object to which the event was originally dispatched.
+
+@property timeStamp: Number
+The time at which the event was created (in milliseconds). By specification, this value is time since epoch—but in reality, browsers' definitions vary. In addition, work is underway to change this to be a `DOMHighResTimeStamp` instead.
+
+@property type: String
+The case-insensitive name identifying the type of the event.
+
+
+@method composedPath()
+Returns the event's path (an array of objects on which listeners will be invoked). This does not include nodes in shadow trees if the shadow root was created with its `ShadowRoot.mode` closed.
+
+@method preventDefault()
+Cancels the event (if it is cancelable).
+
+@method stopImmediatePropagation()
+For this particular event, prevent all other listeners from being called. This includes listeners attached to the same element as well as those attached to elements that will be traversed later (during the capture phase, for instance).
+
+@method stopPropagation()
+Stops the propagation of events further along in the DOM.
+
+
+
+
+
+
+
+@class UIEvent
+@inherits Event
+
+This class is not defined by Gleo, but rather by the web browser itself. Gleo just leverages it for event handling.
+
+See [DOM UIEvent at MDN](https://developer.mozilla.org/docs/Web/API/UIEvent) for the full documentation.
+
+@property detail: *
+Returns a long with details about the event, depending on the event type.
+
+
+@property view: WindowProxy
+Returns a `WindowProxy` that contains the view that generated the event.
+
+
+
+
+
+
+
+
+
+
+
+
+@class MouseEvent
+@inherits UIEvent
+
+This class is not defined by Gleo, but rather by the web browser itself. Gleo just leverages it for event handling.
+
+See [DOM MouseEvent at MDN](https://developer.mozilla.org/docs/Web/API/MouseEvent) for the full documentation.
+
+
+
+@property altKey: Boolean
+
+Returns `true` if the <kbd>alt</kbd> key was down when the mouse event was fired.
+
+@property button: Number
+
+The button number that was pressed (if applicable) when the mouse event was fired.
+
+@property buttons: Number
+
+The buttons being pressed (if any) when the mouse event was fired.
+
+@property clientX: Number
+
+The X coordinate of the mouse pointer in local (DOM content) coordinates.
+
+@property clientY: Number
+
+The Y coordinate of the mouse pointer in local (DOM content) coordinates.
+
+@property ctrlKey: Boolean
+
+Returns `true` if the <kbd>control</kbd> key was down when the mouse event was fired.
+
+@property metaKey: Boolean
+
+Returns `true` if the <kbd>meta</kbd> key was down when the mouse event was fired.
+
+@property movementX: Number
+
+The X coordinate of the mouse pointer relative to the position of the last mousemove event.
+
+@property movementY: Number
+
+The Y coordinate of the mouse pointer relative to the position of the last mousemove event.
+
+@property offsetX: Number
+
+The X coordinate of the mouse pointer relative to the position of the padding edge of the target node.
+
+@property offsetY: Number
+
+The Y coordinate of the mouse pointer relative to the position of the padding edge of the target node.
+
+@property pageX: Number
+
+The X coordinate of the mouse pointer relative to the whole document.
+
+@property pageY: Number
+
+The Y coordinate of the mouse pointer relative to the whole document.
+
+@property relatedTarget: *
+
+The secondary target for the event, if there is one.
+
+@property screenX: Number
+
+The X coordinate of the mouse pointer in global (screen) coordinates.
+
+@property screenY: Number
+
+The Y coordinate of the mouse pointer in global (screen) coordinates.
+
+@property shiftKey: Boolean
+
+Returns `true` if the <kbd>shift</kbd> key was down when the mouse event was fired.
+
+@property x: Number
+
+Alias for `clientX`.
+
+@property y: Number
+
+Alias for `clientY`.
+
+
+@method getModifierState()
+Returns the current state of the specified modifier key. See [KeyboardEvent.getModifierState()](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/getModifierState) for details.
+
+
+
+
+
+
+
+
+
+
+@class PointerEvent
+@inherits MouseEvent
+
+This class is not defined by Gleo, but rather by the web browser itself. Gleo just leverages it for event handling.
+
+See [DOM PointerEvent at MDN](https://developer.mozilla.org/docs/Web/API/PointerEvent) for the full documentation.
+
+
+
+
+@property pointerId: Number
+A unique identifier for the pointer causing the event.
+
+@property width: Number
+The width (magnitude on the X axis), in CSS pixels, of the contact geometry of the pointer.
+
+@property height: Number
+The height (magnitude on the Y axis), in CSS pixels, of the contact geometry of the pointer.
+
+@property pressure: Number
+
+The normalized pressure of the pointer input in the range `0` to `1`, where `0` and `1` represent the minimum and maximum pressure the hardware is capable of detecting, respectively.
+
+@property tangentialPressure: Number
+The normalized tangential pressure of the pointer input (also known as barrel pressure or cylinder stress) in the range `-1` to `1`, where `0` is the neutral position of the control.
+
+@property tiltX: Number
+The plane angle (in degrees, in the range of `-90` to `90`) between the Y–Z plane and the plane containing both the pointer (e.g. pen stylus) axis and the Y axis.
+
+@property tiltY: Number
+The plane angle (in degrees, in the range of `-90` to `90`) between the X–Z plane and the plane containing both the pointer (e.g. pen stylus) axis and the X axis.
+
+@property twist: Number
+The clockwise rotation of the pointer (e.g. pen stylus) around its major axis in degrees, with a value in the range `0` to `359`.
+
+@property pointerType: String
+Indicates the device type that caused the event (mouse, pen, touch, etc.).
+
+@property isPrimary: Boolean
+Indicates if the pointer represents the primary pointer of this pointer type.
+
+
+
+
+
+
+
+
+@method getCoalescedEvents()
+Returns a sequence of all `PointerEvent` instances that were coalesced into the dispatched `pointermove` event.
+
+@method getPredictedEvents()
+Returns a sequence of `PointerEvent` instances that the browser predicts will follow the dispatched `pointermove` event's coalesced events.
+
+
+
+
+
+

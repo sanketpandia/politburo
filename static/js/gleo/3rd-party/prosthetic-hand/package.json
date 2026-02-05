@@ -1,0 +1,23 @@
+{
+  "name": "prosthetic-hand",
+  "version": "1.4.0",
+  "description": "Automate synthetic touch/pointer events",
+  "main": "dist/prosthetic-hand.js",
+  "scripts": {
+    "start": "npm run build; npm run docs",
+    "build": "rollup -c rollup.config.js",
+    "docs": "leafdoc -t node_modules/leafdoc/templates/basic -o api-docs -c \"🖑\"**/*",
+    "prepublish": "node_modules/.bin/gobble build -f dist/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IvanSanchez/prosthetic-hand.git"
+  },
+  "author": "Iván Sánchez Ortega <ivan@sanchezortega.es>",
+  "license": "Beerware",
+  "devDependencies": {
+    "@rollup/plugin-buble": "^0.21.3",
+    "leafdoc": "^1.4.1",
+    "rollup": "^2.59.0"
+  }
+}

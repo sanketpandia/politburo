@@ -1,0 +1,11 @@
+@namespace Symbol Decorator
+@aka Symbol decorator
+@relationship associated GleoSymbol
+
+A decorator is a function that takes a `GleoSymbol` *class* and returns another, decorated, symbol *class* with extra functionality.
+
+The extra functionality might mean new constructor options for the symbol, new constructor options for the symbol's acetate, and/or changes to the behaviour of how the symbols are rendered/drawn.
+
+Technically, the decorated symbol is a [subclass (or child class)](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/extends) of the original one. Same with the decorated `Acetate`, which is a subclass of the original symbol's `Acetate`.
+
+

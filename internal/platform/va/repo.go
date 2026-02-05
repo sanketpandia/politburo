@@ -128,6 +128,29 @@ func (r *Repository) Update(ctx context.Context, va *VA) error {
 // CreateWithAdmin is deprecated - use Create() and memberships.Service.Create() separately
 // to avoid circular dependencies between va and memberships packages
 
+// GetFlightModesConfig retrieves the flight modes configuration for a VA
+func (r *Repository) GetFlightModesConfig(ctx context.Context, vaID string) (map[string]interface{}, error) {
+	var vaGorm gormModels.VA
+
+	err := r.db.WithContext(ctx).
+		Where("id = ?", vaID).
+		Select("flight_modes_config").
+		First(&vaGorm).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return map[string]interface{}{}, nil
+		}
+		return nil, fmt.Errorf("failed to fetch flight modes config: %w", err)
+	}
+
+	if vaGorm.FlightModesConfig == nil {
+		return map[string]interface{}{}, nil
+	}
+
+	return vaGorm.FlightModesConfig, nil
+}
+
 // UpdateFlightModesConfig updates the flight modes configuration for a VA
 func (r *Repository) UpdateFlightModesConfig(ctx context.Context, vaID string, config gormModels.JSONB) error {
 	result := r.db.WithContext(ctx).

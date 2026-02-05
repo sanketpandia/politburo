@@ -1,0 +1,84 @@
+{{define "content"}}
+{{if .Pilots}}
+<table class="pilots-table">
+    <thead>
+        <tr>
+            <th>IFC Username</th>
+            <th>Callsign</th>
+            <th>Role</th>
+            <th>Joined</th>
+            <th {{if not .IsAdmin}}style="display: none;"{{end}}>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Pilots}}
+        <tr>
+            <td>{{.IFCommunityID}}</td>
+            <td>
+                <form hx-post="/dashboard/vaadmin/pilots/{{.ID}}/callsign"
+                      hx-target="#pilots-container"
+                      hx-swap="innerHTML"
+                      hx-indicator="#global-spinner"
+                      class="callsign-form">
+                    <div class="callsign-input-group">
+                        <input type="text"
+                               name="callsign"
+                               class="callsign-input"
+                               value="{{.Callsign}}"
+                               pattern="^\d{1,5}$"
+                               placeholder="12345"
+                               maxlength="5"
+                               title="1-5 digits only">
+                        <button type="submit" class="callsign-save-btn" title="Save callsign">
+                            <svg class="callsign-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                <polyline points="7 3 7 8 15 8"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+            </td>
+            <td>
+                <span class="role-badge role-{{.Role}}">{{.Role}}</span>
+            </td>
+            <td>{{.JoinedAt}}</td>
+            <td {{if not $.IsAdmin}}style="display: none;"{{end}}>
+                <div class="action-buttons">
+                    {{if $.IsAdmin}}
+                    <!-- Role change form -->
+                    <form hx-post="/dashboard/vaadmin/pilots/{{.ID}}/role"
+                          hx-target="#pilots-container"
+                          hx-swap="innerHTML"
+                          hx-indicator="#global-spinner"
+                          style="display: flex; gap: 0.5rem; align-items: center;">
+                        <select name="role" class="role-select">
+                            <option value="pilot" {{if eq .Role "pilot"}}selected{{end}}>Pilot</option>
+                            <option value="staff" {{if eq .Role "staff"}}selected{{end}}>Staff</option>
+                            <option value="admin" {{if eq .Role "admin"}}selected{{end}}>Admin</option>
+                        </select>
+                        <button type="submit" class="btn-action">Update</button>
+                    </form>
+
+                    <!-- Remove button -->
+                    <form hx-delete="/dashboard/vaadmin/pilots/{{.ID}}"
+                          hx-confirm="Are you sure you want to remove this pilot?"
+                          hx-target="#pilots-container"
+                          hx-swap="innerHTML"
+                          hx-indicator="#global-spinner"
+                          style="display: inline;">
+                        <button type="submit" class="btn-action btn-remove">Remove</button>
+                    </form>
+                    {{end}}
+                </div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty-state">
+    <p>No pilots found for {{.ActiveVA.VAName}}</p>
+</div>
+{{end}}
+{{end}}

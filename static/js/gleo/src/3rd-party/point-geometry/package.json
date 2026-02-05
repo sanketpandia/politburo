@@ -1,0 +1,38 @@
+{
+  "name": "@mapbox/point-geometry",
+  "version": "0.1.0",
+  "description": "a point geometry with transforms",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint index.js test.js",
+    "pretest": "npm run lint",
+    "test": "tape test.js",
+    "doc": "documentation readme index.js --section=API --markdown-toc=false",
+    "cov": "nyc npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:mapbox/point-geometry.git"
+  },
+  "keywords": [
+    "point",
+    "geometry",
+    "primitive"
+  ],
+  "author": "Tom MacWright",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mapbox/point-geometry/issues"
+  },
+  "homepage": "https://github.com/mapbox/point-geometry",
+  "devDependencies": {
+    "documentation": "12.1.3",
+    "eslint": "6.6.0",
+    "eslint-config-mourner": "2.0.3",
+    "nyc": "^14.1.1",
+    "tape": "4.11.0"
+  },
+  "files": [
+    "index.js"
+  ]
+}

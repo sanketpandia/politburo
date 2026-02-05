@@ -1,0 +1,55 @@
+{{define "mobile-fab"}}
+<!-- Mobile FAB (Floating Action Button) Component
+     Parameters:
+       - VirtualAirlines: Array of virtual airlines
+       - ActiveVAID: ID of currently active VA
+       - ActiveVA: Active virtual airline object
+-->
+<div class="mobile-fab-container">
+    <!-- Menu Items (Hidden by default) -->
+    <div class="fab-menu" id="fabMenu">
+        <!-- Settings Item -->
+        <div class="fab-item" data-label="Settings" title="Settings" onclick="closeFab()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3"></path>
+            </svg>
+        </div>
+        <!-- Other Tenants -->
+        {{range .VirtualAirlines}}
+        {{if ne $.ActiveVAID .VAID}}
+        <button class="fab-item" 
+             data-label="{{.VAName}}" 
+             title="{{.VAName}}"
+             hx-post="/dashboard/switch-va"
+             hx-vals='{"va_id":"{{.VAID}}"}'
+             hx-target="#dashboard-content"
+             hx-swap="innerHTML"
+             hx-on::after-request="closeFab(); window.location.reload();">
+            {{$initials := ""}}
+            {{range $i, $word := split .VAName " "}}
+              {{if lt $i 2}}{{$initials = printf "%s%s" $initials (slice $word 0 1)}}{{end}}
+            {{end}}
+            {{$initials}}
+        </button>
+        {{end}}
+        {{end}}
+    </div>
+
+    <!-- Main Button (Current Tenant) -->
+    <button class="fab-main" onclick="toggleFab()" aria-label="Switch tenant">
+        {{if .ActiveVA}}
+        {{$initials := ""}}
+        {{range $i, $word := split .ActiveVA.VAName " "}}
+          {{if lt $i 2}}{{$initials = printf "%s%s" $initials (slice $word 0 1)}}{{end}}
+        {{end}}
+        {{$initials}}
+        {{else}}
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+        {{end}}
+    </button>
+</div>
+{{end}}

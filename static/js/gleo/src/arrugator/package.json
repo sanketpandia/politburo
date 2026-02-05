@@ -1,0 +1,32 @@
+{
+	"type": "module",
+	"devDependencies": {
+		"proj4": "^2.7.0"
+	},
+	"dependencies": {
+		"tinyqueue": "^2.0.3"
+	},
+	"name": "arrugator",
+	"version": "1.3.2",
+	"description": "Utility for warping GIS-like triangular meshes to fit a projection; meant for helping WebGL raster reprojection.",
+	"main": "arrugator.mjs",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+ssh://git@gitlab.com/IvanSanchez/arrugator.git"
+	},
+	"keywords": [
+		"webgl",
+		"mesh",
+		"projection",
+		"warp"
+	],
+	"author": "Iván Sánchez Ortega <ivan@sanchezortega.es>",
+	"license": "GPL-3.0",
+	"bugs": {
+		"url": "https://gitlab.com/IvanSanchez/arrugator/issues"
+	},
+	"homepage": "https://gitlab.com/IvanSanchez/arrugator#readme"
+}

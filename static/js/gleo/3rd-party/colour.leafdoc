@@ -1,0 +1,37 @@
+
+@class Colour
+
+A `Colour` is a shorthand for representing a colour in the [sRGB colour space](https://en.wikipedia.org/wiki/SRGB) (including opacity or *alpha*)
+
+Whenever a `Colour` is needed, any of the following is accepted::
+
+* An `Array` of four integer `Number`s between 0 and 255. Those correspond to the **R**ed,
+  **G**reen, **B**lue and **A**lpha channels.
+* An `Array` of three integers. Those correspond to the RGB channels, and Alpha is assumed
+  to be 255 (fully opaque)
+* A `Uint8Array` or `Uint8ClampedArray` with length either 3 or 4, with the same meaning as above.
+* A `String` containing a [CSS colour definition](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value), in any of the following forms:
+
+	* Colour keywords (e.g. `"white"`, `"blue"` or `"black"`)
+	* `"#rrggbb"` (e.g. `"#ff0000"`)
+	* `"#rrggbbaa"` (e.g. `"#ff0000ff"`)
+	* `"#rgb"` (e.g. `"#f00"`)
+	* `"#rgba"` (e.g. `"#f00f"`)
+	* `"rgb(n,n,n)"` (e.g. `"rgb(255,0,0)"` or `"rgb(100%,0%,0%)"`)
+	* `"rgba(n,n,n,n)"` (e.g. `"rgba(255,0,0,1)"` or `"rgba(100%,0%,0%,100%)"`)
+	* `"hsl(n,n,n)"` (e.g. `"hsla(100, 50%, 50%)"`)
+	* `"hsla(n,n,n,n)"` (e.g. `"hsla(100, 50%, 50%, 100%)"`)
+
+Gleo uses british english, not U.S. english. It's `colour` and not `color`.
+
+Internally, parsing of the colour leverages the [`css-color-parser-js`](https://github.com/IvanSanchez/css-color-parser-js) library.
+
+@example
+
+```js
+const bluedot  = new Dot(p1, { colour: [0, 0, 255, 255] });
+const reddot   = new Dot(p2, { colour: "red" });
+const greendot = new Dot(p3, { colour: "hsla(100, 50%, 50%, 100%)" });
+```
+
+

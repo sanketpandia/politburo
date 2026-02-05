@@ -1,0 +1,15 @@
+
+@class EventTarget
+@relationship associated Event
+
+This class is not defined by Gleo, but rather by the web browser itself. Gleo just leverages it for event handling.
+
+See [DOM EventTarget at MDN](https://developer.mozilla.org/docs/Web/API/EventTarget) for the full documentation.
+
+@section Event Methods
+@method addEventListener(eventName, handler: Function): undefined
+As per [`addEventListener`](https://developer.mozilla.org/docs/Web/API/EventTarget/addEventListener).
+@method removeEventListener(eventName, handler: Function): undefined
+As per [`removeEventListener`](https://developer.mozilla.org/docs/Web/API/EventTarget/removeEventListener).
+@method dispatchEvent(ev: Event): Boolean
+As per [`dispatchEvent`](https://developer.mozilla.org/docs/Web/API/EventTarget/dispatchEvent).

@@ -31,25 +31,8 @@
             body {
                 flex-direction: column;
             }
-            aside {
-                max-height: 50vh;
-                border-right: none;
-                border-bottom: 1px solid var(--nord3);
-            }
             main {
                 flex: 1;
-            }
-            .sidebar-nav {
-                flex-direction: row;
-                overflow-x: auto;
-            }
-            .sidebar-nav ul {
-                display: flex;
-                gap: 0.5rem;
-                flex-wrap: nowrap;
-            }
-            .sidebar-nav li {
-                flex: 0 0 auto;
             }
         }
 
@@ -125,6 +108,84 @@
             font-weight: 500;
             margin: 0;
         }
+
+        /* VA Sidebar Styles (Discord-like) */
+        .va-sidebar {
+            position: relative;
+        }
+
+        .va-icon-wrapper {
+            position: relative;
+        }
+
+        .va-icon {
+            position: relative;
+        }
+
+        .va-icon:hover {
+            border-radius: 16px !important;
+            background-color: var(--nord8) !important;
+            color: var(--nord0) !important;
+        }
+
+        .va-icon-active {
+            border-radius: 16px !important;
+            background-color: var(--nord8) !important;
+            color: var(--nord0) !important;
+        }
+
+        .va-icon-wrapper:hover .va-active-indicator {
+            height: 20px !important;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .va-icon-wrapper:has(.va-icon-active) .va-active-indicator {
+            height: 40px;
+        }
+
+        /* Tooltip on hover */
+        .va-icon-wrapper::before {
+            content: attr(data-va-name);
+            position: absolute;
+            left: calc(100% + 12px);
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: var(--nord0);
+            color: var(--nord6);
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .va-icon-wrapper:hover::before {
+            opacity: 1;
+        }
+
+        /* Responsive adjustments for VA sidebar */
+        @media (max-width: 768px) {
+            .va-sidebar {
+                width: 100%;
+                max-height: 50vh;
+                border-right: none;
+                border-bottom: 1px solid var(--nord3);
+                flex-direction: row;
+            }
+            .va-sidebar nav {
+                flex-direction: row;
+                overflow-x: auto;
+                padding: 0.5rem;
+            }
+            .va-icon-wrapper::before {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body class="flex h-screen" style="background-color: var(--nord0);">
@@ -137,46 +198,47 @@
         </div>
     </div>
 
-    <!-- Sidebar (Collapsible on mobile) -->
-    <aside class="w-64 flex flex-col lg:w-64 md:w-48 md:max-h-auto" style="background-color: var(--nord1); border-right: 1px solid var(--nord3);">
+    <!-- VA Sidebar (Discord-style) -->
+    <aside class="va-sidebar" style="width: 72px; background-color: var(--nord1); border-right: 1px solid var(--nord3); display: flex; flex-direction: column; flex-shrink: 0;">
         <!-- Logo Section -->
         <div class="h-16 flex items-center justify-center md:h-12" style="border-bottom: 1px solid var(--nord3); flex-shrink: 0;">
-            <h1 class="text-xl font-bold md:text-lg" style="color: var(--nord8);">Vizburo</h1>
+            <div class="va-icon va-logo" style="width: 48px; height: 48px; border-radius: 50%; background-color: var(--nord8); color: var(--nord0); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.25rem; cursor: pointer; transition: border-radius 0.2s ease;">
+                V
+            </div>
         </div>
 
         <!-- VA List -->
-        <nav class="flex-1 overflow-y-auto md:overflow-x-auto px-2 py-4 space-y-1 sidebar-nav" style="display: flex; flex-direction: column;">
-            <ul class="space-y-1 md:space-y-0 md:flex md:gap-2 list-none" style="margin: 0; padding: 0;">
-                {{range .VirtualAirlines}}
-                <li style="flex: 0 0 auto;">
-                    <button
-                        type="button"
-                        hx-post="/dashboard/switch-va"
-                        hx-vals='{"va_id":"{{.VAID}}"}'
-                        hx-target="#dashboard-content"
-                        hx-swap="innerHTML"
-                        hx-on::after-request="updateActiveSidebar(this, '{{.VAID}}')"
-                        class="w-full text-left sidebar-link {{if eq $.ActiveVAID .VAID}}sidebar-link-active{{else}}sidebar-link-inactive{{end}}"
-                        data-va-id="{{.VAID}}"
-                        style="padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; transition: all 0.2s ease; display: flex; align-items: center; gap: 0.75rem; white-space: nowrap;">
-                        <span class="va-initial" style="display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; background-color: var(--nord8); color: var(--nord0); font-weight: 700; font-size: 0.7rem; flex-shrink: 0;">
-                            {{$initials := ""}}
-                            {{range $i, $word := split .VAName " "}}
-                              {{if lt $i 2}}{{$initials = printf "%s%s" $initials (slice $word 0 1)}}{{end}}
-                            {{end}}
-                            {{$initials}}
-                        </span>
-                        <span>{{.VAName}}</span>
-                    </button>
-                </li>
+        <nav class="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
+            {{range .VirtualAirlines}}
+            <div class="va-icon-wrapper" data-va-name="{{.VAName}}" style="position: relative;">
+                <button
+                    type="button"
+                    hx-post="/dashboard/switch-va"
+                    hx-vals='{"va_id":"{{.VAID}}"}'
+                    hx-target="#dashboard-content"
+                    hx-swap="innerHTML"
+                    hx-on::after-request="updateActiveSidebar(this, '{{.VAID}}')"
+                    class="va-icon {{if eq $.ActiveVAID .VAID}}va-icon-active{{else}}va-icon-inactive{{end}}"
+                    data-va-id="{{.VAID}}"
+                    style="width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem; transition: all 0.2s ease; cursor: pointer; border: none; position: relative; {{if eq $.ActiveVAID .VAID}}background-color: var(--nord8); color: var(--nord0);{{else}}background-color: var(--nord2); color: var(--nord6);{{end}}">
+                    {{$initials := ""}}
+                    {{range $i, $word := split .VAName " "}}
+                      {{if lt $i 2}}{{$initials = printf "%s%s" $initials (slice $word 0 1)}}{{end}}
+                    {{end}}
+                    {{$initials}}
+                </button>
+                <!-- Active indicator bar -->
+                {{if eq $.ActiveVAID .VAID}}
+                <div class="va-active-indicator" style="position: absolute; left: -12px; top: 50%; transform: translateY(-50%); width: 4px; height: 40px; background-color: var(--nord8); border-radius: 0 4px 4px 0;"></div>
                 {{end}}
-            </ul>
+            </div>
+            {{end}}
         </nav>
 
         <!-- Logout Section -->
-        <div class="h-16 flex items-center px-2 md:h-12" style="border-top: 1px solid var(--nord3); flex-shrink: 0;">
-            <button class="logout-button" disabled title="Logout coming soon" style="width: 100%; padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; opacity: 0.6; cursor: not-allowed; color: var(--nord3); background-color: var(--nord2);">
-                Logout
+        <div class="h-16 flex items-center justify-center md:h-12" style="border-top: 1px solid var(--nord3); flex-shrink: 0;">
+            <button class="va-icon logout-button" disabled title="Logout coming soon" style="width: 48px; height: 48px; border-radius: 50%; opacity: 0.6; cursor: not-allowed; background-color: var(--nord2); color: var(--nord3); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; border: none;">
+                ⚙
             </button>
         </div>
     </aside>
@@ -221,12 +283,32 @@
         function updateActiveSidebar(element, vaId) {
             // Remove active class from all sidebar buttons
             document.querySelectorAll('[data-va-id]').forEach(btn => {
-                btn.classList.remove('sidebar-link-active');
-                btn.classList.add('sidebar-link-inactive');
+                btn.classList.remove('va-icon-active');
+                btn.classList.add('va-icon-inactive');
+                btn.style.backgroundColor = 'var(--nord2)';
+                btn.style.color = 'var(--nord6)';
+                // Remove active indicator
+                const wrapper = btn.closest('.va-icon-wrapper');
+                if (wrapper) {
+                    const indicator = wrapper.querySelector('.va-active-indicator');
+                    if (indicator) {
+                        indicator.remove();
+                    }
+                }
             });
             // Add active class to clicked button
-            element.classList.remove('sidebar-link-inactive');
-            element.classList.add('sidebar-link-active');
+            element.classList.remove('va-icon-inactive');
+            element.classList.add('va-icon-active');
+            element.style.backgroundColor = 'var(--nord8)';
+            element.style.color = 'var(--nord0)';
+            // Add active indicator
+            const wrapper = element.closest('.va-icon-wrapper');
+            if (wrapper && !wrapper.querySelector('.va-active-indicator')) {
+                const indicator = document.createElement('div');
+                indicator.className = 'va-active-indicator';
+                indicator.style.cssText = 'position: absolute; left: -12px; top: 50%; transform: translateY(-50%); width: 4px; height: 40px; background-color: var(--nord8); border-radius: 0 4px 4px 0;';
+                wrapper.appendChild(indicator);
+            }
         }
     </script>
 </body>

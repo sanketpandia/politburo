@@ -1,0 +1,37 @@
+
+@miniclass BlendDefinition (WebGL1Program)
+@section
+
+A `BlendDefinition` is a plain javascript object defining the different parameters
+that define a fragment blend operation.
+
+This comprises parameters from `WebGLRenderingContext`'s [`blendEquationSeparate`](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/blendEquationSeparate), [`blendFuncSeparate`](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/blendFuncSeparate), and [`blendColor`](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/blendColor).
+
+All properties except `colour` are mandatory.
+
+```js
+let program = new glii.WebGL1Program({
+	/* stuff */
+	blend: {
+		equationRGB: glii.FUNC_ADD,
+		equationAlpha: glii.FUNC_ADD,
+		srcRGB: glii.SRC_COLOR,
+		dstRGB: glii.CONSTANT_COLOR,
+		srcAlpha: glii.ONE,
+		dstAlpha: glii.ZERO,
+		colour: "pink"
+	}
+});
+```
+
+@property equationRGB: Blend equation constant
+@property equationAlpha: Blend equation constant
+
+@property srcRGB: Blend factor constant
+@property dstRGB: Blend factor constant
+@property srcAlpha: Blend factor constant
+@property dstAlpha: Blend factor constant
+
+@property colour: Aray of Number
+An array of the form `[r, g, b, a]`, with values between 0 and 1, representing a colour.
+

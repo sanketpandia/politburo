@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.PageTitle}} - Vizburo</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+    <script src="/static/js/htmx.min.js"></script>
+    <style>
+        :root {
+            --nord0: #2E3440;
+            --nord1: #3B4252;
+            --nord2: #434C5E;
+            --nord3: #4C566A;
+            --nord4: #D8DEE9;
+            --nord5: #E5E9F0;
+            --nord6: #ECEFF4;
+            --nord7: #8FBCBB;
+            --nord8: #88C0D0;
+            --nord9: #81A1C1;
+            --nord10: #5E81AC;
+            --nord11: #BF616A;
+            --nord12: #D08770;
+            --nord13: #EBCB8B;
+            --nord14: #A3BE8C;
+            --nord15: #B48EAD;
+        }
+
+        /* Responsive layout */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            main {
+                flex: 1;
+            }
+        }
+
+        /* VA Sidebar Styles (Discord-like) */
+        .va-sidebar {
+            position: relative;
+        }
+
+        .va-icon-wrapper {
+            position: relative;
+        }
+
+        .va-icon {
+            position: relative;
+        }
+
+        .va-icon:hover {
+            border-radius: 16px !important;
+            background-color: var(--nord8) !important;
+            color: var(--nord0) !important;
+        }
+
+        .va-icon-active {
+            border-radius: 16px !important;
+            background-color: var(--nord8) !important;
+            color: var(--nord0) !important;
+        }
+
+        .va-icon-wrapper:hover .va-active-indicator {
+            height: 20px !important;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .va-icon-wrapper:has(.va-icon-active) .va-active-indicator {
+            height: 40px;
+        }
+
+        /* Tooltip on hover */
+        .va-icon-wrapper::before {
+            content: attr(data-va-name);
+            position: absolute;
+            left: calc(100% + 12px);
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: var(--nord0);
+            color: var(--nord6);
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .va-icon-wrapper:hover::before {
+            opacity: 1;
+        }
+
+        /* Responsive adjustments for VA sidebar */
+        @media (max-width: 768px) {
+            .va-sidebar {
+                width: 100%;
+                max-height: 50vh;
+                border-right: none;
+                border-bottom: 1px solid var(--nord3);
+                flex-direction: row;
+            }
+            .va-sidebar nav {
+                flex-direction: row;
+                overflow-x: auto;
+                padding: 0.5rem;
+            }
+            .va-icon-wrapper::before {
+                display: none;
+            }
+        }
+
+        @media (max-width: 640px) {
+            header {
+                padding: 1rem !important;
+            }
+            .header-title {
+                font-size: 1rem !important;
+            }
+            .header-subtitle {
+                font-size: 0.75rem !important;
+            }
+            .content-area {
+                padding: 1rem !important;
+            }
+        }
+
+        /* Global HTMX Loading Spinner */
+        #global-spinner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 9999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #global-spinner.htmx-request,
+        .htmx-request #global-spinner,
+        .htmx-request.htmx-indicator {
+            display: flex !important;
+        }
+
+        .spinner-backdrop {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(46, 52, 64, 0.85);
+            backdrop-filter: blur(2px);
+        }
+
+        .spinner-content {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            z-index: 1;
+        }
+
+        .spinner-circle {
+            width: 3rem;
+            height: 3rem;
+            border: 4px solid var(--nord3);
+            border-top-color: var(--nord8);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinner-content p {
+            color: var(--nord6);
+            font-size: 0.95rem;
+            font-weight: 500;
+            margin: 0;
+        }
+
+        /* Layout container */
+        body {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body style="background-color: var(--nord0); margin: 0; padding: 0; overflow: hidden;">
+    <!-- Global HTMX Loading Spinner -->
+    <div id="global-spinner" class="htmx-indicator">
+        <div class="spinner-backdrop"></div>
+        <div class="spinner-content">
+            <div class="spinner-circle"></div>
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <!-- VA Sidebar (Discord-style) -->
+    <aside class="va-sidebar" style="width: 72px; min-width: 72px; background-color: var(--nord1); border-right: 1px solid var(--nord3); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;">
+        <!-- Logo Section -->
+        <div class="h-16 flex items-center justify-center md:h-12" style="border-bottom: 1px solid var(--nord3); flex-shrink: 0;">
+            <div class="va-icon va-logo" style="width: 48px; height: 48px; border-radius: 50%; background-color: var(--nord8); color: var(--nord0); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.25rem; cursor: pointer; transition: border-radius 0.2s ease;">
+                V
+            </div>
+        </div>
+
+        <!-- VA List -->
+        <nav class="flex-1 overflow-y-auto overflow-x-hidden py-2" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center; position: relative;">
+            {{range .VirtualAirlines}}
+            <div class="va-icon-wrapper" data-va-name="{{.VAName}}" style="position: relative; width: 100%; display: flex; justify-content: center;">
+                <button
+                    type="button"
+                    hx-post="/dashboard/switch-va"
+                    hx-vals='{"va_id":"{{.VAID}}"}'
+                    hx-target="#dashboard-content"
+                    hx-swap="innerHTML"
+                    hx-on::after-request="updateActiveSidebar(this, '{{.VAID}}')"
+                    class="va-icon {{if eq $.ActiveVAID .VAID}}va-icon-active{{else}}va-icon-inactive{{end}}"
+                    data-va-id="{{.VAID}}"
+                    style="width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem; transition: all 0.2s ease; cursor: pointer; border: none; position: relative; {{if eq $.ActiveVAID .VAID}}background-color: var(--nord8); color: var(--nord0);{{else}}background-color: var(--nord2); color: var(--nord6);{{end}}">
+                    {{$initials := ""}}
+                    {{range $i, $word := split .VAName " "}}
+                      {{if lt $i 2}}{{$initials = printf "%s%s" $initials (slice $word 0 1)}}{{end}}
+                    {{end}}
+                    {{$initials}}
+                </button>
+                <!-- Active indicator bar -->
+                {{if eq $.ActiveVAID .VAID}}
+                <div class="va-active-indicator" style="position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 4px; height: 40px; background-color: var(--nord8); border-radius: 0 4px 4px 0;"></div>
+                {{end}}
+            </div>
+            {{end}}
+        </nav>
+
+        <!-- Logout Section -->
+        <div class="h-16 flex items-center justify-center md:h-12" style="border-top: 1px solid var(--nord3); flex-shrink: 0;">
+            <button class="va-icon logout-button" disabled title="Logout coming soon" style="width: 48px; height: 48px; border-radius: 50%; opacity: 0.6; cursor: not-allowed; background-color: var(--nord2); color: var(--nord3); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; border: none;">
+                ⚙
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col" style="min-width: 0; overflow: hidden;">
+        <!-- Header -->
+        <header class="h-16 flex items-center justify-between px-8 md:px-4 md:h-12" style="background-color: var(--nord1); border-bottom: 1px solid var(--nord3); flex-shrink: 0;">
+            <div class="flex-1 flex flex-col justify-center">
+                <h2 class="text-lg font-semibold header-title" style="color: var(--nord6);">{{if .ActiveVA}}{{.ActiveVA.VAName}}{{else}}Dashboard{{end}}</h2>
+                {{if .Username}}<p class="text-sm header-subtitle" style="color: var(--nord4);">Welcome, {{.Username}}</p>{{end}}
+            </div>
+
+            <!-- User Avatar -->
+            {{if .Username}}
+            <div style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem;">
+                <span class="user-avatar" style="display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; background-color: var(--nord9); color: var(--nord0); font-weight: 700; font-size: 0.875rem;">
+                    {{$nameInitials := ""}}
+                    {{range $i, $word := split .Username " "}}
+                      {{if lt $i 2}}{{$nameInitials = printf "%s%s" $nameInitials (slice $word 0 1)}}{{end}}
+                    {{end}}
+                    {{$nameInitials}}
+                </span>
+            </div>
+            {{end}}
+        </header>
+
+        <!-- Content Area -->
+        <div class="flex-1 overflow-auto content-area" style="padding: 2rem;">
+            <div id="dashboard-content" class="max-w-7xl mx-auto">
+                {{block "content" .}}
+                <div class="text-center" style="color: var(--nord4);">
+                    <p>Select a Virtual Airline to get started</p>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </main>
+
+    <!-- HTMX Helper Script -->
+    <script>
+        function updateActiveSidebar(element, vaId) {
+            // Remove active class from all sidebar buttons
+            document.querySelectorAll('[data-va-id]').forEach(btn => {
+                btn.classList.remove('va-icon-active');
+                btn.classList.add('va-icon-inactive');
+                btn.style.backgroundColor = 'var(--nord2)';
+                btn.style.color = 'var(--nord6)';
+                // Remove active indicator
+                const wrapper = btn.closest('.va-icon-wrapper');
+                if (wrapper) {
+                    const indicator = wrapper.querySelector('.va-active-indicator');
+                    if (indicator) {
+                        indicator.remove();
+                    }
+                }
+            });
+            // Add active class to clicked button
+            element.classList.remove('va-icon-inactive');
+            element.classList.add('va-icon-active');
+            element.style.backgroundColor = 'var(--nord8)';
+            element.style.color = 'var(--nord0)';
+            // Add active indicator
+            const wrapper = element.closest('.va-icon-wrapper');
+            if (wrapper && !wrapper.querySelector('.va-active-indicator')) {
+                const indicator = document.createElement('div');
+                indicator.className = 'va-active-indicator';
+                indicator.style.cssText = 'position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 4px; height: 40px; background-color: var(--nord8); border-radius: 0 4px 4px 0;';
+                wrapper.appendChild(indicator);
+            }
+        }
+    </script>
+</body>
+</html>

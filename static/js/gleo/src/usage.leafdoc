@@ -1,0 +1,124 @@
+
+
+@namespace Introduction
+
+Welcome to Gleo!
+
+Gleo is a javascript map display library: its goal is to allow web developers to show maps in their webpages. It is similar to Leaflet, OpenLayers or MapLibre. It aims to have an API that feels similar to Leaflet (imperative, object-oriented, no stylesheets, one object instance per cartographic symbol, extensible classes), but leveraging 2D WebGL rendering.
+
+Using Gleo requires a solid grasp of the [basics of web development](https://developer.mozilla.org/en-US/docs/Learn). Gleo has been designed as [Javascript modules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules), and does not require any bundling toolchain (like rollup, parcel, webpack, etc) to work.
+
+
+@namespace Basic usage
+
+The simplest way to create a webpage with a Gleo map is to use the following HTML scaffolding:
+
+```html
+<!DOCTYPE html>
+<html><body>
+	<div style="width: 500px; height: 500px" id="gleocontainer" ></div>
+	<script type="importmap">
+		{ "imports": { "gleo/": "https://unpkg.com/gleo/src/" } }
+	</script>
+	<script type="module">
+		import MercatorMap from "gleo/MercatorMap.mjs";
+		import MercatorTiles from "gleo/loaders/MercatorTiles.mjs";
+
+		const map = new MercatorMap("gleocontainer");
+
+		const tiles = new MercatorTiles("https://tile.osm.org/{z}/{x}/{y}.png", {
+			attribution: "<a href='http://osm.org/copyright'>© OpenStreetMap contributors</a>",
+		}).addTo(map);
+
+		map.center = [40,-3];
+		map.span = 4000000;
+	</script>
+</body></html>
+```
+
+You can see the above HTML working as [`basic-usage.html`](./basic-usage.html).
+
+Let's see the pieces that make up this basic example:
+
+Everything is wrapped up in an unremarkable [HTML document](https://developer.mozilla.org/en-US/docs/Learn/HTML/Introduction_to_HTML/Getting_started#anatomy_of_an_html_document):
+
+```html
+<!DOCTYPE html>
+<html>
+	<body>
+	…
+	</body>
+</html>
+```
+
+The webpage will need a [block](https://developer.mozilla.org/en-US/docs/Glossary/Block/CSS) container where the Gleo map is to be held. For this example, it will be an empty `<div>` 500 pixels high and wide, with a specific `id` that we'll use later to link the Gleo map:
+
+```html
+<div style="width: 500px; height: 500px" id="gleocontainer" ></div>
+```
+
+As noted earlier, Gleo is designed as Javascript modules with no need of a bundling toolchain. Modern web browser can load Javascript modules, but in order to do so properly we need to add an [import map](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap) to the webpage. The import map tells the browser where (in which URI) it can find a specific library:
+
+```html
+<script type="importmap">
+	{ "imports": { "gleo/": "https://unpkg.com/gleo/src/" } }
+</script>
+```
+
+(This example uses the [https://unpkg.com](https://unpkg.com) public CDN, but it's possible to use any other CDN. It's also possible to self-host the Gleo Javascript files; and advanced users may use a Javascript bundler and escher import maps and native modules. This is out of the scope of this example.)
+
+Since our program will use Javascript modules, it needs to be a module itself
+
+```html
+<script type="module">
+…
+</script>
+```
+
+The first thing that our program does is to load two classes from the Gleo library: `MercatorMap` and `MercatorMap`:
+
+```js
+import MercatorMap from "gleo/MercatorMap.mjs";
+import MercatorTiles from "gleo/loaders/MercatorTiles.mjs";
+```
+
+(Since there's an import map, `gleo/MercatorMap.mjs` gets translated to `https://unpkg.com/gleo/src/MercatorMap.mjs`; idem for `MercatorTiles`.)
+
+Next, create a Gleo `MercatorMap` inside the `<div>` in the webpage:
+
+```js
+const map = new MercatorMap("gleocontainer");
+```
+
+(You may be asking: «Why "MercatorMap" and not just "Map"?». On one hand, [Javascript has a `Map` data structure](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map) and having equal names would be a problem. On the other hand, Gleo has support for multiple [map projections](https://en.wikipedia.org/wiki/Map_projection), so the [Mercator projection](https://en.wikipedia.org/wiki/Mercator_projection) is made explicit.)
+
+Gleo doesn't come with any built-in data, or any preferred map data providers. Just like Leaflet, one of the most common things to do is add some map tiles (in the Mercator projection) with some base map. [OpenStreetMap](https://www.openstreetmap.org/) is a usual choice for this (but if you are going to use OpenStreetMap tiles yourself, do read the [OpenStreetMap tile policy](https://operations.osmfoundation.org/policies/tiles/)!).
+
+Adding some map tiles has several parts: the class constructor (`new MercatorTiles`), the tile URL template (`"https://tile.osm.org/{z}/{x}/{y}.png"`), options like `attribution`; last but not least, the tiles have to be added to the map (`.addTo(map)`).
+
+```
+const tiles = new MercatorTiles("https://tile.osm.org/{z}/{x}/{y}.png", {
+	attribution: "<a href='http://osm.org/copyright'>© OpenStreetMap contributors</a>",
+}).addTo(map);
+```
+
+It may not be obvious that a lot of methods use a technique known as [method chaining](https://en.wikipedia.org/wiki/Method_chaining). In other words: `const tiles = new MercatorTiles(…).addTo(map);` works in the same way as `const tiles = new MercatorTiles(…); tiles.addTo(map);`
+
+Finally, we have to give the map a center, and a scale or span:
+
+```js
+map.center = [40,-3];
+map.span = 4000000;
+```
+
+Using `MercatorMap` means that there's a few niceties included, like being able to define the map center as a latitude-longitude pair (as opposed to coordinates in the Mercator projection).
+
+Unlike Leaflet, Gleo eschews the concept of "zoom level" and uses the concept of "scale", in terms of CRS units per CSS pixel (for a Mercator map, this means meters-at-the-equator per CSS pixel). Instead of defining a "scale", the example defines the map's "span": the amount of CRS units (or pseudometers) that should fit in the map's diagonal. In other words: a value of 4 000 000 means that we want our map to cover *about* 4000km. Note that the map will snap the scale so that it fits the scale used by the map tiles; otherwise they would become blurry.
+
+
+
+
+
+
+
+
