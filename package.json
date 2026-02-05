@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Frontend assets for Politburo UI",
   "scripts": {
-    "css": "tailwindcss -i ./vizburo/ui/input.css -o ./vizburo/ui/static/css/output.css --watch",
-    "css:build": "tailwindcss -i ./vizburo/ui/input.css -o ./vizburo/ui/static/css/output.css"
+    "css": "tailwindcss -i ./vizburo/ui/input.css -o ./static/css/output.css --watch",
+    "css:build": "tailwindcss -i ./vizburo/ui/input.css -o ./static/css/output.css"
   },
   "dependencies": {
     "gleo": "^1.1.0"

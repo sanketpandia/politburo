@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -19,6 +20,14 @@ type SignedToken struct {
 	ExpiresAt time.Time
 }
 
+// SignedLinkData represents the data stored in Redis for a signed link
+type SignedLinkData struct {
+	UserID     string    `json:"user_id"`
+	VAID       string    `json:"va_id"`
+	RedirectTo string    `json:"redirect_to"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
 // URLSignerService generates and validates presigned URLs for dashboard access
 type URLSignerService struct {
 	secretKey []byte
@@ -33,13 +42,19 @@ func NewURLSignerService(secretKey []byte, redis *redis.Client) *URLSignerServic
 	}
 }
 
-// GeneratePresignedURL generates a single-use presigned URL token
-func (s *URLSignerService) GeneratePresignedURL(
-	userID, vaID string,
+// GenerateSignedLink generates a signed link with redirect URL support
+func (s *URLSignerService) GenerateSignedLink(
+	ctx context.Context,
+	userID, vaID, redirectTo string,
 	ttl time.Duration,
 ) (string, error) {
 	tokenID := uuid.New().String()
 	expiresAt := time.Now().Add(ttl)
+
+	// Default redirect to /dashboard if not specified
+	if redirectTo == "" {
+		redirectTo = "/dashboard"
+	}
 
 	// Create JWT claims
 	claims := jwt.MapClaims{
@@ -57,7 +72,46 @@ func (s *URLSignerService) GeneratePresignedURL(
 		return "", fmt.Errorf("failed to sign token: %w", err)
 	}
 
+	// Store redirect URL and metadata in Redis with same TTL
+	linkData := SignedLinkData{
+		UserID:     userID,
+		VAID:       vaID,
+		RedirectTo: redirectTo,
+		ExpiresAt:  expiresAt,
+	}
+	dataJSON, err := json.Marshal(linkData)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal link data: %w", err)
+	}
+
+	// Store in Redis with key: signed_link:{tokenID}
+	redisKey := "signed_link:" + tokenID
+	err = s.redis.Set(ctx, redisKey, dataJSON, ttl).Err()
+	if err != nil {
+		return "", fmt.Errorf("failed to store link data: %w", err)
+	}
+
 	return tokenString, nil
+}
+
+// GetSignedLinkData retrieves the redirect URL and metadata for a token
+func (s *URLSignerService) GetSignedLinkData(ctx context.Context, tokenID string) (*SignedLinkData, error) {
+	redisKey := "signed_link:" + tokenID
+	val, err := s.redis.Get(ctx, redisKey).Result()
+	if err == redis.Nil {
+		return nil, errors.New("link data not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get link data: %w", err)
+	}
+
+	var linkData SignedLinkData
+	err = json.Unmarshal([]byte(val), &linkData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal link data: %w", err)
+	}
+
+	return &linkData, nil
 }
 
 // ValidateToken validates a presigned URL token

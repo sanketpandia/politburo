@@ -1,3 +1,7 @@
+# DEPRECATED: This Dockerfile is deprecated. Use Dockerfile.dev instead.
+# The application now uses a single unified deployable.
+# This file is kept for reference only and should not be used.
+#
 # Development Dockerfile for Vizburo UI service with hot reload
 FROM node:20-alpine
 

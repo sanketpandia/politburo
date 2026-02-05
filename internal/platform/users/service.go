@@ -44,8 +44,8 @@ func (s *Service) GetUserDetails(ctx context.Context, userDiscordID, vaDiscordSe
 		// For now, we'll create minimal affiliations
 		affiliation := responses.VAAffiliation{
 			VAID:     vaRole.VAID,
-			VAName:   "",        // To be populated by feature layer
-			VACode:   "",        // To be populated by feature layer
+			VAName:   "", // To be populated by feature layer
+			VACode:   "", // To be populated by feature layer
 			Role:     string(vaRole.Role),
 			IsActive: vaRole.IsActive,
 			JoinedAt: vaRole.JoinedAt,
@@ -108,4 +108,9 @@ func (s *Service) GetUserByCallsignAndVA(ctx context.Context, callsign string, v
 // GetByDiscordID retrieves a user by Discord ID
 func (s *Service) GetByDiscordID(ctx context.Context, discordID string) (*User, error) {
 	return s.repo.GetUserByDiscordID(ctx, discordID)
+}
+
+// GetByID retrieves a user by ID
+func (s *Service) GetByID(ctx context.Context, userID string) (*User, error) {
+	return s.repo.GetByID(ctx, userID)
 }

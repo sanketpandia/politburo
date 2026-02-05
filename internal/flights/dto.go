@@ -39,9 +39,9 @@ type VALiveFlightDTO struct {
 	MaxAltitude *int `json:"max_altitude"` // null if no waypoints, max altitude in feet from waypoints
 
 	// Metadata (UTC timestamps)
-	DetectedAt          time.Time  `json:"detected_at"`           // When we first detected/created this flight record
-	LastUpdated         time.Time  `json:"last_updated"`          // When we last updated this record in cache
-	LastReport          time.Time  `json:"last_report"`          // When pilot last reported position to game servers
+	DetectedAt          time.Time  `json:"detected_at"`            // When we first detected/created this flight record
+	LastUpdated         time.Time  `json:"last_updated"`           // When we last updated this record in cache
+	LastReport          time.Time  `json:"last_report"`            // When pilot last reported position to game servers
 	LastFlightPlanFetch *time.Time `json:"last_flight_plan_fetch"` // null if not yet fetched
 }
 
@@ -126,4 +126,11 @@ func ToVALiveFlightDTO(flight *CompleteFlight) *VALiveFlightDTO {
 	}
 
 	return dto
+}
+
+// VALiveFlightsResponse represents the response for GET /api/v1/flights/va
+// Contains flights array and signed link for browser access
+type VALiveFlightsResponse struct {
+	Flights    []VALiveFlightDTO `json:"flights"`
+	SignedLink string            `json:"signed_link,omitempty"`
 }

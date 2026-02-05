@@ -2,14 +2,18 @@ package flights
 
 import (
 	"encoding/json"
+	"fmt"
+	"html/template"
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/session"
+	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -170,7 +174,8 @@ func (h *Handler) GetUserFlightsFromCache() http.HandlerFunc {
 // Returns live flights for the current VA from prepopulated cache (new cache structure)
 // Reads flight IDs from game:live:vaflights:<va_id> and fetches each CompleteFlight object
 // This is more efficient than the old approach as it reads directly from cache populated by FlightsCacheJob
-func GetVALiveFlightsFromCache(redisCache *cache.RedisCacheService) http.HandlerFunc {
+// Also includes a signed link for browser access to the live flights page
+func GetVALiveFlightsFromCache(redisCache *cache.RedisCacheService, authSvc *auth.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		initTime := time.Now()
 
@@ -181,70 +186,57 @@ func GetVALiveFlightsFromCache(redisCache *cache.RedisCacheService) http.Handler
 			return
 		}
 
-		// Get VA ID from claims (auth already processes Discord ID to UUID)
+		// Get VA ID and User ID from claims
 		vaID := claims.ServerID()
+		userID := claims.UserID()
 		if vaID == "" {
 			common.RespondError(w, initTime, nil, "VA ID not found in claims", http.StatusBadRequest)
 			return
 		}
 
-		// Get flight IDs list from cache
-		vaFlightsKey := cache.LiveVAFlightsKey(vaID)
-		flightIDsVal, found := redisCache.Get(vaFlightsKey)
-		if !found {
-			// No flights cached for this VA - return empty array
-			common.RespondSuccess(w, initTime, "No live flights found", []VALiveFlightDTO{})
+		// Fetch flights using common service function
+		flights, err := GetVALiveFlightsDTOs(redisCache, vaID)
+		if err != nil {
+			logging.Warn("Failed to fetch flights from cache", "error", err, "vaID", vaID)
+			common.RespondError(w, initTime, err, "Failed to fetch flights", http.StatusInternalServerError)
 			return
 		}
 
-		// Parse flight IDs string (pipe-separated)
-		flightIDsStr, ok := flightIDsVal.(string)
-		if !ok {
-			logging.Warn("Invalid flight IDs format in cache", "vaID", vaID, "type", "%T", flightIDsVal)
-			common.RespondError(w, initTime, nil, "Invalid cache format", http.StatusInternalServerError)
-			return
-		}
-
-		if flightIDsStr == "" {
-			common.RespondSuccess(w, initTime, "No live flights found", []VALiveFlightDTO{})
-			return
-		}
-
-		flightIDs := strings.Split(flightIDsStr, "|")
-		flights := make([]VALiveFlightDTO, 0, len(flightIDs))
-
-		// Fetch each flight object from cache
-		for _, flightID := range flightIDs {
-			if flightID == "" {
-				continue
-			}
-
-			flightKey := cache.LiveFlightKey(flightID)
-			flightVal, found := redisCache.Get(flightKey)
-			if !found {
-				logging.Debug("Flight not found in cache", "flightID", flightID)
-				continue
-			}
-
-			// Convert cached value to CompleteFlight
-			jsonBytes, err := json.Marshal(flightVal)
+		// Generate signed link for browser access
+		var signedLink string
+		if userID != "" {
+			token, err := authSvc.GenerateSignedLink(r.Context(), userID, vaID, "/dashboard/live", 15*time.Minute)
 			if err != nil {
-				logging.Warn("Failed to marshal cached flight", "flightID", flightID, "error", err)
-				continue
+				logging.Warn("Failed to generate signed link", "error", err, "userID", userID, "vaID", vaID)
+				// Continue without signed link - not a critical error
+			} else {
+				// Get UI base URL from environment or request
+				uiBaseURL := os.Getenv("UI_BASE_URL")
+				if uiBaseURL == "" {
+					scheme := r.Header.Get("X-Forwarded-Proto")
+					if scheme == "" {
+						scheme = "http"
+						if r.TLS != nil {
+							scheme = "https"
+						}
+					}
+					forwardedHost := r.Header.Get("X-Forwarded-Host")
+					if forwardedHost == "" {
+						forwardedHost = r.Host
+					}
+					uiBaseURL = scheme + "://" + forwardedHost
+				}
+				signedLink = fmt.Sprintf("%s/auth/login?token=%s", uiBaseURL, token)
 			}
-
-			var flight CompleteFlight
-			if err := json.Unmarshal(jsonBytes, &flight); err != nil {
-				logging.Warn("Failed to unmarshal cached flight", "flightID", flightID, "error", err)
-				continue
-			}
-
-			// Convert to DTO (excludes internal fields and ensures UTC timestamps)
-			dto := ToVALiveFlightDTO(&flight)
-			flights = append(flights, *dto)
 		}
 
-		common.RespondSuccess(w, initTime, "Live flights fetched", flights)
+		// Return response with flights array and signed link
+		response := VALiveFlightsResponse{
+			Flights:    flights,
+			SignedLink: signedLink,
+		}
+
+		common.RespondSuccess(w, initTime, "Live flights fetched", response)
 	}
 }
 
@@ -285,5 +277,127 @@ func GetFlightByID(redisCache *cache.RedisCacheService) http.HandlerFunc {
 		}
 
 		common.RespondSuccess(w, initTime, "Flight fetched", flight)
+	}
+}
+
+// GetFlightWaypoints handles GET /dashboard/flights/{flight_id}/waypoints
+// Returns just the waypoints array for route mapping (UI-friendly endpoint)
+func GetFlightWaypoints(redisCache *cache.RedisCacheService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		// Get flight ID from path parameter
+		flightID := chi.URLParam(r, "flight_id")
+		if flightID == "" {
+			common.RespondError(w, initTime, nil, "Missing flight_id parameter", http.StatusBadRequest)
+			return
+		}
+
+		// Get flight from cache
+		flightKey := cache.LiveFlightKey(flightID)
+		flightVal, found := redisCache.Get(flightKey)
+		if !found {
+			common.RespondError(w, initTime, nil, "Flight not found", http.StatusNotFound)
+			return
+		}
+
+		// Convert cached value to CompleteFlight
+		jsonBytes, err := json.Marshal(flightVal)
+		if err != nil {
+			logging.Warn("Failed to marshal cached flight", "flightID", flightID, "error", err)
+			common.RespondError(w, initTime, err, "Failed to process flight data", http.StatusInternalServerError)
+			return
+		}
+
+		var flight CompleteFlight
+		if err := json.Unmarshal(jsonBytes, &flight); err != nil {
+			logging.Warn("Failed to unmarshal cached flight", "flightID", flightID, "error", err)
+			common.RespondError(w, initTime, err, "Failed to parse flight data", http.StatusInternalServerError)
+			return
+		}
+
+		// Return just the waypoints array
+		common.RespondSuccess(w, initTime, "Waypoints fetched", flight.Waypoints)
+	}
+}
+
+// LiveFlightsPageHandler handles GET /dashboard/live
+// Serves the live flights page with flights rendered on Gleo map (staff+ only)
+func LiveFlightsPageHandler(redisCache *cache.RedisCacheService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get user claims from context (injected by auth middleware)
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+
+		// Get session data from context
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+
+		// Cast to SessionData
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+
+		// Check if user is staff or admin
+		activeVA := sessionData.GetActiveVA()
+		if activeVA == nil {
+			http.Error(w, "No active VA found", http.StatusInternalServerError)
+			return
+		}
+		// Get VA ID from claims
+		vaID := claims.ServerID()
+		if vaID == "" {
+			http.Error(w, "VA ID not found in claims", http.StatusInternalServerError)
+			return
+		}
+
+		// Fetch flights using common service function
+		flights, err := GetVALiveFlightsDTOs(redisCache, vaID)
+		if err != nil {
+			logging.Warn("Failed to fetch flights from cache", "error", err, "vaID", vaID)
+			// Continue with empty flights array - not a critical error for page rendering
+			flights = []VALiveFlightDTO{}
+		}
+
+		// Prepare template data
+		data, err := templates.PrepareTemplateData(sessionData, "Live Flights")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Add current page identifier for menu highlighting
+		data["CurrentPage"] = "live"
+
+		// Add flights data as JSON for the template (using template.JS for safe embedding)
+		flightsJSON, err := json.Marshal(flights)
+		if err != nil {
+			logging.Warn("Failed to marshal flights for template", "error", err)
+			data["FlightsJSON"] = template.JS("[]")
+		} else {
+			data["FlightsJSON"] = template.JS(flightsJSON)
+		}
+
+		// Create renderer configured for flights templates
+		renderer := templates.NewRenderer(
+			"templates",                   // BasePath (feature templates)
+			"templates/partials",          // PartialsPath (shared partials)
+			"templates/layouts/base.html", // LayoutPath (shared layout)
+		)
+
+		// Render template
+		if err := renderer.RenderTemplate(w, "pages/live.html", data); err != nil {
+			logging.Error("Error rendering live flights page", "error", err)
+			http.Error(w, "Error rendering live flights page", http.StatusInternalServerError)
+			return
+		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/internal/constants"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -17,7 +18,72 @@ const (
 	flightPlanStreamName = "flight_plan_queue"
 	flightPlanGroupName  = "flight_plan_workers"
 	flightPlanConsumer   = "worker_1"
+	maxRetryAttempts     = 2             // Maximum retry attempts for any error
+	retryKeyTTL          = 1 * time.Hour // TTL for retry tracking keys
 )
+
+// isPermanentError checks if an error is a permanent error that shouldn't be retried
+func isPermanentError(err error) (bool, int) {
+	if err == nil {
+		return false, 0
+	}
+
+	errStr := err.Error()
+	// Check for HTTP status codes in error messages
+	// Format: "unexpected status 400" or "unexpected status 404"
+	var status int
+	if strings.Contains(errStr, "unexpected status 400") {
+		status = http.StatusBadRequest
+	} else if strings.Contains(errStr, "unexpected status 404") || strings.Contains(errStr, "resource not found") {
+		status = http.StatusNotFound
+	} else {
+		return false, 0
+	}
+
+	return true, status
+}
+
+// getRetryCount gets the current retry count for a message
+func (w *FlightPlanWorker) getRetryCount(msgID string) int {
+	if msgID == "" {
+		return 0
+	}
+	retryKey := fmt.Sprintf("flight_plan_retry:%s", msgID)
+	val, found := w.cache.Get(retryKey)
+	if !found {
+		return 0
+	}
+	// Try to convert to int
+	if count, ok := val.(int); ok {
+		return count
+	}
+	if count, ok := val.(float64); ok {
+		return int(count)
+	}
+	return 0
+}
+
+// incrementRetryCount increments the retry count for a message
+func (w *FlightPlanWorker) incrementRetryCount(msgID string) int {
+	if msgID == "" {
+		return 0
+	}
+	retryKey := fmt.Sprintf("flight_plan_retry:%s", msgID)
+	currentCount := w.getRetryCount(msgID)
+	newCount := currentCount + 1
+	// Store as int (will be serialized by cache)
+	w.cache.Set(retryKey, newCount, retryKeyTTL)
+	return newCount
+}
+
+// clearRetryCount clears the retry count for a message (on success)
+func (w *FlightPlanWorker) clearRetryCount(msgID string) {
+	if msgID == "" {
+		return
+	}
+	retryKey := fmt.Sprintf("flight_plan_retry:%s", msgID)
+	w.cache.Delete(retryKey)
+}
 
 // FlightPlanWorker processes flight plan requests from Redis queue
 // It fetches flight plans, extracts route information, and updates cached flight data
@@ -78,16 +144,83 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 
 			// Process the flight plan request
 			if err := w.processFlightPlan(ctx, item); err != nil {
-				logging.Error("Failed to process flight plan",
+				// Increment retry count for this message
+				retryCount := w.incrementRetryCount(msgID)
+
+				// Check if we've exceeded max retry attempts
+				if retryCount >= maxRetryAttempts {
+					logging.Warn("Max retry attempts reached - acknowledging message (will be re-queued by flights worker if flight becomes active)",
+						"sessionID", item.SessionID,
+						"flightID", item.FlightID,
+						"retryCount", retryCount,
+						"error", err,
+					)
+					// ACK the message - flights cache worker will re-queue if flight becomes active again
+					if msgID != "" {
+						if ackErr := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); ackErr != nil {
+							logging.Error("Failed to ack max-retry message", "messageID", msgID, "error", ackErr)
+						}
+						// Clear retry count since we're done with this message
+						w.clearRetryCount(msgID)
+					}
+					continue
+				}
+
+				// Check if this is a permanent error (400, 404) that shouldn't be retried
+				isPermanent, statusCode := isPermanentError(err)
+				if isPermanent {
+					logging.Warn("Permanent error processing flight plan - acknowledging to stop retries",
+						"sessionID", item.SessionID,
+						"flightID", item.FlightID,
+						"statusCode", statusCode,
+						"retryCount", retryCount,
+						"error", err,
+					)
+					// ACK the message to stop infinite retries for permanent errors
+					if msgID != "" {
+						if ackErr := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); ackErr != nil {
+							logging.Error("Failed to ack permanent error message", "messageID", msgID, "error", ackErr)
+						}
+						// Clear retry count since we're done with this message
+						w.clearRetryCount(msgID)
+					}
+					continue
+				}
+
+				// Check if flight is no longer in cache (user went offline)
+				flightKey := cache.LiveFlightKey(item.FlightID)
+				if _, found := w.cache.Get(flightKey); !found {
+					logging.Warn("Flight no longer in cache (user likely offline) - acknowledging to stop retries",
+						"sessionID", item.SessionID,
+						"flightID", item.FlightID,
+						"retryCount", retryCount,
+						"error", err,
+					)
+					// ACK the message since the flight is gone
+					if msgID != "" {
+						if ackErr := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); ackErr != nil {
+							logging.Error("Failed to ack offline flight message", "messageID", msgID, "error", ackErr)
+						}
+						// Clear retry count since we're done with this message
+						w.clearRetryCount(msgID)
+					}
+					continue
+				}
+
+				// Transient error - log and let it be retried (up to maxRetryAttempts)
+				logging.Error("Failed to process flight plan (transient error - will retry)",
 					"sessionID", item.SessionID,
 					"flightID", item.FlightID,
+					"retryCount", retryCount,
+					"maxRetries", maxRetryAttempts,
 					"error", err,
 				)
-				// Don't ack on error - let it be retried
+				// Don't ack on transient error - let it be retried (up to maxRetryAttempts)
 				continue
 			}
 
-			// Acknowledge successful processing
+			// Success - clear retry count and acknowledge
+			w.clearRetryCount(msgID)
 			if msgID != "" {
 				if err := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); err != nil {
 					logging.Error("Failed to ack flight plan message", "messageID", msgID, "error", err)
@@ -202,13 +335,20 @@ func (w *FlightPlanWorker) processFlightPlan(ctx context.Context, item *queue.Fl
 }
 
 // getFlightPlanCached fetches flight plan with caching (7 days)
+// Returns the flight plan or an error (which may be a permanent error for 400/404 status codes)
 func (w *FlightPlanWorker) getFlightPlanCached(sessionID, flightID string) (*liveapi.FlightPlanResponse, error) {
 	// Use same cache key pattern as flights.Service
 	cacheKey := string(constants.CachePrefixFPL) + sessionID + "_" + flightID
 
 	val, err := w.cache.GetOrSet(cacheKey, 7*24*time.Hour, func() (any, error) {
-		fpl, _, err := w.liveAPI.GetFlightPlan(sessionID, flightID)
+		fpl, status, err := w.liveAPI.GetFlightPlan(sessionID, flightID)
 		if err != nil {
+			// Preserve status code in error for permanent error detection
+			// The error from liveapi.Client already includes status in the message
+			// but we can enhance it for better detection
+			if status == http.StatusBadRequest || status == http.StatusNotFound {
+				return nil, fmt.Errorf("unexpected status %d: %w", status, err)
+			}
 			return nil, err
 		}
 		return *fpl, nil

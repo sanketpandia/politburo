@@ -4,26 +4,33 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/session"
+	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // Handler handles pilot statistics and registration endpoints
 type Handler struct {
-	statsSvc *StatsService
-	regSvc   *RegistrationService
+	statsSvc   *StatsService
+	regSvc     *RegistrationService
+	logbookSvc *LogbookService
 }
 
 // NewHandler creates a new pilot handler instance
-func NewHandler(statsSvc *StatsService, regSvc *RegistrationService) *Handler {
+func NewHandler(statsSvc *StatsService, regSvc *RegistrationService, logbookSvc *LogbookService) *Handler {
 	return &Handler{
-		statsSvc: statsSvc,
-		regSvc:   regSvc,
+		statsSvc:   statsSvc,
+		regSvc:     regSvc,
+		logbookSvc: logbookSvc,
 	}
 }
 
@@ -174,12 +181,12 @@ func (h *Handler) handlePilotStatsError(w http.ResponseWriter, initTime time.Tim
 			message = constants.GetErrorMessage(statsErr.Code)
 		}
 
-		common.RespondError(w, initTime, err, message, statusCode)
+		httpdto.WriteError(w, initTime, statsErr.Code, message, statusCode)
 		return
 	}
 
 	// Default to internal server error for unknown errors
-	common.RespondError(w, initTime, err, "An unexpected error occurred", http.StatusInternalServerError)
+	httpdto.WriteError(w, initTime, "INTERNAL_ERROR", "An unexpected error occurred", http.StatusInternalServerError)
 }
 
 // mapErrorCodeToHTTPStatus maps error codes to HTTP status codes
@@ -227,5 +234,170 @@ func (h *Handler) mapErrorCodeToHTTPStatus(errorCode string) int {
 
 	default:
 		return http.StatusInternalServerError
+	}
+}
+
+// GetUserLogbook handles GET /api/v1/pilots/{ifc_id}/logbook?page=1
+// Returns paginated flight history for a user by IFC ID
+func (h *Handler) GetUserLogbook() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		// Extract path parameter
+		ifcID := chi.URLParam(r, "ifc_id")
+		if ifcID == "" {
+			httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid IFC ID", http.StatusBadRequest)
+			return
+		}
+
+		// Parse query parameter 'page'
+		page := 1
+		if qs := r.URL.Query().Get("page"); qs != "" {
+			p, err := strconv.Atoi(qs)
+			if err != nil || p <= 0 {
+				httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid page parameter", http.StatusBadRequest)
+				return
+			}
+			page = p
+		}
+
+		// Get claims for logging/audit (not required for API call itself)
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized: missing claims", http.StatusUnauthorized)
+			return
+		}
+
+		// Call service
+		dto, err := h.logbookSvc.GetUserLogbook(ifcID, page)
+		if err != nil {
+			logging.Warn("Failed to fetch user logbook", "ifc_id", ifcID, "page", page, "error", err)
+			httpdto.WriteError(w, initTime, "FETCH_ERROR", dto.Error, http.StatusInternalServerError)
+			return
+		}
+
+		httpdto.WriteSuccess(w, initTime, dto, http.StatusOK)
+	}
+}
+
+// LogbookPageHandler handles GET /dashboard/logbook
+// Serves the logbook page for staff/admin users
+func (h *Handler) LogbookPageHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get user claims from context (injected by auth middleware)
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+
+		// Get session data from context
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+
+		// Cast to SessionData
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+
+		// Prepare template data
+		data, err := templates.PrepareTemplateData(sessionData, "Logbook")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Add current page identifier for menu highlighting
+		data["CurrentPage"] = "logbook"
+
+		// Create renderer configured for templates
+		renderer := templates.NewRenderer(
+			"templates",                   // BasePath (feature templates)
+			"templates/partials",          // PartialsPath (shared partials)
+			"templates/layouts/base.html", // LayoutPath (shared layout)
+		)
+
+		// Render template
+		if err := renderer.RenderTemplate(w, "pages/logbook.html", data); err != nil {
+			logging.Error("Error rendering logbook page", "error", err)
+			http.Error(w, "Error rendering logbook page", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// LogbookFlightsHandler handles GET /dashboard/logbook/flights?user_id={ifc_id}&page=1
+// Returns HTMX partial with flight list for a user
+func (h *Handler) LogbookFlightsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get user claims from context
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Get query parameters
+		userID := r.URL.Query().Get("user_id")
+		if userID == "" {
+			http.Error(w, "user_id parameter required", http.StatusBadRequest)
+			return
+		}
+
+		pageStr := r.URL.Query().Get("page")
+		if pageStr == "" {
+			pageStr = "1"
+		}
+		page, err := strconv.Atoi(pageStr)
+		if err != nil || page < 1 {
+			page = 1
+		}
+
+		// Fetch flights from service
+		flightHistory, err := h.logbookSvc.GetUserLogbook(userID, page)
+		if err != nil {
+			logging.Warn("Failed to fetch flights", "user_id", userID, "page", page, "error", err)
+			http.Error(w, "Failed to fetch flights: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if flightHistory == nil || flightHistory.Records == nil {
+			flightHistory = &dtos.FlightHistoryDto{
+				PageNo:  page,
+				Records: []dtos.HistoryRecord{},
+			}
+		}
+
+		// Prepare template data with pagination
+		data := map[string]interface{}{
+			"Flights":     flightHistory.Records,
+			"PageNo":      page,
+			"HasNext":     flightHistory.HasNext,
+			"HasPrevious": flightHistory.HasPrevious,
+			"TotalPages":  flightHistory.TotalPages,
+			"TotalCount":  flightHistory.TotalCount,
+			"NextPage":    page + 1,
+			"PrevPage":    page - 1,
+			"UserID":      userID,
+		}
+
+		// Create renderer for partials
+		renderer := templates.NewRenderer(
+			"templates/partials",
+			"templates/partials",
+			"", // No layout for partials
+		)
+
+		// Render partial (no base layout)
+		if err := renderer.RenderPartial(w, "flight-list.html", data); err != nil {
+			logging.Error("Error rendering flight list", "error", err)
+			http.Error(w, "Error rendering flight list", http.StatusInternalServerError)
+			return
+		}
 	}
 }

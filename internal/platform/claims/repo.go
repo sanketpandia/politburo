@@ -82,3 +82,38 @@ func (r *Repository) GetMembershipByDiscordIDs(ctx context.Context, uid string, 
 	result.DeriveMembershipFlags()
 	return &result, nil
 }
+
+// VAMembershipResult represents a user's VA membership with VA details
+type VAMembershipResult struct {
+	VAID            string       `gorm:"column:va_id"`
+	VACode          string       `gorm:"column:va_code"`
+	VAName          string       `gorm:"column:va_name"`
+	Role            roles.VARole `gorm:"column:role"`
+	DiscordServerID string       `gorm:"column:discord_server_id"`
+}
+
+// GetAllVAMembershipsByUserID retrieves all VA memberships for a user with VA details
+func (r *Repository) GetAllVAMembershipsByUserID(ctx context.Context, userID string) ([]VAMembershipResult, error) {
+	var results []VAMembershipResult
+
+	err := r.db.WithContext(ctx).
+		Table("va_user_roles vur").
+		Select(`
+			vur.va_id,
+			va.code AS va_code,
+			va.name AS va_name,
+			vur.role,
+			va.discord_server_id AS discord_server_id
+		`).
+		Joins("JOIN virtual_airlines va ON va.id = vur.va_id").
+		Where("vur.user_id = ? AND vur.is_active = ?", userID, true).
+		Order("va.name ASC").
+		Scan(&results).Error
+
+	if err != nil {
+		logging.Error("Unable to fetch VA memberships for user", "user_id", userID, "error", err)
+		return nil, err
+	}
+
+	return results, nil
+}

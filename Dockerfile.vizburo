@@ -1,3 +1,7 @@
+# DEPRECATED: This Dockerfile is deprecated. Use Dockerfile instead.
+# The application now uses a single unified deployable.
+# This file is kept for reference only and should not be used.
+#
 # Multi-stage build for Vizburo UI service
 # Stage 1: Build Tailwind CSS
 FROM node:20-alpine AS tailwind-builder
@@ -33,7 +37,7 @@ COPY internal ./internal
 COPY vizburo ./vizburo
 
 # Copy Tailwind CSS output from previous stage
-COPY --from=tailwind-builder /app/vizburo/ui/static/css/tailwind.css ./vizburo/ui/static/css/
+COPY --from=tailwind-builder /app/static/css/tailwind.css ./static/css/
 
 # Build the application (vizburo service)
 RUN CGO_ENABLED=0 GOOS=linux go build \

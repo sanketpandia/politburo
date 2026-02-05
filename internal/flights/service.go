@@ -2,6 +2,7 @@ package flights
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
@@ -737,4 +738,67 @@ func (svc *Service) FindUserCurrentFlight(
 	}
 
 	return nil, fmt.Errorf("current flight not found for callsign: %s", userCallsign)
+}
+
+// GetVALiveFlightsDTOs fetches live flights for a VA from cache and returns them as VALiveFlightDTOs
+// This is a common function used by both API and page handlers
+// Reads flight IDs from game:live:vaflights:<va_id> and fetches each CompleteFlight object
+func GetVALiveFlightsDTOs(redisCache *cache.RedisCacheService, vaID string) ([]VALiveFlightDTO, error) {
+	if vaID == "" {
+		return nil, errors.New("VA ID is required")
+	}
+
+	// Get flight IDs list from cache
+	vaFlightsKey := cache.LiveVAFlightsKey(vaID)
+	flightIDsVal, found := redisCache.Get(vaFlightsKey)
+	if !found {
+		// No flights cached for this VA - return empty slice
+		return []VALiveFlightDTO{}, nil
+	}
+
+	// Parse flight IDs string (pipe-separated)
+	flightIDsStr, ok := flightIDsVal.(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid flight IDs format in cache for VA %s, got type %T", vaID, flightIDsVal)
+	}
+
+	if flightIDsStr == "" {
+		return []VALiveFlightDTO{}, nil
+	}
+
+	flightIDs := strings.Split(flightIDsStr, "|")
+	flights := make([]VALiveFlightDTO, 0, len(flightIDs))
+
+	// Fetch each flight object from cache
+	for _, flightID := range flightIDs {
+		if flightID == "" {
+			continue
+		}
+
+		flightKey := cache.LiveFlightKey(flightID)
+		flightVal, found := redisCache.Get(flightKey)
+		if !found {
+			log.Printf("Flight not found in cache: %s", flightID)
+			continue
+		}
+
+		// Convert cached value to CompleteFlight
+		jsonBytes, err := json.Marshal(flightVal)
+		if err != nil {
+			log.Printf("Failed to marshal cached flight %s: %v", flightID, err)
+			continue
+		}
+
+		var flight CompleteFlight
+		if err := json.Unmarshal(jsonBytes, &flight); err != nil {
+			log.Printf("Failed to unmarshal cached flight %s: %v", flightID, err)
+			continue
+		}
+
+		// Convert to DTO (excludes internal fields and ensures UTC timestamps)
+		dto := ToVALiveFlightDTO(&flight)
+		flights = append(flights, *dto)
+	}
+
+	return flights, nil
 }

@@ -261,28 +261,28 @@ func (t *APITime) UnmarshalJSON(b []byte) error {
 	if s == "" || s == "null" {
 		return nil
 	}
-	
+
 	// Try the original API format first
 	tt, err := time.Parse(apiLayout, s)
 	if err == nil {
 		t.Time = tt
 		return nil
 	}
-	
+
 	// Try ISO 8601 / RFC3339 format (used by Go's standard JSON encoding)
 	tt, err = time.Parse(time.RFC3339, s)
 	if err == nil {
 		t.Time = tt
 		return nil
 	}
-	
+
 	// Try ISO 8601 with nanoseconds
 	tt, err = time.Parse(time.RFC3339Nano, s)
 	if err == nil {
 		t.Time = tt
 		return nil
 	}
-	
+
 	// If all formats fail, return the original error
 	return fmt.Errorf("failed to parse time %q: %w", s, err)
 }

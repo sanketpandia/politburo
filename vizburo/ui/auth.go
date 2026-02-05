@@ -1,16 +1,13 @@
 package ui
 
 import (
-	"infinite-experiment/politburo/infra/security"
-	"infinite-experiment/politburo/infra/session"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
-	"time"
 
+	"infinite-experiment/politburo/infra/security"
+	"infinite-experiment/politburo/infra/session"
 	authctx "infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/db/repositories"
 )
@@ -181,65 +178,6 @@ func (h *AuthHandler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to login page
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-}
-
-// GenerateDashboardLinkHandler generates a presigned URL for dashboard access (API endpoint)
-func (h *AuthHandler) GenerateDashboardLinkHandler(w http.ResponseWriter, r *http.Request) {
-	// Get claims from context (set by AuthMiddleware with API key from bot)
-	claims := authctx.GetUserClaims(r.Context())
-	if claims == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	discordID := claims.DiscordUserID()
-	discordServerID := claims.DiscordServerID()
-
-	// Lookup user_id and va_id from database
-	user, err := h.userRepo.GetUserByDiscordID(r.Context(), discordID)
-	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
-
-	// Lookup VA by Discord server ID
-	va, err := h.vaGormRepo.GetByDiscordServerID(r.Context(), discordServerID)
-	if err != nil {
-		http.Error(w, "VA not found", http.StatusNotFound)
-		return
-	}
-
-	// Generate presigned URL (15 minute expiry)
-	token, err := h.urlSigner.GeneratePresignedURL(user.ID, va.ID, 15*60*time.Second)
-	if err != nil {
-		http.Error(w, "Failed to generate link", http.StatusInternalServerError)
-		return
-	}
-
-	// Get the UI base URL from environment, fallback to current request
-	uiBaseURL := os.Getenv("UI_BASE_URL")
-	if uiBaseURL == "" {
-		// Fallback: construct from request headers
-		scheme := r.Header.Get("X-Forwarded-Proto")
-		if scheme == "" {
-			scheme = "http"
-			if r.TLS != nil {
-				scheme = "https"
-			}
-		}
-		forwardedHost := r.Header.Get("X-Forwarded-Host")
-		if forwardedHost == "" {
-			forwardedHost = r.Host
-		}
-		uiBaseURL = scheme + "://" + forwardedHost
-	}
-
-	// Return JSON with link
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"url":        fmt.Sprintf("%s/auth/login?token=%s", uiBaseURL, token),
-		"expires_in": 900, // seconds
-	})
 }
 
 // SwitchVAHandler switches the active VA and returns updated dashboard content

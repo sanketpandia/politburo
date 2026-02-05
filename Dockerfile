@@ -31,7 +31,7 @@ RUN go mod download
 COPY . .
 
 # Copy compiled CSS from previous stage
-COPY --from=css-builder /app/vizburo/ui/static/css/output.css ./vizburo/ui/static/css/output.css
+COPY --from=css-builder /app/static/css/output.css ./static/css/output.css
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o bin/app ./cmd/server
 
@@ -44,8 +44,8 @@ WORKDIR /app
 COPY --from=builder /app/bin/app .
 # Copy template files for the UI
 COPY --from=builder /app/vizburo/ui/templates ./vizburo/ui/templates
-# Copy compiled CSS files
-COPY --from=builder /app/vizburo/ui/static ./vizburo/ui/static
+# Copy static files
+COPY --from=builder /app/static ./static
 
 # expose your port
 EXPOSE 8080

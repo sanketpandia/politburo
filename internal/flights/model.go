@@ -1,6 +1,7 @@
 package flights
 
 import (
+	"encoding/json"
 	"math"
 	"time"
 )
@@ -56,6 +57,68 @@ type WaypointSnapshot struct {
 	Track     float64   `json:"track"`     // Normalized to 1 decimal place
 }
 
+// UnmarshalJSON implements custom JSON unmarshaling for WaypointSnapshot
+// This handles backward compatibility with old cached data that may have float values
+// for altitude and speed fields (which are now int)
+func (ws *WaypointSnapshot) UnmarshalJSON(data []byte) error {
+	// Use a temporary struct with flexible types for altitude and speed
+	type Alias struct {
+		Timestamp time.Time       `json:"timestamp"`
+		Latitude  float64         `json:"latitude"`
+		Longitude float64         `json:"longitude"`
+		Altitude  json.RawMessage `json:"altitude"` // Use RawMessage to handle both int and float
+		Speed     json.RawMessage `json:"speed"`    // Use RawMessage to handle both int and float
+		Track     float64         `json:"track"`
+	}
+
+	var alias Alias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Copy all fields
+	ws.Timestamp = alias.Timestamp
+	ws.Latitude = alias.Latitude
+	ws.Longitude = alias.Longitude
+	ws.Track = alias.Track
+
+	// Handle altitude: can be int or float (or null)
+	if len(alias.Altitude) > 0 && string(alias.Altitude) != "null" {
+		var altFloat float64
+		if err := json.Unmarshal(alias.Altitude, &altFloat); err == nil {
+			// Successfully unmarshaled as float, normalize to int
+			ws.Altitude = normalizeAltitude(altFloat)
+		} else {
+			// Try as int
+			var altInt int
+			if err := json.Unmarshal(alias.Altitude, &altInt); err == nil {
+				ws.Altitude = altInt
+			} else {
+				// If both fail, leave as zero value (0)
+			}
+		}
+	}
+
+	// Handle speed: can be int or float (or null)
+	if len(alias.Speed) > 0 && string(alias.Speed) != "null" {
+		var speedFloat float64
+		if err := json.Unmarshal(alias.Speed, &speedFloat); err == nil {
+			// Successfully unmarshaled as float, normalize to int
+			ws.Speed = normalizeSpeed(speedFloat)
+		} else {
+			// Try as int
+			var speedInt int
+			if err := json.Unmarshal(alias.Speed, &speedInt); err == nil {
+				ws.Speed = speedInt
+			} else {
+				// If both fail, leave as zero value (0)
+			}
+		}
+	}
+
+	return nil
+}
+
 // CompleteFlight represents all cached flight data in ONE Redis object
 // Stored at: game:live:flight:<flight_id> with 7-day TTL
 type CompleteFlight struct {
@@ -104,6 +167,112 @@ type CompleteFlight struct {
 	LastUpdated         time.Time `json:"last_updated"` // When we last updated this record in cache
 	LastReport          time.Time `json:"last_report"`  // When pilot last reported position to game servers
 	LastFlightPlanFetch time.Time `json:"last_flight_plan_fetch,omitempty"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for CompleteFlight
+// This handles backward compatibility with old cached data that may have float values
+// for altitude and speed fields (which are now int)
+func (cf *CompleteFlight) UnmarshalJSON(data []byte) error {
+	// Use a temporary struct with flexible types for altitude and speed
+	type Alias struct {
+		FlightID            string             `json:"flight_id"`
+		Callsign            string             `json:"callsign"`
+		UserID              string             `json:"user_id"`
+		Username            string             `json:"username"`
+		SessionID           string             `json:"session_id"`
+		SessionName         string             `json:"session_name"`
+		Latitude            float64            `json:"latitude"`
+		Longitude           float64            `json:"longitude"`
+		Altitude            json.RawMessage    `json:"altitude"` // Use RawMessage to handle both int and float
+		Speed               json.RawMessage    `json:"speed"`    // Use RawMessage to handle both int and float
+		Track               float64            `json:"track"`
+		VerticalSpeed       float64            `json:"vertical_speed"`
+		AircraftID          string             `json:"aircraft_id"`
+		LiveryID            string             `json:"livery_id"`
+		AircraftName        string             `json:"aircraft_name,omitempty"`
+		LiveryName          string             `json:"livery_name,omitempty"`
+		Phase               FlightPhase        `json:"phase"`
+		TakeoffTime         *time.Time         `json:"takeoff_time,omitempty"`
+		LandingTime         *time.Time         `json:"landing_time,omitempty"`
+		VAIDs               []string           `json:"va_ids,omitempty"`
+		Origin              string             `json:"origin,omitempty"`
+		Destination         string             `json:"destination,omitempty"`
+		Waypoints           []WaypointSnapshot `json:"waypoints"`
+		LastUpdatedWaypoint time.Time          `json:"last_updated_waypoint"`
+		DetectedAt          time.Time          `json:"detected_at"`
+		LastUpdated         time.Time          `json:"last_updated"`
+		LastReport          time.Time          `json:"last_report"`
+		LastFlightPlanFetch time.Time          `json:"last_flight_plan_fetch,omitempty"`
+	}
+
+	var alias Alias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// Copy all fields
+	cf.FlightID = alias.FlightID
+	cf.Callsign = alias.Callsign
+	cf.UserID = alias.UserID
+	cf.Username = alias.Username
+	cf.SessionID = alias.SessionID
+	cf.SessionName = alias.SessionName
+	cf.Latitude = alias.Latitude
+	cf.Longitude = alias.Longitude
+	cf.Track = alias.Track
+	cf.VerticalSpeed = alias.VerticalSpeed
+	cf.AircraftID = alias.AircraftID
+	cf.LiveryID = alias.LiveryID
+	cf.AircraftName = alias.AircraftName
+	cf.LiveryName = alias.LiveryName
+	cf.Phase = alias.Phase
+	cf.TakeoffTime = alias.TakeoffTime
+	cf.LandingTime = alias.LandingTime
+	cf.VAIDs = alias.VAIDs
+	cf.Origin = alias.Origin
+	cf.Destination = alias.Destination
+	cf.Waypoints = alias.Waypoints
+	cf.LastUpdatedWaypoint = alias.LastUpdatedWaypoint
+	cf.DetectedAt = alias.DetectedAt
+	cf.LastUpdated = alias.LastUpdated
+	cf.LastReport = alias.LastReport
+	cf.LastFlightPlanFetch = alias.LastFlightPlanFetch
+
+	// Handle altitude: can be int or float (or null)
+	if len(alias.Altitude) > 0 && string(alias.Altitude) != "null" {
+		var altFloat float64
+		if err := json.Unmarshal(alias.Altitude, &altFloat); err == nil {
+			// Successfully unmarshaled as float, normalize to int
+			cf.Altitude = normalizeAltitude(altFloat)
+		} else {
+			// Try as int
+			var altInt int
+			if err := json.Unmarshal(alias.Altitude, &altInt); err == nil {
+				cf.Altitude = altInt
+			} else {
+				// If both fail, leave as zero value (0)
+			}
+		}
+	}
+
+	// Handle speed: can be int or float (or null)
+	if len(alias.Speed) > 0 && string(alias.Speed) != "null" {
+		var speedFloat float64
+		if err := json.Unmarshal(alias.Speed, &speedFloat); err == nil {
+			// Successfully unmarshaled as float, normalize to int
+			cf.Speed = normalizeSpeed(speedFloat)
+		} else {
+			// Try as int
+			var speedInt int
+			if err := json.Unmarshal(alias.Speed, &speedInt); err == nil {
+				cf.Speed = speedInt
+			} else {
+				// If both fail, leave as zero value (0)
+			}
+		}
+	}
+
+	return nil
 }
 
 // VAPattern represents a cached VA callsign configuration (in-memory only)

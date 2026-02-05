@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"infinite-experiment/politburo/infra/cache"
@@ -150,4 +151,30 @@ func ConvertAPILiveryToGORM(apiLivery dtos.AircraftLivery) AircraftLivery {
 		IsActive:     true,
 		LastSyncedAt: time.Now(),
 	}
+}
+
+// GetShortAircraftName returns a short code for an aircraft name
+func GetShortAircraftName(fullName string) string {
+	if short, ok := constants.AircraftShortNames[fullName]; ok {
+		return short
+	}
+	// fallback to first 4 uppercase characters
+	runes := []rune(fullName)
+	if len(runes) > 4 {
+		return strings.ToUpper(string(runes[:4]))
+	}
+	return strings.ToUpper(fullName)
+}
+
+// GetShortLiveryName returns a short code for a livery name
+func GetShortLiveryName(name string) string {
+	if code, ok := constants.LiveryShortNames[name]; ok {
+		return code
+	}
+	// fallback to first 4 uppercase characters
+	runes := []rune(name)
+	if len(runes) > 4 {
+		return strings.ToUpper(string(runes[:4]))
+	}
+	return strings.ToUpper(name)
 }

@@ -84,6 +84,13 @@ package routes
 // 		dashboard.Group(func(staff chi.Router) {
 // 			staff.Use(middleware.IsStaffMiddleware())
 
+// 			// Live Flights page (staff + admin)
+// 			// NOTE: When uncommenting, import flights package and add:
+// 			// staff.Get("/live", flights.LiveFlightsPageHandler())
+// 			//
+// 			// This route displays live flights on a map using Gleo.
+// 			// Accessible via signed links from /api/v1/flights/va endpoint.
+
 // 			// Logbook page and endpoints (staff + admin)
 // 			staff.Get("/logbook", vizbuUI.LogbookHandler)
 // 			staff.Get("/logbook/flights", func(w http.ResponseWriter, r *http.Request) {

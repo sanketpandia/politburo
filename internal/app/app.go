@@ -14,7 +14,10 @@ import (
 	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/infra/redis"
 	"infinite-experiment/politburo/infra/scheduler"
+	"infinite-experiment/politburo/infra/security"
 	"infinite-experiment/politburo/infra/session"
+	"infinite-experiment/politburo/infra/templates"
+	"infinite-experiment/politburo/internal/db/repositories"
 	membershipsFeature "infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/aircraft"
@@ -24,6 +27,8 @@ import (
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/servers"
+	"infinite-experiment/politburo/internal/vaadmin"
+	"os"
 
 	goredis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -40,14 +45,16 @@ type App struct {
 
 // InfraDeps holds all infrastructure-layer dependencies
 type InfraDeps struct {
-	DB          *gorm.DB
-	RedisClient *goredis.Client
-	RedisCache  *cache.RedisCacheService
-	RedisQueue  *queue.RedisQueueService
-	SessionSvc  *session.SessionService
-	MetricsReg  *metrics.MetricsRegistry
-	LiveAPI     *liveapi.Client
-	Scheduler   *scheduler.Scheduler
+	DB               *gorm.DB
+	RedisClient      *goredis.Client
+	RedisCache       *cache.RedisCacheService
+	RedisQueue       *queue.RedisQueueService
+	SessionSvc       *session.SessionService
+	URLSigner        *security.URLSignerService
+	MetricsReg       *metrics.MetricsRegistry
+	LiveAPI          *liveapi.Client
+	Scheduler        *scheduler.Scheduler
+	TemplateRenderer *templates.Renderer
 }
 
 // PlatformDeps holds all platform-layer repositories and services
@@ -78,6 +85,7 @@ type FeatureDeps struct {
 	MembershipsHandler *membershipsFeature.Handler
 	PilotsHandler      *pilots.Handler
 	ServersHandler     *servers.Handler
+	VAAdminHandler     *vaadmin.Handler
 
 	// Providers
 	LiveAPIProvider *providers.LiveAPIProvider
@@ -145,6 +153,15 @@ func (a *App) initInfra() error {
 	sessionSvc := session.NewSessionService(redisClient)
 	logging.Info("Session service initialized")
 
+	// Initialize URL Signer service
+	jwtSecret := []byte(os.Getenv("JWT_SECRET"))
+	if len(jwtSecret) == 0 {
+		jwtSecret = []byte("dev-secret-change-in-production")
+		logging.Warn("JWT_SECRET not set, using default (dev only)")
+	}
+	urlSignerSvc := security.NewURLSignerService(jwtSecret, redisClient)
+	logging.Info("URL signer service initialized")
+
 	// Initialize Live API client
 	liveAPI := liveapi.NewClient()
 	logging.Info("Live API client initialized")
@@ -157,15 +174,25 @@ func (a *App) initInfra() error {
 	redisQueue := queue.NewRedisQueueService(redisClient)
 	logging.Info("Redis queue service initialized")
 
+	// Initialize template renderer
+	templateRenderer := templates.NewRenderer(
+		"templates",                   // base path
+		"templates/partials",          // partials path
+		"templates/layouts/base.html", // layout path
+	)
+	logging.Info("Template renderer initialized")
+
 	a.Infra = InfraDeps{
-		DB:          pgDB,
-		RedisClient: redisClient,
-		RedisCache:  redisCache,
-		RedisQueue:  redisQueue,
-		SessionSvc:  sessionSvc,
-		MetricsReg:  metricsReg,
-		LiveAPI:     liveAPI,
-		Scheduler:   sched,
+		DB:               pgDB,
+		RedisClient:      redisClient,
+		RedisCache:       redisCache,
+		RedisQueue:       redisQueue,
+		SessionSvc:       sessionSvc,
+		URLSigner:        urlSignerSvc,
+		MetricsReg:       metricsReg,
+		LiveAPI:          liveAPI,
+		Scheduler:        sched,
+		TemplateRenderer: templateRenderer,
 	}
 
 	logging.Info("Infrastructure layer initialized")
@@ -239,10 +266,23 @@ func (a *App) initFeatures() error {
 
 	logging.Debug("Feature services initialized")
 
+	// Initialize logbook service
+	logbookSvc := pilots.NewLogbookService(
+		a.Infra.LiveAPI,
+		a.Platform.AircraftSvc,
+	)
+	logging.Debug("Logbook service initialized")
+
+	// Initialize pilot management service
+	vaUserRoleRepo := repositories.NewVAUserRoleRepository(a.Infra.DB)
+	pilotMgmtSvc := pilots.NewManagementService(vaUserRoleRepo)
+	logging.Debug("Pilot management service initialized")
+
 	// Initialize handlers
 	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc)
-	pilotsHandler := pilots.NewHandler(nil, pilotsRegSvc)
+	pilotsHandler := pilots.NewHandler(nil, pilotsRegSvc, logbookSvc)
 	serversHandler := servers.NewHandler(serversRegSvc)
+	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, a.Infra.TemplateRenderer)
 
 	logging.Debug("Feature handlers initialized")
 
@@ -253,6 +293,7 @@ func (a *App) initFeatures() error {
 		MembershipsHandler:    membershipsHandler,
 		PilotsHandler:         pilotsHandler,
 		ServersHandler:        serversHandler,
+		VAAdminHandler:        vaAdminHandler,
 		LiveAPIProvider:       liveAPIProvider,
 	}
 

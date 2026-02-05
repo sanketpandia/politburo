@@ -7,7 +7,7 @@ set -e
 
 GLEO_VERSION="1.1.0"
 BASE_URL="https://unpkg.com/gleo@${GLEO_VERSION}/src"
-TARGET_DIR="./vizburo/ui/static/js/gleo"
+TARGET_DIR="./static/js/gleo"
 
 echo "Downloading Gleo library files..."
 
