@@ -129,7 +129,37 @@ func NewRouter(application *app.App) http.Handler {
 		// Logbook endpoint
 		v1.Get("/pilots/{ifc_id}/logbook", application.Features.PilotsHandler.GetUserLogbook())
 
-		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook")
+		// Events endpoints
+		v1.Route("/events", func(events chi.Router) {
+			events.Get("/", application.Features.EventsHandler.ListEvents())
+			events.Post("/", application.Features.EventsHandler.CreateEvent())
+			events.Get("/{id}", application.Features.EventsHandler.GetEvent())
+			events.Put("/{id}", application.Features.EventsHandler.UpdateEvent())
+			events.Delete("/{id}", application.Features.EventsHandler.DeleteEvent())
+			events.Patch("/{id}/status", application.Features.EventsHandler.UpdateEventStatus())
+			events.Get("/{id}/summary", application.Features.EventsHandler.GetEventSummary())
+			events.Get("/{id}/legs", application.Features.EventsHandler.GetEventLegs())
+			events.Post("/{id}/legs", application.Features.EventsHandler.CreateEventLeg())
+			events.Get("/{id}/legs/{leg_id}", application.Features.EventsHandler.GetEventLeg())
+			events.Put("/{id}/legs/{leg_id}", application.Features.EventsHandler.UpdateEventLeg())
+			events.Delete("/{id}/legs/{leg_id}", application.Features.EventsHandler.DeleteEventLeg())
+		})
+
+		// Admin-only API routes
+		v1.Route("/admin", func(adminAPI chi.Router) {
+			adminAPI.Use(middleware.IsAdminMiddleware())
+
+			// Airtable Data Provider API
+			adminAPI.Route("/airtable", func(airtable chi.Router) {
+				airtable.Post("/credentials", application.Platform.VAHandler.SaveAirtableCredentialsHandler())
+				airtable.Get("/credentials", application.Platform.VAHandler.GetAirtableCredentialsHandler())
+				airtable.Post("/schema/{schemaType}", application.Platform.VAHandler.SaveAirtableSchemaHandler())
+				airtable.Get("/schema/{schemaType}", application.Platform.VAHandler.GetAirtableSchemaHandler())
+				airtable.Get("/schemas", application.Platform.VAHandler.GetAirtableSchemasHandler())
+			})
+		})
+
+		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, GET /api/v1/admin/airtable/credentials, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
 	})
 
 	// Dashboard routes (require authentication)
@@ -174,6 +204,35 @@ func NewRouter(application *app.App) http.Handler {
 				vaadmin.Get("/flight-modes/{mode_id}/edit", application.Features.VAAdminHandler.GetFlightModeEditHandler())
 				vaadmin.Post("/flight-modes/{mode_id}/toggle", application.Features.VAAdminHandler.ToggleFlightModeHandler())
 				vaadmin.Post("/flight-modes/{mode_id}/update", application.Features.VAAdminHandler.UpdateFlightModeHandler())
+			})
+
+			// Events Management
+			admin.Route("/events", func(events chi.Router) {
+				events.Get("/", application.Features.EventsHandler.EventsPageHandler())
+				events.Get("/list", application.Features.EventsHandler.EventsListHandler())
+				events.Get("/form", application.Features.EventsHandler.EventFormHandler())
+				events.Get("/form/{event_id}", application.Features.EventsHandler.EventFormHandler())
+				events.Post("/create", application.Features.EventsHandler.CreateEventHandler())
+				events.Post("/{event_id}/update", application.Features.EventsHandler.UpdateEventHandler())
+				events.Delete("/{event_id}", application.Features.EventsHandler.DeleteEventHandler())
+				events.Get("/{event_id}/legs/form", application.Features.EventsHandler.LegFormHandler())
+				events.Get("/{event_id}/legs/form/{leg_id}", application.Features.EventsHandler.LegFormHandler())
+				events.Post("/{event_id}/legs/create", application.Features.EventsHandler.CreateLegHandler())
+				events.Post("/{event_id}/legs/{leg_id}/update", application.Features.EventsHandler.UpdateLegHandler())
+				events.Delete("/{event_id}/legs/{leg_id}", application.Features.EventsHandler.DeleteLegHandler())
+			})
+
+			// Datasource Configuration
+			admin.Route("/settings/datasource", func(datasource chi.Router) {
+				datasource.Get("/", application.Features.DatasourceHandler.DatasourcePageHandler())
+				datasource.Get("/status", application.Features.DatasourceHandler.GetDatasourceStatusHandler())
+				datasource.Get("/type-selector", application.Features.DatasourceHandler.GetDatasourceTypeSelectorHandler())
+				datasource.Get("/credentials-form", application.Features.DatasourceHandler.GetCredentialsFormHandler())
+				datasource.Post("/credentials", application.Features.DatasourceHandler.SaveCredentialsHandler())
+				datasource.Post("/test-connection", application.Features.DatasourceHandler.TestConnectionHandler())
+				datasource.Get("/schema/{schemaType}", application.Features.DatasourceHandler.GetSchemaConfigHandler())
+				datasource.Post("/schema/{schemaType}", application.Features.DatasourceHandler.SaveSchemaHandler())
+				datasource.Post("/schema/{schemaType}/sync", application.Features.DatasourceHandler.SyncTableSchemaHandler())
 			})
 		})
 	})

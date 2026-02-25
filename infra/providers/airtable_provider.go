@@ -8,6 +8,7 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/dtos"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"io"
 	"net/http"
 	"time"
@@ -35,16 +36,16 @@ func (p *AirtableProvider) GetProviderType() string {
 }
 
 // FetchPilotRecord fetches a single pilot record by Airtable record ID
-func (p *AirtableProvider) FetchPilotRecord(ctx context.Context, pilotID string, schema *dtos.EntitySchema) (*PilotRecord, error) {
-	// Get config from context (should be set by service layer)
-	config, ok := ctx.Value("provider_config").(*dtos.ProviderConfigData)
+func (p *AirtableProvider) FetchPilotRecord(ctx context.Context, pilotID string, schema *platformVA.EntitySchema) (*PilotRecord, error) {
+	// Get credentials from context (should be set by service layer)
+	creds, ok := ctx.Value("provider_credentials").(*platformVA.ProviderCredentials)
 	if !ok {
-		return nil, fmt.Errorf("provider config not found in context")
+		return nil, fmt.Errorf("provider credentials not found in context")
 	}
 
 	// Build Airtable API URL
 	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s/%s",
-		config.Credentials.BaseID,
+		creds.BaseID,
 		schema.TableName,
 		pilotID,
 	)
@@ -56,7 +57,7 @@ func (p *AirtableProvider) FetchPilotRecord(ctx context.Context, pilotID string,
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Bearer "+config.Credentials.APIKey)
+	req.Header.Set("Authorization", "Bearer "+creds.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Execute request
@@ -92,10 +93,10 @@ func (p *AirtableProvider) FetchPilotRecord(ctx context.Context, pilotID string,
 }
 
 // FetchRecords fetches multiple records with pagination
-func (p *AirtableProvider) FetchRecords(ctx context.Context, schema *dtos.EntitySchema, filters *SyncFilters) (*RecordSet, error) {
-	config, ok := ctx.Value("provider_config").(*dtos.ProviderConfigData)
+func (p *AirtableProvider) FetchRecords(ctx context.Context, schema *platformVA.EntitySchema, filters *SyncFilters) (*RecordSet, error) {
+	creds, ok := ctx.Value("provider_credentials").(*platformVA.ProviderCredentials)
 	if !ok {
-		return nil, fmt.Errorf("provider config not found in context")
+		return nil, fmt.Errorf("provider credentials not found in context")
 	}
 
 	// Build request payload
@@ -107,7 +108,7 @@ func (p *AirtableProvider) FetchRecords(ctx context.Context, schema *dtos.Entity
 
 	// Build URL
 	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s/listRecords",
-		config.Credentials.BaseID,
+		creds.BaseID,
 		schema.TableName,
 	)
 
@@ -118,7 +119,7 @@ func (p *AirtableProvider) FetchRecords(ctx context.Context, schema *dtos.Entity
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Bearer "+config.Credentials.APIKey)
+	req.Header.Set("Authorization", "Bearer "+creds.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Execute request
@@ -164,10 +165,10 @@ func (p *AirtableProvider) FetchRecords(ctx context.Context, schema *dtos.Entity
 }
 
 // SubmitRecord creates a new record in Airtable
-func (p *AirtableProvider) SubmitRecord(ctx context.Context, schema *dtos.EntitySchema, fields map[string]interface{}) (string, error) {
-	config, ok := ctx.Value("provider_config").(*dtos.ProviderConfigData)
+func (p *AirtableProvider) SubmitRecord(ctx context.Context, schema *platformVA.EntitySchema, fields map[string]interface{}) (string, error) {
+	creds, ok := ctx.Value("provider_credentials").(*platformVA.ProviderCredentials)
 	if !ok {
-		return "", fmt.Errorf("provider config not found in context")
+		return "", fmt.Errorf("provider credentials not found in context")
 	}
 
 	// Build request payload
@@ -186,7 +187,7 @@ func (p *AirtableProvider) SubmitRecord(ctx context.Context, schema *dtos.Entity
 
 	// Build Airtable API URL
 	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s",
-		config.Credentials.BaseID,
+		creds.BaseID,
 		schema.TableName,
 	)
 
@@ -197,7 +198,7 @@ func (p *AirtableProvider) SubmitRecord(ctx context.Context, schema *dtos.Entity
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Bearer "+config.Credentials.APIKey)
+	req.Header.Set("Authorization", "Bearer "+creds.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Execute request
@@ -235,22 +236,22 @@ func (p *AirtableProvider) SubmitRecord(ctx context.Context, schema *dtos.Entity
 }
 
 // ValidateConfig validates the Airtable configuration
-func (p *AirtableProvider) ValidateConfig(ctx context.Context, config *dtos.ProviderConfigData) (*ValidationResult, error) {
+func (p *AirtableProvider) ValidateConfig(ctx context.Context, creds *platformVA.ProviderCredentials) (*ValidationResult, error) {
 	startTime := time.Now()
 	result := &ValidationResult{
 		IsValid:         true,
 		PhasesCompleted: []string{},
 		PhasesFailed:    []string{},
-		Errors:          []dtos.ValidationError{},
-		Warnings:        []dtos.ValidationError{},
+		Errors:          []ValidationError{},
+		Warnings:        []ValidationError{},
 	}
 
 	// Phase 1: Credential Validation
-	if err := p.validateCredentials(ctx, config); err != nil {
+	if err := p.validateCredentials(ctx, creds); err != nil {
 		result.IsValid = false
 		result.PhasesFailed = append(result.PhasesFailed, "credential_validation")
 		if provErr, ok := err.(*ProviderError); ok {
-			result.Errors = append(result.Errors, dtos.ValidationError{
+			result.Errors = append(result.Errors, ValidationError{
 				Phase:     "credential_validation",
 				Error:     provErr.Message,
 				ErrorCode: provErr.Code,
@@ -275,15 +276,15 @@ func (p *AirtableProvider) ValidateConfig(ctx context.Context, config *dtos.Prov
 }
 
 // validateCredentials checks if the API key and base ID are valid
-func (p *AirtableProvider) validateCredentials(ctx context.Context, config *dtos.ProviderConfigData) error {
-	url := fmt.Sprintf("https://api.airtable.com/v0/meta/bases/%s/tables", config.Credentials.BaseID)
+func (p *AirtableProvider) validateCredentials(ctx context.Context, creds *platformVA.ProviderCredentials) error {
+	url := fmt.Sprintf("https://api.airtable.com/v0/meta/bases/%s/tables", creds.BaseID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+config.Credentials.APIKey)
+	req.Header.Set("Authorization", "Bearer "+creds.APIKey)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -335,7 +336,7 @@ func (p *AirtableProvider) handleHTTPError(resp *http.Response) error {
 }
 
 // normalizeFields maps raw Airtable fields to internal field names
-func (p *AirtableProvider) normalizeFields(rawFields map[string]interface{}, schema *dtos.EntitySchema) map[string]interface{} {
+func (p *AirtableProvider) normalizeFields(rawFields map[string]interface{}, schema *platformVA.EntitySchema) map[string]interface{} {
 	normalized := make(map[string]interface{})
 
 	for _, fieldMapping := range schema.Fields {
@@ -350,7 +351,7 @@ func (p *AirtableProvider) normalizeFields(rawFields map[string]interface{}, sch
 }
 
 // buildFetchPayload builds the request payload for fetching records
-func (p *AirtableProvider) buildFetchPayload(schema *dtos.EntitySchema, filters *SyncFilters) map[string]interface{} {
+func (p *AirtableProvider) buildFetchPayload(schema *platformVA.EntitySchema, filters *SyncFilters) map[string]interface{} {
 	payload := make(map[string]interface{})
 
 	// Add fields to fetch
@@ -418,15 +419,15 @@ func (e *ProviderError) Unwrap() error {
 
 // FetchTableFields fetches metadata for a specific table from Airtable
 // It calls the Airtable Metadata API to get all fields in a table
-func (p *AirtableProvider) FetchTableFields(ctx context.Context, config *dtos.ProviderConfigData, tableName string) ([]dtos.AirtableFieldMetadata, error) {
-	url := fmt.Sprintf("https://api.airtable.com/v0/meta/bases/%s/tables", config.Credentials.BaseID)
+func (p *AirtableProvider) FetchTableFields(ctx context.Context, creds *platformVA.ProviderCredentials, tableName string) ([]dtos.AirtableFieldMetadata, error) {
+	url := fmt.Sprintf("https://api.airtable.com/v0/meta/bases/%s/tables", creds.BaseID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+config.Credentials.APIKey)
+	req.Header.Set("Authorization", "Bearer "+creds.APIKey)
 
 	resp, err := p.client.Do(req)
 	if err != nil {

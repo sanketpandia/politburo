@@ -17,7 +17,9 @@ import (
 	"infinite-experiment/politburo/infra/security"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
+	"infinite-experiment/politburo/internal/datasource"
 	"infinite-experiment/politburo/internal/db/repositories"
+	"infinite-experiment/politburo/internal/events"
 	membershipsFeature "infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/aircraft"
@@ -27,6 +29,7 @@ import (
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/servers"
+	"infinite-experiment/politburo/internal/sync"
 	"infinite-experiment/politburo/internal/vaadmin"
 	"os"
 
@@ -55,6 +58,7 @@ type InfraDeps struct {
 	LiveAPI          *liveapi.Client
 	Scheduler        *scheduler.Scheduler
 	TemplateRenderer *templates.Renderer
+	SyncContainer    *sync.Container
 }
 
 // PlatformDeps holds all platform-layer repositories and services
@@ -72,6 +76,9 @@ type PlatformDeps struct {
 	VASvc          *va.Service
 	MembershipsSvc *memberships.Service
 	AircraftSvc    *aircraft.Service
+
+	// Handlers
+	VAHandler *va.Handler
 }
 
 // FeatureDeps holds all feature-layer services and handlers
@@ -86,9 +93,17 @@ type FeatureDeps struct {
 	PilotsHandler      *pilots.Handler
 	ServersHandler     *servers.Handler
 	VAAdminHandler     *vaadmin.Handler
+	EventsHandler      *events.Handler
+	DatasourceHandler  *datasource.Handler
 
 	// Providers
 	LiveAPIProvider *providers.LiveAPIProvider
+
+	// Jobs
+	PilotSyncJob *pilots.SyncJob
+
+	// Workers
+	PilotSyncWorker *pilots.SyncWorker
 }
 
 // New initializes the entire application with all dependencies
@@ -215,10 +230,24 @@ func (a *App) initPlatform() error {
 
 	// Initialize services
 	usersSvc := users.NewService(usersRepo)
-	vaSvc := va.NewService(vaRepo)
+	// VA service with cache support for data provider configs
+	var vaSvc *va.Service
+	if a.Infra.RedisCache != nil {
+		vaSvc = va.NewServiceWithCache(vaRepo, a.Infra.RedisCache)
+	} else {
+		vaSvc = va.NewService(vaRepo)
+	}
 	membershipsSvc := memberships.NewService(membershipsRepo)
 	// Aircraft service uses Redis cache directly (no legacy cache)
 	aircraftSvc := aircraft.NewService(a.Infra.RedisCache, aircraftRepo)
+
+	// Initialize VA config service
+	vaConfigSvc := va.NewConfigService(vaRepo, a.Infra.RedisCache)
+
+	// Initialize VA handler (for API endpoints)
+	// Note: legacyVARepo is needed for FlightModesConfigService compatibility
+	legacyVARepo := repositories.NewVAGormRepository(a.Infra.DB)
+	vaHandler := va.NewHandler(vaSvc, vaConfigSvc, usersRepo, legacyVARepo)
 
 	logging.Debug("Platform services initialized")
 
@@ -233,6 +262,7 @@ func (a *App) initPlatform() error {
 		VASvc:           vaSvc,
 		MembershipsSvc:  membershipsSvc,
 		AircraftSvc:     aircraftSvc,
+		VAHandler:       vaHandler,
 	}
 
 	logging.Info("Platform layer initialized")
@@ -247,11 +277,16 @@ func (a *App) initFeatures() error {
 	liveAPIProvider := providers.NewLiveAPIProvider()
 	logging.Debug("Live API provider initialized")
 
+	// Initialize pilot repository
+	pilotRepo := pilots.NewRepository(a.Infra.DB)
+	logging.Debug("Pilot repository initialized")
+
 	// Initialize feature services
 	membershipsFeatureSvc := membershipsFeature.NewService(
 		a.Platform.MembershipsSvc, // Keep for GetUserStatus
 		a.Platform.UsersSvc,       // Users service for user lookup and membership creation
 		a.Platform.VASvc,          // VA service for VA lookup
+		pilotRepo,                 // Pilot repository for Airtable validation
 	)
 	pilotsRegSvc := pilots.NewRegistrationService(
 		a.Platform.UsersSvc,
@@ -278,11 +313,63 @@ func (a *App) initFeatures() error {
 	pilotMgmtSvc := pilots.NewManagementService(vaUserRoleRepo)
 	logging.Debug("Pilot management service initialized")
 
+	// Initialize events feature
+	eventRepo := events.NewRepository(a.Infra.DB)
+	eventSvc := events.NewService(eventRepo)
+	eventsHandler := events.NewHandler(eventSvc, a.Infra.TemplateRenderer)
+	logging.Debug("Events feature initialized")
+
+	// Initialize sync jobs (route sync, etc.)
+	syncRepo := sync.NewRepository(a.Infra.DB)
+	airportRepo := repositories.NewAirportRepository(a.Infra.DB)
+	logger := logging.GetLogger().Desugar() // Convert SugaredLogger to Logger
+	syncContainer := sync.InitializeJobs(
+		context.Background(),
+		a.Infra.DB,
+		a.Infra.RedisCache,
+		a.Platform.VASvc,
+		syncRepo,
+		airportRepo,
+		logger,
+	)
+	a.Infra.SyncContainer = syncContainer
+	logging.Debug("Sync jobs initialized")
+
+	// Initialize pilot sync job
+	configRepo := repositories.NewDataProviderConfigRepo(a.Infra.DB)
+	syncHistoryRepo := repositories.NewVASyncHistoryRepo(a.Infra.DB)
+	pilotSyncJob := pilots.NewSyncJob(
+		a.Infra.DB,
+		a.Infra.RedisCache,
+		configRepo,
+		syncHistoryRepo,
+		pilotRepo,
+		a.Infra.RedisQueue, // Add queue parameter
+		a.Infra.MetricsReg, // Add metrics registry
+	)
+	logging.Debug("Pilot sync job initialized")
+
+	// Initialize pilot sync worker (if queue enabled)
+	var pilotSyncWorker *pilots.SyncWorker
+	if a.Infra.RedisQueue != nil {
+		pilotSyncWorker = pilots.NewSyncWorker(
+			a.Infra.RedisQueue,
+			pilotSyncJob,
+			a.Infra.MetricsReg,
+			a.Infra.RedisCache,
+		)
+		logging.Debug("Pilot sync worker initialized")
+	}
+
 	// Initialize handlers
 	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc)
 	pilotsHandler := pilots.NewHandler(nil, pilotsRegSvc, logbookSvc)
 	serversHandler := servers.NewHandler(serversRegSvc)
 	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, a.Infra.TemplateRenderer)
+
+	// Initialize datasource handler
+	airtableProvider := providers.NewAirtableProvider(a.Infra.RedisCache)
+	datasourceHandler := datasource.NewHandler(a.Platform.VASvc, a.Infra.TemplateRenderer, airtableProvider)
 
 	logging.Debug("Feature handlers initialized")
 
@@ -294,7 +381,11 @@ func (a *App) initFeatures() error {
 		PilotsHandler:         pilotsHandler,
 		ServersHandler:        serversHandler,
 		VAAdminHandler:        vaAdminHandler,
+		EventsHandler:         eventsHandler,
+		DatasourceHandler:     datasourceHandler,
 		LiveAPIProvider:       liveAPIProvider,
+		PilotSyncJob:          pilotSyncJob,
+		PilotSyncWorker:       pilotSyncWorker,
 	}
 
 	logging.Info("Features layer initialized")

@@ -2,13 +2,16 @@ package pilots
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/providers"
-	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"log"
 	"strings"
 	"time"
@@ -23,8 +26,10 @@ type SyncJob struct {
 	configRepo       *repositories.DataProviderConfigRepo
 	syncHistoryRepo  *repositories.VASyncHistoryRepo
 	pilotRepo        *Repository
-	linkingJob       *LinkingJob
 	airtableProvider *providers.AirtableProvider
+	redisQueue       *queue.RedisQueueService // Redis queue for async processing
+	useQueue         bool                     // Whether to use queue-based processing
+	metrics          *metrics.MetricsRegistry // Metrics registry for tracking
 }
 
 // NewSyncJob creates a new pilot sync job instance
@@ -34,7 +39,8 @@ func NewSyncJob(
 	configRepo *repositories.DataProviderConfigRepo,
 	syncHistoryRepo *repositories.VASyncHistoryRepo,
 	pilotRepo *Repository,
-	vaConfigService *common.VAConfigService,
+	redisQueue *queue.RedisQueueService,
+	metricsReg *metrics.MetricsRegistry,
 ) *SyncJob {
 	return &SyncJob{
 		db:               db,
@@ -42,24 +48,29 @@ func NewSyncJob(
 		configRepo:       configRepo,
 		syncHistoryRepo:  syncHistoryRepo,
 		pilotRepo:        pilotRepo,
-		linkingJob:       NewLinkingJob(db, vaConfigService, pilotRepo),
 		airtableProvider: providers.NewAirtableProvider(cache),
+		redisQueue:       redisQueue,
+		useQueue:         redisQueue != nil, // Use queue if provided
+		metrics:          metricsReg,
 	}
+}
+
+// Name returns the job name for the scheduler interface
+func (j *SyncJob) Name() string {
+	return "pilot_sync_job"
 }
 
 // Run executes the pilot sync job for all active VAs with Airtable enabled
 func (j *SyncJob) Run(ctx context.Context) error {
-	if 1 == 1 {
-		return nil
-	}
 	start := time.Now()
 	log.Printf("[PilotSyncJob] Starting pilot sync at %s", start.Format(time.RFC3339))
 
-	// Get all VAs that have active Airtable configs
+	// Get all VAs that have active Airtable configs (use DISTINCT to avoid duplicates)
 	var vaIDs []string
 	err := j.db.WithContext(ctx).
 		Table("va_data_provider_configs").
 		Where("provider_type = ? AND is_active = ?", "airtable", true).
+		Distinct("va_id").
 		Pluck("va_id", &vaIDs).Error
 
 	if err != nil {
@@ -75,19 +86,24 @@ func (j *SyncJob) Run(ctx context.Context) error {
 	log.Printf("[PilotSyncJob] Found %d VAs with active Airtable configs", len(vaIDs))
 
 	// Sync pilots for each VA
-	totalSynced := 0
+	totalProcessed := 0
 	for _, vaID := range vaIDs {
-		synced, err := j.SyncVAPilots(ctx, vaID)
+		processed, err := j.SyncVAPilots(ctx, vaID)
 		if err != nil {
 			log.Printf("[PilotSyncJob] Error syncing pilots for VA %s: %v", vaID, err)
 			// Continue with other VAs even if one fails
 			continue
 		}
-		totalSynced += synced
+		totalProcessed += processed
 	}
 
-	log.Printf("[PilotSyncJob] Completed pilot sync in %s. Total pilots synced: %d",
-		time.Since(start).Truncate(time.Millisecond), totalSynced)
+	if j.useQueue {
+		log.Printf("[PilotSyncJob] Completed pilot sync in %s. Total pilots enqueued: %d",
+			time.Since(start).Truncate(time.Millisecond), totalProcessed)
+	} else {
+		log.Printf("[PilotSyncJob] Completed pilot sync in %s. Total pilots synced: %d",
+			time.Since(start).Truncate(time.Millisecond), totalProcessed)
+	}
 
 	return nil
 }
@@ -97,33 +113,110 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	start := time.Now()
 	log.Printf("[PilotSyncJob] Syncing pilots for VA %s", vaID)
 
-	// Get active config for this VA
-	config, err := j.configRepo.GetActiveConfig(ctx, vaID, "airtable")
+	// Get credentials config for this VA
+	credentialsConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
 	if err != nil {
-		return 0, fmt.Errorf("failed to get active config: %w", err)
+		return 0, fmt.Errorf("failed to get credentials config: %w", err)
 	}
 
-	if config == nil {
-		log.Printf("[PilotSyncJob] No active config found for VA %s", vaID)
+	if credentialsConfig == nil {
+		log.Printf("[PilotSyncJob] No active credentials config found for VA %s", vaID)
 		return 0, nil
 	}
 
-	// Parse config data
-	configData, err := repositories.ParseConfigData(config.ConfigData)
+	// Parse credentials config data directly (credentials config is stored as flat structure)
+	// The config_data for credentials type is: {"api_key": "...", "base_id": "...", "sync_settings": {...}}
+	var credsData struct {
+		APIKey       string            `json:"api_key"`
+		BaseID       string            `json:"base_id"`
+		SyncSettings dtos.SyncSettings `json:"sync_settings"`
+	}
+	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse config data: %w", err)
+		return 0, fmt.Errorf("failed to marshal credentials config data: %w", err)
+	}
+	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
+		return 0, fmt.Errorf("failed to parse credentials config data: %w", err)
 	}
 
-	// Get pilot schema
-	pilotSchema := configData.GetSchemaByType("pilot")
-	if pilotSchema == nil {
+	// Validate credentials
+	if credsData.APIKey == "" {
+		return 0, fmt.Errorf("API key is empty in credentials config")
+	}
+	if credsData.BaseID == "" {
+		return 0, fmt.Errorf("Base ID is empty in credentials config")
+	}
+
+	// Get pilot schema config separately
+	pilotConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pilot")
+	if err != nil {
+		return 0, fmt.Errorf("failed to get pilot schema config: %w", err)
+	}
+
+	if pilotConfig == nil {
 		log.Printf("[PilotSyncJob] No pilot schema configured for VA %s", vaID)
 		return 0, nil
+	}
+
+	// Parse pilot schema config data (this is just the EntitySchema, not full ProviderConfigData)
+	var pilotSchema dtos.EntitySchema
+	bytes, err := json.Marshal(pilotConfig.ConfigData)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal pilot config data: %w", err)
+	}
+
+	// Debug: Log raw config data before parsing
+	log.Printf("[PilotSyncJob] VA %s: Raw pilot config data: %s", vaID, string(bytes))
+
+	if err := json.Unmarshal(bytes, &pilotSchema); err != nil {
+		return 0, fmt.Errorf("failed to parse pilot schema: %w", err)
+	}
+
+	// Set entity_type if not set (for backward compatibility)
+	if pilotSchema.EntityType == "" {
+		pilotSchema.EntityType = "pilot"
+	}
+
+	// Debug: Log parsed schema values and raw JSON
+	log.Printf("[PilotSyncJob] VA %s: Parsed pilot schema - Enabled: %v, TableName: %s, Fields: %d", vaID, pilotSchema.Enabled, pilotSchema.TableName, len(pilotSchema.Fields))
+	log.Printf("[PilotSyncJob] VA %s: Raw config JSON: %s", vaID, string(bytes))
+
+	// Check if enabled field exists in raw JSON (workaround for potential JSON parsing issue)
+	var rawData map[string]interface{}
+	if err := json.Unmarshal(bytes, &rawData); err == nil {
+		if enabledVal, exists := rawData["enabled"]; exists {
+			if enabledBool, ok := enabledVal.(bool); ok {
+				// Override with value from raw JSON if different
+				if enabledBool != pilotSchema.Enabled {
+					log.Printf("[PilotSyncJob] VA %s: Enabled field mismatch - raw JSON: %v, parsed: %v, using raw value", vaID, enabledBool, pilotSchema.Enabled)
+					pilotSchema.Enabled = enabledBool
+				}
+			}
+		} else {
+			// enabled field missing - default to true if schema has fields configured
+			if len(pilotSchema.Fields) > 0 {
+				log.Printf("[PilotSyncJob] VA %s: Enabled field missing in JSON, defaulting to true (has %d fields)", vaID, len(pilotSchema.Fields))
+				pilotSchema.Enabled = true
+			}
+		}
 	}
 
 	if !pilotSchema.Enabled {
 		log.Printf("[PilotSyncJob] Pilot schema is disabled for VA %s", vaID)
 		return 0, nil
+	}
+
+	// Validate that callsign field is configured (required for pilot sync)
+	hasCallsignField := false
+	for _, field := range pilotSchema.Fields {
+		if field.InternalName == "callsign" {
+			hasCallsignField = true
+			break
+		}
+	}
+	if !hasCallsignField {
+		log.Printf("[PilotSyncJob] Pilot schema for VA %s is missing required 'callsign' field mapping. Please configure field mappings in the datasource settings.", vaID)
+		return 0, fmt.Errorf("pilot schema missing required 'callsign' field mapping")
 	}
 
 	// Get VA name for logging
@@ -154,13 +247,52 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 		lastModified = nil
 	}
 
-	// Set config in context for provider
-	ctx = context.WithValue(ctx, "provider_config", configData)
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	vaPilotSchema := convertDTOsEntitySchema(&pilotSchema)
 
-	// Fetch pilots with pagination and optional modified-since filter
-	var allRecords []providers.RecordWithID
+	// Build credentials from parsed data
+	creds := &platformVA.ProviderCredentials{
+		APIKey: credsData.APIKey,
+		BaseID: credsData.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          credsData.SyncSettings.BatchSize,
+			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
+		},
+	}
+
+	// Log credentials extraction for debugging (mask API key)
+	apiKeyMasked := ""
+	if len(creds.APIKey) > 8 {
+		apiKeyMasked = creds.APIKey[:8] + "..."
+	} else {
+		apiKeyMasked = "***"
+	}
+	log.Printf("[PilotSyncJob] VA %s: Extracted credentials - BaseID: %s, APIKey: %s", vaID, creds.BaseID, apiKeyMasked)
+
+	// Set credentials in context for provider
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
+
+	// Fetch pilots with pagination and enqueue to Redis (if enabled) or process directly
 	offset := ""
 	pageCount := 0
+	enqueuedCount := 0
+	syncedCount := 0
+	errorCount := 0
+
+	streamName := "pilot_sync_queue"
+
+	// If using queue, ensure consumer group exists
+	if j.useQueue {
+		if err := j.redisQueue.CreateConsumerGroup(ctx, streamName, "pilot-workers"); err != nil {
+			log.Printf("[PilotSyncJob] VA %s: Warning - failed to create consumer group: %v", vaName, err)
+			// Continue anyway - group might already exist
+		}
+	}
+
+	// Convert schema to queue format for serialization
+	queueSchema := convertSchemaToQueueFormat(vaPilotSchema)
 
 	for {
 		pageCount++
@@ -170,14 +302,48 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 			ModifiedSince: lastModified,
 		}
 
-		recordSet, err := j.airtableProvider.FetchRecords(ctx, pilotSchema, filters)
+		recordSet, err := j.airtableProvider.FetchRecords(ctx, vaPilotSchema, filters)
 		if err != nil {
 			return 0, fmt.Errorf("failed to fetch records (page %d): %w", pageCount, err)
 		}
 
 		log.Printf("[PilotSyncJob] VA %s: Fetched page %d with %d records", vaName, pageCount, len(recordSet.Records))
 
-		allRecords = append(allRecords, recordSet.Records...)
+		if j.useQueue {
+			// Queue-based processing: Enqueue batch to Redis
+			var queueItems []*queue.PilotQueueItem
+			for _, record := range recordSet.Records {
+				queueItems = append(queueItems, &queue.PilotQueueItem{
+					VAID:             vaID,
+					AirtableRecordID: record.ID,
+					Fields:           record.Fields,
+					Schema:           queueSchema,
+				})
+				log.Printf("[PilotSyncJob] VA %s: Enqueueing pilot - ATID: %s", vaName, record.ID)
+			}
+
+			if err := j.redisQueue.EnqueuePilotBatch(ctx, streamName, queueItems); err != nil {
+				log.Printf("[PilotSyncJob] VA %s: Error enqueuing batch: %v", vaName, err)
+				errorCount += len(queueItems)
+			} else {
+				enqueuedCount += len(queueItems)
+				// Track metrics
+				if j.metrics != nil {
+					j.metrics.QueueEnqueuedTotal.WithLabelValues(streamName, "pilot").Add(float64(len(queueItems)))
+					j.metrics.SyncJobRecordsProcessed.WithLabelValues("pilot_sync_job", "airtable", "pilot", vaID, "enqueued").Add(float64(len(queueItems)))
+				}
+			}
+		} else {
+			// Direct processing: Process immediately (streaming)
+			for _, record := range recordSet.Records {
+				if err := j.upsertPilot(ctx, vaID, record.ID, record.Fields, vaPilotSchema); err != nil {
+					log.Printf("[PilotSyncJob] VA %s: Error upserting record: %v", vaName, err)
+					errorCount++
+					continue
+				}
+				syncedCount++
+			}
+		}
 
 		if !recordSet.HasMore {
 			break
@@ -185,35 +351,36 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 		offset = recordSet.Offset
 	}
 
-	log.Printf("[PilotSyncJob] VA %s: Total records fetched: %d", vaName, len(allRecords))
-
-	// Process and upsert pilots
-	syncedCount := 0
-	errorCount := 0
-
-	for i, record := range allRecords {
-		if err := j.upsertPilot(ctx, vaID, record.ID, record.Fields, pilotSchema); err != nil {
-			log.Printf("[PilotSyncJob] VA %s: Error upserting record %d: %v", vaName, i+1, err)
-			errorCount++
-			continue
+	if j.useQueue {
+		log.Printf("[PilotSyncJob] VA %s: Completed in %s. Enqueued: %d, Errors: %d",
+			vaName, time.Since(start).Truncate(time.Millisecond), enqueuedCount, errorCount)
+		log.Printf("[PilotSyncJob] VA %s: Queue: %s - Workers will process items asynchronously", vaName, streamName)
+		// Record sync history after successful enqueue
+		if enqueuedCount > 0 {
+			if err := j.syncHistoryRepo.RecordSync(ctx, vaID, constants.SyncEventPilotsAT); err != nil {
+				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
+			}
 		}
-		syncedCount++
+	} else {
+		log.Printf("[PilotSyncJob] VA %s: Completed in %s. Synced: %d, Errors: %d",
+			vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
+		// Record sync history after direct processing
+		if syncedCount > 0 {
+			if err := j.syncHistoryRepo.RecordSync(ctx, vaID, constants.SyncEventPilotsAT); err != nil {
+				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
+			}
+		}
 	}
 
-	log.Printf("[PilotSyncJob] VA %s: Completed in %s. Synced: %d, Errors: %d",
-		vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
-
-	// Record successful sync in sync history
-	if err := j.syncHistoryRepo.RecordSync(ctx, vaID, constants.SyncEventPilotsAT); err != nil {
-		log.Printf("[PilotSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
-		// Don't fail the sync operation if history recording fails
+	// Return count (enqueued if using queue, synced if direct)
+	if j.useQueue {
+		return enqueuedCount, nil
 	}
-
 	return syncedCount, nil
 }
 
 // upsertPilot updates or creates a pilot record in va_user_roles and pilot_at_synced
-func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, schema *dtos.EntitySchema) error {
+func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, schema *platformVA.EntitySchema) error {
 	// Extract callsign from record using field mapping
 	callsignField := schema.GetFieldMapping("callsign")
 	if callsignField == nil {
@@ -237,6 +404,7 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 	}
 
 	// Upsert into pilot_at_synced table first (keeps our database in sync with Airtable)
+	log.Printf("[PilotSyncJob] Upserting pilot - ATID: %s, Callsign: %s, ServerID: %s", airtableRecordID, callsign, vaID)
 	pilotATSynced := &PilotATSyncedGORM{
 		ATID:       airtableRecordID,
 		Callsign:   callsign,
@@ -266,8 +434,10 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 			log.Printf("[PilotSyncJob] Callsign %s not found in VA %s - pilot may not be registered yet", callsign, vaID)
 			// Still upsert into pilot_at_synced with registered=false
 			if err := j.pilotRepo.Upsert(ctx, pilotATSynced); err != nil {
-				log.Printf("[PilotSyncJob] Warning: failed to upsert into pilot_at_synced: %v", err)
+				log.Printf("[PilotSyncJob] ERROR: Failed to upsert pilot %s (ATID: %s) into pilot_at_synced: %v", callsign, airtableRecordID, err)
+				return fmt.Errorf("failed to upsert pilot into pilot_at_synced: %w", err)
 			}
+			log.Printf("[PilotSyncJob] Successfully upserted pilot %s (ATID: %s) into pilot_at_synced with registered=false", callsign, airtableRecordID)
 			return nil
 		}
 		return fmt.Errorf("failed to query existing role: %w", err)
@@ -278,8 +448,10 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 
 	// Upsert into pilot_at_synced
 	if err := j.pilotRepo.Upsert(ctx, pilotATSynced); err != nil {
-		log.Printf("[PilotSyncJob] Warning: failed to upsert into pilot_at_synced: %v", err)
+		log.Printf("[PilotSyncJob] ERROR: Failed to upsert pilot %s (ATID: %s) into pilot_at_synced: %v", callsign, airtableRecordID, err)
+		return fmt.Errorf("failed to upsert pilot into pilot_at_synced: %w", err)
 	}
+	log.Printf("[PilotSyncJob] Successfully upserted pilot %s (ATID: %s) into pilot_at_synced with registered=true", callsign, airtableRecordID)
 
 	// Update the airtable_pilot_id and updated_at timestamp in va_user_roles
 	err = j.db.WithContext(ctx).
@@ -322,65 +494,90 @@ func (j *SyncJob) getLastSyncTimestamp(ctx context.Context, vaID string) (*strin
 	return &timestamp, nil
 }
 
-// shouldRunInitialSync checks if enough time has passed since the last sync
-// Returns true if the last sync was more than 4 hours ago or if no sync has occurred
-func (j *SyncJob) shouldRunInitialSync(ctx context.Context) bool {
-	lastSyncTime, err := j.syncHistoryRepo.GetLastSyncTimeForEvent(ctx, constants.SyncEventPilotsAT)
-
-	if err != nil {
-		log.Printf("[PilotSyncJob] Error checking last sync time: %v. Running sync anyway.", err)
-		return true
+// convertSchemaToQueueFormat converts platformVA.EntitySchema to queue.PilotSchema for serialization
+func convertSchemaToQueueFormat(schema *platformVA.EntitySchema) *queue.PilotSchema {
+	if schema == nil {
+		return nil
 	}
-
-	// If no sync history found, run the sync
-	if lastSyncTime == nil {
-		log.Printf("[PilotSyncJob] No previous sync found. Running initial sync.")
-		return true
+	fields := make([]queue.FieldMapping, len(schema.Fields))
+	for i, f := range schema.Fields {
+		fields[i] = queue.FieldMapping{
+			InternalName: f.InternalName,
+			AirtableName: f.AirtableName,
+			DataType:     f.DataType,
+		}
 	}
-
-	// Check if more than 4 hours have passed
-	timeSinceLastSync := time.Since(*lastSyncTime)
-	fourHours := 4 * time.Hour
-
-	if timeSinceLastSync > fourHours {
-		log.Printf("[PilotSyncJob] Last sync was %s ago (> 4 hours). Running sync.", timeSinceLastSync.Truncate(time.Minute))
-		return true
+	return &queue.PilotSchema{
+		EntityType:        schema.EntityType,
+		TableName:         schema.TableName,
+		LastModifiedField: schema.LastModifiedField,
+		Fields:            fields,
 	}
-
-	log.Printf("[PilotSyncJob] Last sync was %s ago (< 4 hours). Skipping initial sync.", timeSinceLastSync.Truncate(time.Minute))
-	return false
 }
 
-// RunScheduled runs the pilot sync job on a schedule (e.g., every hour)
-func (j *SyncJob) RunScheduled(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	// Run immediately on start only if last sync was more than 4 hours ago
-	if j.shouldRunInitialSync(ctx) {
-		if err := j.Run(ctx); err != nil {
-			log.Printf("[PilotSyncJob] Error in initial run: %v", err)
+// convertQueueSchemaToVA converts queue.PilotSchema back to platformVA.EntitySchema
+func convertQueueSchemaToVA(queueSchema *queue.PilotSchema) *platformVA.EntitySchema {
+	if queueSchema == nil {
+		return nil
+	}
+	fields := make([]platformVA.FieldMapping, len(queueSchema.Fields))
+	for i, f := range queueSchema.Fields {
+		fields[i] = platformVA.FieldMapping{
+			InternalName: f.InternalName,
+			AirtableName: f.AirtableName,
+			DataType:     f.DataType,
 		}
 	}
-
-	// Always run pilot linking after sync (even if sync was skipped)
-	if err := j.linkingJob.Run(ctx); err != nil {
-		log.Printf("[PilotLinkingJob] Error in initial linking: %v", err)
+	return &platformVA.EntitySchema{
+		EntityType:        queueSchema.EntityType,
+		TableName:         queueSchema.TableName,
+		Enabled:           true, // Assume enabled if in queue
+		LastModifiedField: queueSchema.LastModifiedField,
+		Fields:            fields,
 	}
+}
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := j.Run(ctx); err != nil {
-				log.Printf("[PilotSyncJob] Error in scheduled run: %v", err)
-			}
-			// Run linking after each scheduled sync
-			if err := j.linkingJob.Run(ctx); err != nil {
-				log.Printf("[PilotLinkingJob] Error in scheduled linking: %v", err)
-			}
-		case <-ctx.Done():
-			log.Printf("[PilotSyncJob] Shutting down scheduled sync")
-			return
+// convertDTOsEntitySchema converts dtos.EntitySchema to platformVA.EntitySchema
+func convertDTOsEntitySchema(dtoSchema *dtos.EntitySchema) *platformVA.EntitySchema {
+	if dtoSchema == nil {
+		return nil
+	}
+	fields := make([]platformVA.FieldMapping, len(dtoSchema.Fields))
+	for i, f := range dtoSchema.Fields {
+		fields[i] = platformVA.FieldMapping{
+			InternalName:  f.InternalName,
+			AirtableName:  f.AirtableName,
+			DataType:      f.DataType,
+			Required:      f.Required,
+			DefaultValue:  f.DefaultValue,
+			DisplayName:   f.DisplayName,
+			IsUserVisible: f.IsUserVisible,
+			DisplayFormat: f.DisplayFormat,
+			BotMetadata:   f.BotMetadata,
 		}
 	}
+	return &platformVA.EntitySchema{
+		EntityType:        dtoSchema.EntityType,
+		TableName:         dtoSchema.TableName,
+		Enabled:           dtoSchema.Enabled,
+		LastModifiedField: dtoSchema.LastModifiedField,
+		Fields:            fields,
+	}
+}
+
+// getCredentialsFromConfig extracts credentials from old config structure
+func getCredentialsFromConfig(configData *dtos.ProviderConfigData) (*platformVA.ProviderCredentials, error) {
+	if configData == nil {
+		return nil, fmt.Errorf("config data is nil")
+	}
+	return &platformVA.ProviderCredentials{
+		APIKey: configData.Credentials.APIKey,
+		BaseID: configData.Credentials.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          configData.SyncSettings.BatchSize,
+			RateLimitPerSecond: configData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      configData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     configData.SyncSettings.TimeoutSeconds,
+		},
+	}, nil
 }

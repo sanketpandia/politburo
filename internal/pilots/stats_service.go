@@ -11,6 +11,7 @@ import (
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models"
 	"infinite-experiment/politburo/internal/models/dtos"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/sync"
 	"log"
@@ -177,13 +178,23 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	fmt.Printf("Airtable filter formula: %s\n", filterFormula)
 
 	// Step 9: Fetch from Airtable using filter
-	ctx = context.WithValue(ctx, "provider_config", configData)
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	var vaPilotSchema *platformVA.EntitySchema = convertDTOsEntitySchema(pilotSchema)
+	creds, err := getCredentialsFromConfig(configData)
+	if err != nil {
+		return nil, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to extract credentials from config",
+			Err:     err,
+		}
+	}
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
 	filters := &providers.SyncFilters{
 		FilterFormula: filterFormula,
 		Limit:         1, // We only expect one record
 	}
 
-	recordSet, err := s.airtableProvider.FetchRecords(ctx, pilotSchema, filters)
+	recordSet, err := s.airtableProvider.FetchRecords(ctx, vaPilotSchema, filters)
 	if err != nil {
 		if provErr, ok := err.(*providers.ProviderError); ok {
 			return nil, &StatsError{
@@ -399,8 +410,18 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 
 	log.Printf("[fetchProviderData] Fetching from Airtable for pilot %s in VA %s", airtablePilotID, vaID)
 	// Fetch from provider
-	ctx = context.WithValue(ctx, "provider_config", configData)
-	pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, airtablePilotID, pilotSchema)
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	vaPilotSchema := convertDTOsEntitySchema(pilotSchema)
+	creds, err := getCredentialsFromConfig(configData)
+	if err != nil {
+		return nil, nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to extract credentials from config",
+			Err:     err,
+		}
+	}
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
+	pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, airtablePilotID, vaPilotSchema)
 	if err != nil {
 		// Check if it's a provider error
 		if provErr, ok := err.(*providers.ProviderError); ok {
@@ -581,13 +602,23 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 	log.Printf("[fetchCareerModeData] Filter formula: %s", filterFormula)
 
 	// Fetch from Airtable using filter
-	ctx = context.WithValue(ctx, "provider_config", configData)
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	vaCareerModeSchema := convertDTOsEntitySchema(careerModeSchema)
+	creds, err := getCredentialsFromConfig(configData)
+	if err != nil {
+		return nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to extract credentials from config",
+			Err:     err,
+		}
+	}
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
 	filters := &providers.SyncFilters{
 		FilterFormula: filterFormula,
 		Limit:         1,
 	}
 
-	recordSet, err := s.airtableProvider.FetchRecords(ctx, careerModeSchema, filters)
+	recordSet, err := s.airtableProvider.FetchRecords(ctx, vaCareerModeSchema, filters)
 	if err != nil {
 		if provErr, ok := err.(*providers.ProviderError); ok {
 			return nil, false, &StatsError{

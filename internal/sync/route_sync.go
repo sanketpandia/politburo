@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/models/dtos"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/infra/providers"
 	"log"
 	"strings"
@@ -18,7 +18,7 @@ import (
 type RouteSyncJob struct {
 	db               *gorm.DB
 	cache            cache.CacheInterface
-	configRepo       *repositories.DataProviderConfigRepo
+	vaSvc            *platformVA.Service
 	syncRepo         *Repository // Consolidated sync repository
 	airportRepo      *repositories.AirportRepository
 	airtableProvider *providers.AirtableProvider
@@ -28,14 +28,14 @@ type RouteSyncJob struct {
 func NewRouteSyncJob(
 	db *gorm.DB,
 	cache cache.CacheInterface,
-	configRepo *repositories.DataProviderConfigRepo,
+	vaSvc *platformVA.Service,
 	syncRepo *Repository,
 	airportRepo *repositories.AirportRepository,
 ) *RouteSyncJob {
 	return &RouteSyncJob{
 		db:               db,
 		cache:            cache,
-		configRepo:       configRepo,
+		vaSvc:            vaSvc,
 		syncRepo:         syncRepo,
 		airportRepo:      airportRepo,
 		airtableProvider: providers.NewAirtableProvider(cache),
@@ -51,7 +51,7 @@ func (j *RouteSyncJob) Run(ctx context.Context) error {
 	var vaIDs []string
 	err := j.db.WithContext(ctx).
 		Table("va_data_provider_configs").
-		Where("provider_type = ? AND is_active = ?", "airtable", true).
+		Where("provider_type = ? AND config_type = ? AND is_active = ?", "airtable", "credentials", true).
 		Pluck("va_id", &vaIDs).Error
 
 	if err != nil {
@@ -93,33 +93,39 @@ func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, erro
 	start := time.Now()
 	log.Printf("[RouteSyncJob] Syncing routes for VA %s", vaID)
 
-	// Get active config for this VA
-	config, err := j.configRepo.GetActiveConfig(ctx, vaID, "airtable")
+	// Get Airtable credentials
+	creds, err := j.vaSvc.GetAirtableCredentials(ctx, vaID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get active config: %w", err)
+		return 0, fmt.Errorf("failed to get Airtable credentials: %w", err)
 	}
 
-	if config == nil {
-		log.Printf("[RouteSyncJob] No active config found for VA %s", vaID)
+	if creds == nil {
+		log.Printf("[RouteSyncJob] No active Airtable credentials found for VA %s", vaID)
 		return 0, nil
 	}
 
-	// Parse config data
-	configData, err := repositories.ParseConfigData(config.ConfigData)
+	// Get route schema
+	routeSchemaConfig, err := j.vaSvc.GetAirtableSchema(ctx, vaID, "route")
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse config data: %w", err)
+		return 0, fmt.Errorf("failed to get route schema: %w", err)
 	}
 
-	// Get route schema
-	routeSchema := configData.GetSchemaByType("route")
-	if routeSchema == nil {
+	if routeSchemaConfig == nil {
 		log.Printf("[RouteSyncJob] No route schema configured for VA %s", vaID)
 		return 0, nil
 	}
 
-	if !routeSchema.Enabled {
+	if !routeSchemaConfig.Enabled {
 		log.Printf("[RouteSyncJob] Route schema is disabled for VA %s", vaID)
 		return 0, nil
+	}
+
+	// Convert SchemaConfig to EntitySchema for provider compatibility
+	routeSchema := &platformVA.EntitySchema{
+		TableName:         routeSchemaConfig.TableName,
+		Enabled:           routeSchemaConfig.Enabled,
+		LastModifiedField: routeSchemaConfig.LastModifiedField,
+		Fields:            routeSchemaConfig.Fields,
 	}
 
 	// Get VA name for logging
@@ -150,8 +156,8 @@ func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, erro
 		lastModified = nil
 	}
 
-	// Set config in context for provider
-	ctx = context.WithValue(ctx, "provider_config", configData)
+	// Set credentials in context for provider
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
 
 	// Fetch routes with pagination and optional modified-since filter
 	var allRecords []providers.RecordWithID
@@ -209,7 +215,7 @@ func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, erro
 }
 
 // upsertRoute updates or creates a route record in route_at_synced
-func (j *RouteSyncJob) upsertRoute(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, schema *dtos.EntitySchema) error {
+func (j *RouteSyncJob) upsertRoute(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, schema *platformVA.EntitySchema) error {
 	// Extract field mappings
 	originField := schema.GetFieldMapping("origin")
 	destField := schema.GetFieldMapping("destination")

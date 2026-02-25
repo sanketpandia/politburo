@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/internal/pilots"
 	platformMemberships "infinite-experiment/politburo/internal/platform/memberships"
 	platformUsers "infinite-experiment/politburo/internal/platform/users"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
@@ -16,6 +17,7 @@ type Service struct {
 	membershipsSvc *platformMemberships.Service // Platform memberships service (for GetUserStatus)
 	usersSvc       *platformUsers.Service       // Platform users service
 	vaSvc          *platformVA.Service          // Platform VA service
+	pilotRepo      *pilots.Repository           // Pilot repository for Airtable validation
 }
 
 // NewService creates a new feature-layer memberships service
@@ -23,11 +25,13 @@ func NewService(
 	membershipsSvc *platformMemberships.Service,
 	usersSvc *platformUsers.Service,
 	vaSvc *platformVA.Service,
+	pilotRepo *pilots.Repository,
 ) *Service {
 	return &Service{
 		membershipsSvc: membershipsSvc,
 		usersSvc:       usersSvc,
 		vaSvc:          vaSvc,
+		pilotRepo:      pilotRepo,
 	}
 }
 
@@ -130,7 +134,24 @@ func (s *Service) JoinVA(
 		return nil, ErrVANotFound
 	}
 
-	// 4. Check if callsign is already taken in this VA (using platform users service)
+	// 4. Validate callsign exists in Airtable (pilot_at_synced)
+	if s.pilotRepo != nil {
+		pilotSync, err := s.pilotRepo.FindByCallsign(ctx, va.ID, callsign)
+		if err != nil {
+			logging.Error("Failed to check callsign in Airtable", "error", err, "callsign", callsign, "va_id", va.ID)
+			return nil, fmt.Errorf("failed to validate callsign: %w", err)
+		}
+
+		if pilotSync == nil {
+			logging.Warn("Callsign not found in Airtable", "callsign", callsign, "va_id", va.ID)
+			return nil, ErrCallsignNotInAirtable
+		}
+
+		// Callsign found in Airtable - proceed with membership creation
+		logging.Info("Callsign validated in Airtable", "callsign", callsign, "va_id", va.ID, "airtable_id", pilotSync.ATID)
+	}
+
+	// 5. Check if callsign is already taken in this VA (using platform users service)
 	existingUser, err := s.usersSvc.GetUserByCallsignAndVA(ctx, callsign, va.ID)
 	if err != nil {
 		logging.Error("Failed to check callsign availability", "error", err)
@@ -149,16 +170,30 @@ func (s *Service) JoinVA(
 		return nil, ErrCallsignTaken
 	}
 
-	// 5. Create new membership (using platform users service)
+	// 6. Create new membership (using platform users service)
 	logging.Info("Creating membership", "user_id", user.ID, "va_id", va.ID, "callsign", callsign)
 
-	_, err = s.usersSvc.CreateMembership(ctx, user.ID, va.ID, "pilot", callsign)
+	membership, err := s.usersSvc.CreateMembership(ctx, user.ID, va.ID, "pilot", callsign)
 	if err != nil {
 		logging.Error("Failed to create membership", "error", err)
 		return nil, fmt.Errorf("%w: %v", ErrMembershipCreation, err)
 	}
 
-	// 6. Return success response
+	// 7. Link to Airtable ID immediately if pilot repo is available and callsign was found
+	if s.pilotRepo != nil && membership != nil {
+		pilotSync, err := s.pilotRepo.FindByCallsign(ctx, va.ID, callsign)
+		if err == nil && pilotSync != nil {
+			// Update airtable_pilot_id in va_user_roles
+			if linkErr := s.pilotRepo.UpdateUserAirtableID(ctx, membership.ID, pilotSync.ATID); linkErr != nil {
+				logging.Warn("Failed to link Airtable ID immediately", "error", linkErr, "membership_id", membership.ID, "airtable_id", pilotSync.ATID)
+				// Don't fail the membership creation, linking job will catch it later (if it existed)
+			} else {
+				logging.Info("Linked Airtable ID immediately", "membership_id", membership.ID, "airtable_id", pilotSync.ATID)
+			}
+		}
+	}
+
+	// 8. Return success response
 	logging.Info("Membership created successfully", "user_id", user.ID, "va_id", va.ID)
 	return &JoinVAResponse{
 		Success:  true,

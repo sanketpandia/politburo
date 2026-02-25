@@ -2,22 +2,23 @@ package providers
 
 import (
 	"context"
-	"infinite-experiment/politburo/internal/models/dtos"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 )
 
 // DataProvider defines the interface for external data sources
 type DataProvider interface {
 	// FetchPilotRecord fetches a single pilot record by their provider-specific ID
-	FetchPilotRecord(ctx context.Context, pilotID string, schema *dtos.EntitySchema) (*PilotRecord, error)
+	FetchPilotRecord(ctx context.Context, pilotID string, schema *platformVA.EntitySchema) (*PilotRecord, error)
 
 	// FetchRecords fetches multiple records with pagination support
-	FetchRecords(ctx context.Context, schema *dtos.EntitySchema, filters *SyncFilters) (*RecordSet, error)
+	FetchRecords(ctx context.Context, schema *platformVA.EntitySchema, filters *SyncFilters) (*RecordSet, error)
 
 	// SubmitRecord creates a new record in the data source
-	SubmitRecord(ctx context.Context, schema *dtos.EntitySchema, fields map[string]interface{}) (string, error)
+	SubmitRecord(ctx context.Context, schema *platformVA.EntitySchema, fields map[string]interface{}) (string, error)
 
 	// ValidateConfig validates that the configuration is valid and can connect
-	ValidateConfig(ctx context.Context, config *dtos.ProviderConfigData) (*ValidationResult, error)
+	// Note: This may need to be updated to work with new config structure
+	ValidateConfig(ctx context.Context, creds *platformVA.ProviderCredentials) (*ValidationResult, error)
 
 	// GetProviderType returns the provider type identifier
 	GetProviderType() string
@@ -53,12 +54,23 @@ type SyncFilters struct {
 	FilterFormula string  // Custom filter formula (e.g., Airtable formula for field matching)
 }
 
+// ValidationError represents a validation error
+type ValidationError struct {
+	Phase       string                 `json:"phase"`
+	EntityType  string                 `json:"entity_type,omitempty"`
+	TableName   string                 `json:"table_name,omitempty"`
+	Error       string                 `json:"error"`
+	ErrorCode   string                 `json:"error_code"`
+	Details     map[string]interface{} `json:"details,omitempty"`
+	Timestamp   string                 `json:"timestamp"`
+}
+
 // ValidationResult contains the results of config validation
 type ValidationResult struct {
-	IsValid         bool                `json:"is_valid"`
-	PhasesCompleted []string            `json:"phases_completed"`
-	PhasesFailed    []string            `json:"phases_failed"`
-	Errors          []dtos.ValidationError `json:"errors"`
-	Warnings        []dtos.ValidationError `json:"warnings,omitempty"`
-	DurationMs      int                 `json:"duration_ms"`
+	IsValid         bool              `json:"is_valid"`
+	PhasesCompleted []string          `json:"phases_completed"`
+	PhasesFailed    []string          `json:"phases_failed"`
+	Errors          []ValidationError `json:"errors"`
+	Warnings        []ValidationError `json:"warnings,omitempty"`
+	DurationMs      int               `json:"duration_ms"`
 }

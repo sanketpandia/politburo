@@ -35,8 +35,15 @@ func RegisterScheduledJobs(application *app.App) error {
 		application.Infra.RedisQueue,
 		application.Platform.VARepo,
 		application.Platform.AircraftSvc,
+		application.Infra.MetricsReg,
 	)
 	registry.Add(flightsJob, "0 * * * * *") // Every minute with second precision
+
+	// Pilot sync job - runs every 10 minutes
+	// Syncs pilots from Airtable to local database via queue
+	if application.Features.PilotSyncJob != nil {
+		registry.Add(application.Features.PilotSyncJob, "0 */1 * * * *")
+	}
 
 	return nil
 }
@@ -54,6 +61,7 @@ func RegisterWorkers(application *app.App) error {
 			application.Infra.RedisQueue,
 			application.Infra.RedisCache,
 			application.Infra.LiveAPI,
+			application.Infra.MetricsReg,
 		)
 		go func() {
 			if err := flightPlanWorker.Start(ctx); err != nil {
@@ -64,14 +72,27 @@ func RegisterWorkers(application *app.App) error {
 
 		// Start flight plan queue monitor
 		// Monitors queue health every 30 seconds
-		monitor := flights.NewFlightPlanQueueMonitor(application.Infra.RedisQueue)
+		monitor := flights.NewFlightPlanQueueMonitor(
+			application.Infra.RedisQueue,
+			application.Infra.MetricsReg,
+		)
 		go monitor.Start(ctx, 30*time.Second)
 		logging.Info("Flight plan queue monitor started")
 
 		// Start automatic queue trimming
-		// Trims old messages every hour, keeping only the most recent 10,000 messages
-		go monitor.StartAutoTrim(ctx, 1*time.Hour, 10000)
+		// Trims old messages every 30 minutes, keeping only the most recent 1,000 messages
+		go monitor.StartAutoTrim(ctx, 30*time.Minute, 1000)
 		logging.Info("Flight plan queue auto-trim started")
+	}
+
+	// Start pilot sync worker
+	if application.Features.PilotSyncWorker != nil {
+		go func() {
+			if err := application.Features.PilotSyncWorker.Start(ctx); err != nil {
+				logging.Error("Pilot sync worker stopped with error", "error", err)
+			}
+		}()
+		logging.Info("Pilot sync worker started")
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/db/repositories"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 )
 
 // Container holds all initialized sync jobs
@@ -21,7 +22,7 @@ func InitializeJobs(
 	ctx context.Context,
 	db *gorm.DB,
 	cache cache.CacheInterface,
-	configRepo *repositories.DataProviderConfigRepo,
+	vaSvc *platformVA.Service,
 	syncRepo *Repository,
 	airportRepo *repositories.AirportRepository,
 	logger *zap.Logger,
@@ -30,7 +31,7 @@ func InitializeJobs(
 	routeSyncJob := NewRouteSyncJob(
 		db,
 		cache,
-		configRepo,
+		vaSvc,
 		syncRepo,
 		airportRepo,
 	)

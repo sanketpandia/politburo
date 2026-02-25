@@ -118,9 +118,9 @@ func (h *Handler) PilotsListHandler() http.HandlerFunc {
 
 		// Prepare template data
 		data := map[string]interface{}{
-			"Pilots":    pilotsList,
-			"ActiveVA":  activeVA,
-			"IsAdmin":   activeVA.Role == "admin",
+			"Pilots":   pilotsList,
+			"ActiveVA": activeVA,
+			"IsAdmin":  activeVA.Role == "admin",
 		}
 
 		// Render partial
@@ -260,7 +260,7 @@ func (h *Handler) UpdatePilotCallsignHandler() http.HandlerFunc {
 
 		data := map[string]interface{}{
 			"Pilots":   pilotsList,
-			"ActiveVA":  activeVA,
+			"ActiveVA": activeVA,
 			"IsAdmin":  activeVA.Role == "admin",
 		}
 

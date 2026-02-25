@@ -7,6 +7,7 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/platform/va"
@@ -22,6 +23,7 @@ type CacheJob struct {
 	redisQueue        *queue.RedisQueueService
 	vaRepo            *va.Repository
 	aircraftSvc       *aircraft.Service
+	metrics           *metrics.MetricsRegistry
 	vaPatterns        []VAPattern
 	lastPatternUpdate time.Time
 }
@@ -33,6 +35,7 @@ func NewCacheJob(
 	redisQueue *queue.RedisQueueService,
 	vaRepo *va.Repository,
 	aircraftSvc *aircraft.Service,
+	metricsReg *metrics.MetricsRegistry,
 ) *CacheJob {
 	return &CacheJob{
 		liveAPI:           liveAPI,
@@ -40,6 +43,7 @@ func NewCacheJob(
 		redisQueue:        redisQueue,
 		vaRepo:            vaRepo,
 		aircraftSvc:       aircraftSvc,
+		metrics:           metricsReg,
 		lastPatternUpdate: time.Now().Add(-10 * time.Minute), // Force initial refresh
 	}
 }
@@ -161,6 +165,11 @@ func (j *CacheJob) Run(ctx context.Context) error {
 							"flightID", apiFlight.FlightID,
 							"error", err,
 						)
+					} else {
+						// Track successful enqueue
+						if j.metrics != nil {
+							j.metrics.QueueEnqueuedTotal.WithLabelValues("flight_plan_queue", "flight_plan").Inc()
+						}
 					}
 				}
 			} else {

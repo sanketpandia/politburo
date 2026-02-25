@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/queue"
 	"time"
 )
@@ -11,12 +12,14 @@ import (
 // FlightPlanQueueMonitor monitors the flight plan queue health and metrics
 type FlightPlanQueueMonitor struct {
 	redisQueue *queue.RedisQueueService
+	metrics    *metrics.MetricsRegistry
 }
 
 // NewFlightPlanQueueMonitor creates a new flight plan queue monitor
-func NewFlightPlanQueueMonitor(redisQueue *queue.RedisQueueService) *FlightPlanQueueMonitor {
+func NewFlightPlanQueueMonitor(redisQueue *queue.RedisQueueService, metricsReg *metrics.MetricsRegistry) *FlightPlanQueueMonitor {
 	return &FlightPlanQueueMonitor{
 		redisQueue: redisQueue,
+		metrics:    metricsReg,
 	}
 }
 
@@ -55,6 +58,12 @@ func (m *FlightPlanQueueMonitor) checkQueue(ctx context.Context) {
 	if err != nil {
 		logging.Error("Failed to get flight plan queue stats", "error", err)
 		return
+	}
+
+	// Update metrics
+	if m.metrics != nil {
+		m.metrics.QueueDepth.WithLabelValues(flightPlanStreamName, "flight_plan").Set(float64(stats.QueueLength))
+		m.metrics.QueuePending.WithLabelValues(flightPlanStreamName, "flight_plan").Set(float64(stats.PendingCount))
 	}
 
 	// Determine status

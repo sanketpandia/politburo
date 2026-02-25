@@ -2,6 +2,7 @@ package pilots
 
 import (
 	"context"
+	"log"
 
 	gormlib "gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -19,8 +20,17 @@ func NewRepository(db *gormlib.DB) *Repository {
 
 // Upsert inserts or updates a pilot record from Airtable
 // ON CONFLICT (server_id, at_id) DO UPDATE
+// This allows the same Airtable record ID to exist for different server_id values
 func (r *Repository) Upsert(ctx context.Context, pilot *PilotATSyncedGORM) error {
-	return r.db.WithContext(ctx).
+	// Check if record already exists with this (server_id, at_id) combination
+	var existing PilotATSyncedGORM
+	err := r.db.WithContext(ctx).
+		Where("server_id = ? AND at_id = ?", pilot.ServerID, pilot.ATID).
+		First(&existing).Error
+	
+	isUpdate := err == nil // Record exists
+	
+	result := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "server_id"},
@@ -28,7 +38,21 @@ func (r *Repository) Upsert(ctx context.Context, pilot *PilotATSyncedGORM) error
 			},
 			DoUpdates: clause.AssignmentColumns([]string{"callsign", "registered"}),
 		}).
-		Create(pilot).Error
+		Create(pilot)
+	
+	if result.Error != nil {
+		return result.Error
+	}
+	
+	// Log the result for debugging
+	action := "INSERT"
+	if isUpdate {
+		action = "UPDATE"
+	}
+	log.Printf("[PilotRepo] Upsert %s - RowsAffected: %d, ATID: %s, Callsign: %s, ServerID: %s", 
+		action, result.RowsAffected, pilot.ATID, pilot.Callsign, pilot.ServerID)
+	
+	return nil
 }
 
 // FindByCallsign finds a pilot by VA ID and callsign (case-insensitive)

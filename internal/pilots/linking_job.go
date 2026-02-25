@@ -1,5 +1,9 @@
 package pilots
 
+// DEPRECATED: Linking job removed. Validation now happens at API level in JoinVA.
+// This file is kept for reference but should be deleted after verification.
+// The JoinVA endpoint now validates that callsigns exist in Airtable before allowing membership.
+
 import (
 	"context"
 	"fmt"
@@ -13,6 +17,7 @@ import (
 
 // LinkingJob links users in va_user_roles to their Airtable IDs
 // using the pilot_at_synced table as a lookup
+// DEPRECATED: No longer used. Validation happens at API level.
 type LinkingJob struct {
 	db         *gorm.DB
 	vaConfigService *common.VAConfigService

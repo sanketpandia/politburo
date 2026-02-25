@@ -7,6 +7,7 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/internal/constants"
 	"net/http"
@@ -91,6 +92,7 @@ type FlightPlanWorker struct {
 	queueService *queue.RedisQueueService
 	cache        cache.CacheInterface
 	liveAPI      *liveapi.Client
+	metrics      *metrics.MetricsRegistry
 	ctx          context.Context
 }
 
@@ -99,11 +101,13 @@ func NewFlightPlanWorker(
 	queueService *queue.RedisQueueService,
 	cache cache.CacheInterface,
 	liveAPI *liveapi.Client,
+	metricsReg *metrics.MetricsRegistry,
 ) *FlightPlanWorker {
 	return &FlightPlanWorker{
 		queueService: queueService,
 		cache:        cache,
 		liveAPI:      liveAPI,
+		metrics:      metricsReg,
 		ctx:          context.Background(),
 	}
 }
@@ -133,6 +137,9 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 			item, msgID, err := w.queueService.DequeueFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, flightPlanConsumer, 5*time.Second)
 			if err != nil {
 				logging.Error("Failed to dequeue flight plan", "error", err)
+				if w.metrics != nil {
+					w.metrics.QueueErrorsTotal.WithLabelValues(flightPlanStreamName, "flight_plan", "dequeue_error").Inc()
+				}
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -142,10 +149,33 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 				continue
 			}
 
+			// Track dequeued metric
+			if w.metrics != nil {
+				w.metrics.QueueDequeuedTotal.WithLabelValues(flightPlanStreamName, "flight_plan").Inc()
+			}
+
+			// Track processing duration
+			startTime := time.Now()
 			// Process the flight plan request
 			if err := w.processFlightPlan(ctx, item); err != nil {
+				// Track processing duration
+				if w.metrics != nil {
+					duration := time.Since(startTime).Seconds()
+					w.metrics.QueueProcessingDuration.WithLabelValues(flightPlanStreamName, "flight_plan").Observe(duration)
+				}
+
 				// Increment retry count for this message
 				retryCount := w.incrementRetryCount(msgID)
+
+				// Track error metric
+				if w.metrics != nil {
+					errorType := "transient"
+					isPermanent, statusCode := isPermanentError(err)
+					if isPermanent {
+						errorType = fmt.Sprintf("permanent_%d", statusCode)
+					}
+					w.metrics.QueueErrorsTotal.WithLabelValues(flightPlanStreamName, "flight_plan", errorType).Inc()
+				}
 
 				// Check if we've exceeded max retry attempts
 				if retryCount >= maxRetryAttempts {
@@ -159,6 +189,8 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 					if msgID != "" {
 						if ackErr := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); ackErr != nil {
 							logging.Error("Failed to ack max-retry message", "messageID", msgID, "error", ackErr)
+						} else if w.metrics != nil {
+							w.metrics.QueueAcknowledgedTotal.WithLabelValues(flightPlanStreamName, "flight_plan").Inc()
 						}
 						// Clear retry count since we're done with this message
 						w.clearRetryCount(msgID)
@@ -180,6 +212,8 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 					if msgID != "" {
 						if ackErr := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); ackErr != nil {
 							logging.Error("Failed to ack permanent error message", "messageID", msgID, "error", ackErr)
+						} else if w.metrics != nil {
+							w.metrics.QueueAcknowledgedTotal.WithLabelValues(flightPlanStreamName, "flight_plan").Inc()
 						}
 						// Clear retry count since we're done with this message
 						w.clearRetryCount(msgID)
@@ -200,6 +234,8 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 					if msgID != "" {
 						if ackErr := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); ackErr != nil {
 							logging.Error("Failed to ack offline flight message", "messageID", msgID, "error", ackErr)
+						} else if w.metrics != nil {
+							w.metrics.QueueAcknowledgedTotal.WithLabelValues(flightPlanStreamName, "flight_plan").Inc()
 						}
 						// Clear retry count since we're done with this message
 						w.clearRetryCount(msgID)
@@ -215,8 +251,18 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 					"maxRetries", maxRetryAttempts,
 					"error", err,
 				)
+				// Track retry metric
+				if w.metrics != nil {
+					w.metrics.QueueRetriesTotal.WithLabelValues(flightPlanStreamName, "flight_plan").Inc()
+				}
 				// Don't ack on transient error - let it be retried (up to maxRetryAttempts)
 				continue
+			}
+
+			// Track processing duration on success
+			if w.metrics != nil {
+				duration := time.Since(startTime).Seconds()
+				w.metrics.QueueProcessingDuration.WithLabelValues(flightPlanStreamName, "flight_plan").Observe(duration)
 			}
 
 			// Success - clear retry count and acknowledge
@@ -224,6 +270,8 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 			if msgID != "" {
 				if err := w.queueService.AckFlightPlan(ctx, flightPlanStreamName, flightPlanGroupName, msgID); err != nil {
 					logging.Error("Failed to ack flight plan message", "messageID", msgID, "error", err)
+				} else if w.metrics != nil {
+					w.metrics.QueueAcknowledgedTotal.WithLabelValues(flightPlanStreamName, "flight_plan").Inc()
 				}
 			}
 

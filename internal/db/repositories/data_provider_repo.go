@@ -36,6 +36,24 @@ func (r *DataProviderConfigRepo) GetActiveConfig(ctx context.Context, vaID, prov
 	return &config, nil
 }
 
+// GetActiveConfigByType fetches the active config for a VA by provider type and config type
+func (r *DataProviderConfigRepo) GetActiveConfigByType(ctx context.Context, vaID, providerType, configType string) (*models.DataProviderConfig, error) {
+	var config models.DataProviderConfig
+
+	err := r.db.WithContext(ctx).
+		Where("va_id = ? AND provider_type = ? AND config_type = ? AND is_active = ?", vaID, providerType, configType, true).
+		First(&config).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil // No config found
+		}
+		return nil, fmt.Errorf("failed to get active config by type: %w", err)
+	}
+
+	return &config, nil
+}
+
 // GetConfigByID fetches a config by its ID
 func (r *DataProviderConfigRepo) GetConfigByID(ctx context.Context, configID string) (*models.DataProviderConfig, error) {
 	var config models.DataProviderConfig

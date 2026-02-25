@@ -3,19 +3,32 @@ package va
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"infinite-experiment/politburo/infra/cache"
 
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
 )
 
 // Service provides core VA business logic operations
 type Service struct {
-	repo *Repository
+	repo  *Repository
+	cache cache.CacheInterface
 }
 
 // NewService creates a new VA service
 func NewService(repo *Repository) *Service {
 	return &Service{
-		repo: repo,
+		repo:  repo,
+		cache: nil,
+	}
+}
+
+// NewServiceWithCache creates a new VA service with cache support
+func NewServiceWithCache(repo *Repository, cache cache.CacheInterface) *Service {
+	return &Service{
+		repo:  repo,
+		cache: cache,
 	}
 }
 
@@ -170,6 +183,106 @@ func (s *Service) ValidateAndSaveFlightModesConfig(ctx context.Context, vaID str
 
 	if err := s.repo.UpdateFlightModesConfig(ctx, vaID, jsonbConfig); err != nil {
 		return fmt.Errorf("failed to save flight modes configuration: %w", err)
+	}
+
+	return nil
+}
+
+// ====================
+// Data Provider Config Operations
+// ====================
+
+// IsAirtableConfigured checks if VA has active Airtable configuration
+func (s *Service) IsAirtableConfigured(ctx context.Context, vaID string) (bool, error) {
+	return s.repo.IsAirtableConfigured(ctx, vaID)
+}
+
+// GetAirtableCredentials retrieves cached Airtable credentials
+func (s *Service) GetAirtableCredentials(ctx context.Context, vaID string) (*ProviderCredentials, error) {
+	// Try cache first if available
+	if s.cache != nil {
+		cacheKey := fmt.Sprintf("airtable_creds:%s", vaID)
+		if cached, found := s.cache.Get(cacheKey); found {
+			if creds, ok := cached.(*ProviderCredentials); ok {
+				return creds, nil
+			}
+		}
+	}
+
+	// Cache miss - fetch from repository
+	creds, err := s.repo.GetAirtableCredentials(ctx, vaID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache for 24 hours if available
+	if s.cache != nil && creds != nil {
+		cacheKey := fmt.Sprintf("airtable_creds:%s", vaID)
+		s.cache.Set(cacheKey, creds, 24*time.Hour)
+	}
+
+	return creds, nil
+}
+
+// GetAirtableSchema retrieves cached schema configuration
+func (s *Service) GetAirtableSchema(ctx context.Context, vaID string, schemaType string) (*SchemaConfig, error) {
+	// Try cache first if available
+	if s.cache != nil {
+		cacheKey := fmt.Sprintf("airtable_schema:%s:%s", vaID, schemaType)
+		if cached, found := s.cache.Get(cacheKey); found {
+			if schema, ok := cached.(*SchemaConfig); ok {
+				return schema, nil
+			}
+		}
+	}
+
+	// Cache miss - fetch from repository
+	schema, err := s.repo.GetAirtableSchema(ctx, vaID, schemaType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache for 24 hours if available
+	if s.cache != nil && schema != nil {
+		cacheKey := fmt.Sprintf("airtable_schema:%s:%s", vaID, schemaType)
+		s.cache.Set(cacheKey, schema, 24*time.Hour)
+	}
+
+	return schema, nil
+}
+
+// GetAirtableSchemas retrieves all schemas for a VA (not cached individually, but can be cached as a map)
+func (s *Service) GetAirtableSchemas(ctx context.Context, vaID string) (map[string]*SchemaConfig, error) {
+	// For simplicity, not caching the entire map for now, as individual schemas are cached.
+	// If performance becomes an issue, a single cache entry for the map can be added.
+	return s.repo.GetAirtableSchemas(ctx, vaID)
+}
+
+// SaveAirtableCredentials saves credentials (with cache invalidation)
+func (s *Service) SaveAirtableCredentials(ctx context.Context, vaID string, creds *ProviderCredentials) error {
+	if err := s.repo.SaveAirtableCredentials(ctx, vaID, creds); err != nil {
+		return err
+	}
+
+	// Invalidate cache
+	if s.cache != nil {
+		cacheKey := fmt.Sprintf("airtable_creds:%s", vaID)
+		s.cache.Delete(cacheKey)
+	}
+
+	return nil
+}
+
+// SaveAirtableSchema saves schema (with cache invalidation)
+func (s *Service) SaveAirtableSchema(ctx context.Context, vaID string, schemaType string, schema *SchemaConfig) error {
+	if err := s.repo.SaveAirtableSchema(ctx, vaID, schemaType, schema); err != nil {
+		return err
+	}
+
+	// Invalidate cache
+	if s.cache != nil {
+		cacheKey := fmt.Sprintf("airtable_schema:%s:%s", vaID, schemaType)
+		s.cache.Delete(cacheKey)
 	}
 
 	return nil

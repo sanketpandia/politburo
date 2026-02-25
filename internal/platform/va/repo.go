@@ -247,3 +247,184 @@ func (r *Repository) GetAllActiveVACallsignConfigs(ctx context.Context) ([]map[s
 
 	return result, nil
 }
+
+// ====================
+// Data Provider Config Operations
+// ====================
+
+// IsAirtableConfigured checks if VA has active Airtable credentials
+func (r *Repository) IsAirtableConfigured(ctx context.Context, vaID string) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&DataProviderConfig{}).
+		Where("va_id = ? AND provider_type = ? AND config_type = ? AND is_active = ?", vaID, "airtable", "credentials", true).
+		Count(&count).Error
+
+	if err != nil {
+		return false, fmt.Errorf("failed to check Airtable configuration: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+// GetAirtableCredentials retrieves Airtable credentials and sync settings
+func (r *Repository) GetAirtableCredentials(ctx context.Context, vaID string) (*ProviderCredentials, error) {
+	var config DataProviderConfig
+	err := r.db.WithContext(ctx).
+		Where("va_id = ? AND provider_type = ? AND config_type = ? AND is_active = ?", vaID, "airtable", "credentials", true).
+		First(&config).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil // No config found
+		}
+		return nil, fmt.Errorf("failed to get Airtable credentials: %w", err)
+	}
+
+	creds, err := ParseCredentialsConfig(config.ConfigData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse credentials config: %w", err)
+	}
+
+	return creds, nil
+}
+
+// GetAirtableSchema retrieves a specific schema configuration
+func (r *Repository) GetAirtableSchema(ctx context.Context, vaID string, schemaType string) (*SchemaConfig, error) {
+	var config DataProviderConfig
+	err := r.db.WithContext(ctx).
+		Where("va_id = ? AND provider_type = ? AND config_type = ? AND is_active = ?", vaID, "airtable", schemaType, true).
+		First(&config).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil // No schema found
+		}
+		return nil, fmt.Errorf("failed to get Airtable schema: %w", err)
+	}
+
+	schema, err := ParseSchemaConfig(config.ConfigData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse schema config: %w", err)
+	}
+
+	return schema, nil
+}
+
+// GetAirtableSchemas retrieves all schemas for a VA
+func (r *Repository) GetAirtableSchemas(ctx context.Context, vaID string) (map[string]*SchemaConfig, error) {
+	var configs []DataProviderConfig
+	err := r.db.WithContext(ctx).
+		Where("va_id = ? AND provider_type = ? AND config_type != ? AND is_active = ?", vaID, "airtable", "credentials", true).
+		Find(&configs).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Airtable schemas: %w", err)
+	}
+
+	schemas := make(map[string]*SchemaConfig)
+	for _, config := range configs {
+		schema, err := ParseSchemaConfig(config.ConfigData)
+		if err != nil {
+			// Log error but continue with other schemas
+			continue
+		}
+		schemas[config.ConfigType] = schema
+	}
+
+	return schemas, nil
+}
+
+// SaveAirtableCredentials saves or updates Airtable credentials
+func (r *Repository) SaveAirtableCredentials(ctx context.Context, vaID string, creds *ProviderCredentials) error {
+	configData, err := MarshalCredentialsConfig(creds)
+	if err != nil {
+		return fmt.Errorf("failed to marshal credentials: %w", err)
+	}
+
+	// Check if credentials config already exists
+	var existingConfig DataProviderConfig
+	err = r.db.WithContext(ctx).
+		Where("va_id = ? AND provider_type = ? AND config_type = ?", vaID, "airtable", "credentials").
+		First(&existingConfig).Error
+
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to check existing config: %w", err)
+	}
+
+	if err == gorm.ErrRecordNotFound {
+		// Create new config
+		newConfig := DataProviderConfig{
+			VAID:             vaID,
+			ProviderType:     "airtable",
+			ConfigType:       "credentials",
+			ConfigData:       configData,
+			ConfigVersion:    1,
+			IsActive:         true,
+			ValidationStatus: ValidationStatusPending,
+		}
+
+		if err := r.db.WithContext(ctx).Create(&newConfig).Error; err != nil {
+			return fmt.Errorf("failed to create credentials config: %w", err)
+		}
+	} else {
+		// Update existing config
+		existingConfig.ConfigData = configData
+		existingConfig.ConfigVersion = existingConfig.ConfigVersion + 1
+		existingConfig.IsActive = true
+		existingConfig.ValidationStatus = ValidationStatusPending
+
+		if err := r.db.WithContext(ctx).Save(&existingConfig).Error; err != nil {
+			return fmt.Errorf("failed to update credentials config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SaveAirtableSchema saves or updates a specific schema
+func (r *Repository) SaveAirtableSchema(ctx context.Context, vaID string, schemaType string, schema *SchemaConfig) error {
+	configData, err := MarshalSchemaConfig(schema)
+	if err != nil {
+		return fmt.Errorf("failed to marshal schema: %w", err)
+	}
+
+	// Check if schema config already exists
+	var existingConfig DataProviderConfig
+	err = r.db.WithContext(ctx).
+		Where("va_id = ? AND provider_type = ? AND config_type = ?", vaID, "airtable", schemaType).
+		First(&existingConfig).Error
+
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to check existing config: %w", err)
+	}
+
+	if err == gorm.ErrRecordNotFound {
+		// Create new config
+		newConfig := DataProviderConfig{
+			VAID:             vaID,
+			ProviderType:     "airtable",
+			ConfigType:       schemaType,
+			ConfigData:       configData,
+			ConfigVersion:    1,
+			IsActive:         true,
+			ValidationStatus: ValidationStatusPending,
+		}
+
+		if err := r.db.WithContext(ctx).Create(&newConfig).Error; err != nil {
+			return fmt.Errorf("failed to create schema config: %w", err)
+		}
+	} else {
+		// Update existing config
+		existingConfig.ConfigData = configData
+		existingConfig.ConfigVersion = existingConfig.ConfigVersion + 1
+		existingConfig.IsActive = true
+		existingConfig.ValidationStatus = ValidationStatusPending
+
+		if err := r.db.WithContext(ctx).Save(&existingConfig).Error; err != nil {
+			return fmt.Errorf("failed to update schema config: %w", err)
+		}
+	}
+
+	return nil
+}

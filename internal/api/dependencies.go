@@ -35,7 +35,6 @@ type Repositories struct {
 	VANew           *va.Repository                 // NEW: VA repository in va package
 	Claims          *claims.Repository             // NEW: Claims repository for auth (lightweight, no circular deps)
 	Memberships     *memberships.Repository        // NEW: Membership repository
-	VAEventRepo     *va.EventRepository            // NEW: VA event repository
 	DataProviderCfg *repositories.DataProviderConfigRepo
 	Sync            *sync.Repository     // Consolidated sync repository (routes, PIREPs, history)
 	Pilots          *pilots.Repository   // Pilot repository (migrated from PilotATSyncedRepo)
@@ -56,7 +55,6 @@ type Services struct {
 	Conf               *common.VAConfigService       // Legacy: kept for compatibility
 	VAConfig           *va.ConfigService             // NEW: VA config service in va package
 	VAService          *va.Service                   // NEW: Core VA service
-	VAEventService     *va.EventService              // NEW: VA event service
 	Memberships        *memberships.Service          // NEW: Membership service
 	VaMgmt             *services.VAManagementService // Changed to pointer
 	AirtableApi        *common.AirtableApiService    // Changed to pointer
@@ -83,7 +81,6 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 
 	// Initialize VA repositories (new package)
 	vaRepo := va.NewRepository(db.PgDB)
-	vaEventRepo := va.NewEventRepository(db.PgDB)
 
 	// Initialize claims repository (lightweight, for auth only)
 	claimsRepo := claims.NewRepository(db.PgDB)
@@ -98,7 +95,6 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		VANew:           vaRepo,                                    // NEW: VA repository
 		Claims:          claimsRepo,                                // NEW: Claims repository (for auth)
 		Memberships:     membershipsRepo,                           // NEW: Membership repository
-		VAEventRepo:     vaEventRepo,                               // NEW: VA event repository
 		UserVASync:      repositories.NewSyncRepository(db.PgDB),
 		DataProviderCfg: repositories.NewDataProviderConfigRepo(db.PgDB),
 		Sync:            syncRepo, // Consolidated sync repository
@@ -150,7 +146,6 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 	// Initialize VA services (new package)
 	vaConfigSvc := va.NewConfigService(vaRepo, cacheSvc)
 	vaService := va.NewService(vaRepo)
-	vaEventSvc := va.NewEventService(vaEventRepo)
 
 	// Initialize memberships service
 	// TODO: Re-enable when memberships service is fixed
@@ -203,7 +198,6 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		Conf:               confSvc,            // Legacy: kept for compatibility
 		VAConfig:           vaConfigSvc, // NEW: VA config service
 		VAService:          vaService,   // NEW: Core VA service
-		VAEventService:     vaEventSvc,  // NEW: VA event service
 		// Memberships:        membershipsService, // TODO: Re-enable when service is fixed
 		VaMgmt: nil, // TODO: Migrate VAManagementService to GORM or deprecate
 		AirtableApi:        common.NewAirtableApiService(confSvc),
