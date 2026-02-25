@@ -1,8 +1,8 @@
 package api
 
 import (
-	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/internal/auth"
 	"net/http"
 	"time"
 )

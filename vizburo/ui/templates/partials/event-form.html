@@ -1,0 +1,372 @@
+{{define "event-form"}}
+<style>
+    .form-card {
+        background-color: var(--nord1);
+        border: 2px solid var(--nord8);
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+    }
+
+    .form-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--nord3);
+    }
+
+    .form-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--nord8);
+    }
+
+    .close-form-btn {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: var(--nord4);
+        cursor: pointer;
+        padding: 0;
+    }
+
+    .close-form-btn:hover {
+        color: var(--nord6);
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--nord6);
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .form-input,
+    .form-textarea,
+    .form-select {
+        width: 100%;
+        padding: 0.625rem;
+        background-color: var(--nord2);
+        border: 1px solid var(--nord3);
+        border-radius: 0.375rem;
+        color: var(--nord6);
+        font-size: 0.95rem;
+        font-family: inherit;
+        transition: all 0.2s ease;
+        box-sizing: border-box;
+    }
+
+    .form-input:focus,
+    .form-textarea:focus,
+    .form-select:focus {
+        outline: none;
+        border-color: var(--nord8);
+        box-shadow: 0 0 8px rgba(136, 192, 208, 0.2);
+    }
+
+    .form-textarea {
+        resize: vertical;
+        min-height: 4rem;
+    }
+
+    .form-input::placeholder,
+    .form-textarea::placeholder {
+        color: var(--nord3);
+    }
+
+    .form-help-text {
+        font-size: 0.8rem;
+        color: var(--nord4);
+        margin-top: 0.25rem;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    @media (max-width: 768px) {
+        .form-row {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--nord3);
+    }
+
+    .form-button {
+        padding: 0.625rem 1.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .button-save {
+        background-color: var(--nord8);
+        color: var(--nord0);
+        flex: 1;
+    }
+
+    .button-save:hover {
+        background-color: #8ECCE0;
+    }
+
+    .button-cancel {
+        background-color: var(--nord3);
+        color: var(--nord6);
+        flex: 0 0 auto;
+    }
+
+    .button-cancel:hover {
+        background-color: var(--nord4);
+        color: var(--nord0);
+    }
+
+    .form-error {
+        background-color: var(--nord11);
+        color: var(--nord6);
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+        display: none;
+    }
+
+    .form-error.show {
+        display: block;
+    }
+
+    /* Route dropdown custom styling */
+    .route-dropdown {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .route-option {
+        padding: 0.5rem;
+        cursor: pointer;
+    }
+
+    .route-option:hover {
+        background-color: var(--nord3);
+    }
+</style>
+
+<form
+    {{if .IsEdit}}
+    hx-post="/dashboard/events/{{.ID}}/update"
+    {{else}}
+    hx-post="/dashboard/events/create"
+    {{end}}
+    hx-on::after-request="if (event.detail.xhr.status === 200) {
+        document.getElementById('event-form-container').style.display = 'none';
+        htmx.ajax('GET', '/dashboard/events/list', {target: '#events-container', swap: 'innerHTML'});
+    }"
+    class="form-card"
+>
+    <!-- Header -->
+    <div class="form-header">
+        <h2 class="form-title">{{if .IsEdit}}Edit Event{{else}}Create New Event{{end}}</h2>
+        <button
+            type="button"
+            class="close-form-btn"
+            onclick="document.getElementById('event-form-container').style.display = 'none';"
+        >
+            ✕
+        </button>
+    </div>
+
+    <!-- Error Message -->
+    <div class="form-error" id="form-error-message"></div>
+
+    <!-- Event Name -->
+    <div class="form-group">
+        <label class="form-label" for="event_name">Event Name *</label>
+        <input
+            type="text"
+            id="event_name"
+            name="event_name"
+            class="form-input"
+            value="{{.EventName | default ""}}"
+            placeholder="e.g., Summer Challenge, EGLL Hub Event"
+            required
+            maxlength="100"
+        >
+        <div class="form-help-text">The name of this event</div>
+    </div>
+
+    <!-- Description -->
+    <div class="form-group">
+        <label class="form-label" for="description">Description</label>
+        <textarea
+            id="description"
+            name="description"
+            class="form-textarea"
+            placeholder="Optional: Brief description of the event"
+            maxlength="500"
+        >{{.Description | default ""}}</textarea>
+        <div class="form-help-text">Optional: Help text for pilots about this event</div>
+    </div>
+
+    <!-- Route Selection -->
+    <div class="form-group">
+        <label class="form-label" for="predefined_route">Predefined Route *</label>
+        {{if .AllRoutes}}
+        <datalist id="route-list">
+            {{range .AllRoutes}}
+            <option value="{{.Route}}">{{.Origin}}-{{.Destination}} ({{.Route}})</option>
+            {{end}}
+        </datalist>
+        <input
+            type="text"
+            id="predefined_route"
+            name="predefined_route"
+            class="form-input"
+            list="route-list"
+            value="{{.Route | default ""}}"
+            placeholder="e.g., EGLL-EHAM (type to search)"
+            required
+            maxlength="20"
+        >
+        {{else}}
+        <input
+            type="text"
+            id="predefined_route"
+            name="predefined_route"
+            class="form-input"
+            value="{{.Route | default ""}}"
+            placeholder="e.g., EGLL-EHAM"
+            required
+            maxlength="20"
+        >
+        {{end}}
+        <div class="form-help-text">The route pilots must fly to qualify for this event (e.g., EGLL-EHAM)</div>
+    </div>
+
+    <!-- Date Range -->
+    <div class="form-row">
+        <div class="form-group">
+            <label class="form-label" for="start_date">Start Date & Time *</label>
+            <input
+                type="datetime-local"
+                id="start_date"
+                name="start_date"
+                class="form-input"
+                value="{{.StartDate | default ""}}"
+                required
+            >
+            <div class="form-help-text">When the event starts</div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="end_date">End Date & Time *</label>
+            <input
+                type="datetime-local"
+                id="end_date"
+                name="end_date"
+                class="form-input"
+                value="{{.EndDate | default ""}}"
+                required
+            >
+            <div class="form-help-text">When the event ends</div>
+        </div>
+    </div>
+
+    <!-- Status Display (edit mode only) -->
+    {{if .IsEdit}}
+    <div class="form-group">
+        <div style="padding: 0.75rem; background-color: var(--nord2); border-radius: 0.375rem; border-left: 3px solid var(--nord8);">
+            <div style="font-size: 0.8rem; color: var(--nord4); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;">Event Status</div>
+            <div style="font-size: 1rem; font-weight: 600; color: {{if .IsActive}}var(--nord14){{else}}var(--nord4){{end}};">
+                {{if .IsActive}}🟢 Active{{else}}⚪ Inactive{{end}}
+            </div>
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Form Actions -->
+    <div class="form-actions">
+        <button type="submit" class="form-button button-save">
+            <span>{{if .IsEdit}}Update Event{{else}}Create Event{{end}}</span>
+        </button>
+        <button
+            type="button"
+            class="form-button button-cancel"
+            onclick="document.getElementById('event-form-container').style.display = 'none';"
+        >
+            Cancel
+        </button>
+    </div>
+</form>
+
+<script>
+(function() {
+    const form = document.querySelector('.form-card');
+    const errorDiv = document.getElementById('form-error-message');
+
+    if (form) {
+        // Validate on submit
+        form.addEventListener('submit', function(e) {
+            // Clear previous errors
+            errorDiv.classList.remove('show');
+
+            const eventName = document.getElementById('event_name').value.trim();
+            const route = document.getElementById('predefined_route').value.trim();
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+
+            // Validate
+            if (!eventName) {
+                e.preventDefault();
+                errorDiv.textContent = 'Event name is required';
+                errorDiv.classList.add('show');
+                return false;
+            }
+
+            if (!route) {
+                e.preventDefault();
+                errorDiv.textContent = 'Route is required';
+                errorDiv.classList.add('show');
+                return false;
+            }
+
+            if (!startDate || !endDate) {
+                e.preventDefault();
+                errorDiv.textContent = 'Both start and end dates are required';
+                errorDiv.classList.add('show');
+                return false;
+            }
+
+            const startDateTime = new Date(startDate);
+            const endDateTime = new Date(endDate);
+
+            if (startDateTime >= endDateTime) {
+                e.preventDefault();
+                errorDiv.textContent = 'Start date must be before end date';
+                errorDiv.classList.add('show');
+                return false;
+            }
+        });
+    }
+})();
+</script>
+{{end}}

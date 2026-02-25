@@ -1,0 +1,24 @@
+{{define "secondary-nav"}}
+<!-- Secondary Navigation - Reusable Component
+     Parameters:
+       - ActiveVA: The active virtual airline membership
+       - CurrentPage: String indicating active page ("dashboard", "logbook", "pilots", "datasource", "pirep", "events")
+       - IsAdmin: Boolean flag indicating if user is admin
+       - IsStaff: Boolean flag indicating if user is staff or above
+-->
+<nav class="secondary-nav">
+    <a href="/dashboard" class="secondary-nav-item {{if eq .CurrentPage "dashboard"}}active{{end}}">Dashboard</a>
+
+    {{if .IsStaff}}
+    <a href="/dashboard/logbook" class="secondary-nav-item {{if eq .CurrentPage "logbook"}}active{{end}}">Logbook</a>
+    <a href="/dashboard/pilots" class="secondary-nav-item {{if eq .CurrentPage "pilots"}}active{{end}}">Pilots</a>
+    {{end}}
+
+    {{if .IsAdmin}}
+    <a href="/dashboard/settings/datasource" class="secondary-nav-item {{if eq .CurrentPage "datasource"}}active{{end}}">Datasource</a>
+    <a href="/dashboard/settings/pirep" class="secondary-nav-item {{if eq .CurrentPage "pirep"}}active{{end}}">PIREP</a>
+    <a href="/dashboard/events" class="secondary-nav-item {{if eq .CurrentPage "events"}}active{{end}}">Events</a>
+    <a href="/dashboard/settings" class="secondary-nav-item" style="opacity: 0.5; cursor: not-allowed;" title="Coming soon">Settings</a>
+    {{end}}
+</nav>
+{{end}}

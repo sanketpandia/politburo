@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.PageTitle}} - Vizburo</title>
+    <link rel="stylesheet" href="/static/css/design-system.css">
+    <script src="/static/js/htmx.min.js"></script>
+</head>
+<body>
+    <!-- Global HTMX Loading Spinner -->
+    <div id="global-spinner" class="htmx-indicator">
+        <div class="spinner-backdrop"></div>
+        <div class="spinner-content">
+            <div class="spinner-circle"></div>
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <!-- Mobile Overlay (Backdrop) -->
+    <div class="mobile-overlay" id="overlay" onclick="closeDrawer()"></div>
+
+    <!-- Mobile Header -->
+    {{template "mobile-header" dict "PageTitle" .PageTitle "ActiveVA" .ActiveVA}}
+
+    <!-- Mobile Navigation Drawer -->
+    {{template "mobile-drawer" dict "MenuItems" .MenuItems "CurrentPage" .CurrentPage}}
+
+    <!-- Mobile FAB (Tenant Switcher) -->
+    {{template "mobile-fab" dict "VirtualAirlines" .VirtualAirlines "ActiveVAID" .ActiveVAID "ActiveVA" .ActiveVA}}
+
+    <!-- App Shell (Desktop Layout) -->
+    <div class="app-shell">
+        <!-- Desktop Tenant Sidebar (Left Strip) -->
+        <aside class="desktop-tenant-sidebar">
+            <!-- Logo Section -->
+            <div style="border-bottom: 1px solid var(--border-color); flex-shrink: 0; width: 100%; display: flex; align-items: center; justify-content: center; padding: 20px 0;">
+                <div class="tenant-avatar" style="background-color: var(--accent-primary); color: white; border-color: var(--accent-primary);">
+                    V
+                </div>
+            </div>
+
+            <!-- VA List -->
+            <nav style="flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0.5rem 0; width: 100%; display: flex; flex-direction: column; gap: 0.5rem; align-items: center; position: relative;">
+                {{range .VirtualAirlines}}
+                <div class="va-icon-wrapper" data-va-name="{{.VAName}}" style="position: relative; width: 100%; display: flex; justify-content: center;">
+                    <button
+                        type="button"
+                        hx-post="/dashboard/switch-va"
+                        hx-vals='{"va_id":"{{.VAID}}"}'
+                        hx-target="#dashboard-content"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="updateActiveSidebar(this, '{{.VAID}}')"
+                        class="tenant-avatar {{if eq $.ActiveVAID .VAID}}active{{end}}"
+                        data-va-id="{{.VAID}}">
+                        {{$initials := ""}}
+                        {{range $i, $word := split .VAName " "}}
+                          {{if lt $i 2}}{{$initials = printf "%s%s" $initials (slice $word 0 1)}}{{end}}
+                        {{end}}
+                        {{$initials}}
+                    </button>
+                    <!-- Active indicator bar -->
+                    {{if eq $.ActiveVAID .VAID}}
+                    <div class="va-active-indicator"></div>
+                    {{end}}
+                </div>
+                {{end}}
+            </nav>
+
+            <!-- Settings Section -->
+            <div style="border-top: 1px solid var(--border-color); flex-shrink: 0; width: 100%; display: flex; align-items: center; justify-content: center; padding: 20px 0;">
+                <button class="tenant-avatar" disabled title="Settings coming soon" style="opacity: 0.6; cursor: not-allowed;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3"></path>
+                    </svg>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main style="min-width: 0; overflow: hidden; display: flex; flex-direction: column;">
+            <!-- Desktop Header (Horizontal Navigation) -->
+            <div style="display: none;">
+                {{template "desktop-nav" dict "MenuItems" .MenuItems "CurrentPage" .CurrentPage "ActiveVA" .ActiveVA "Username" .Username}}
+            </div>
+
+            <!-- Content Area -->
+            <div class="main-content">
+                <div id="dashboard-content" style="max-width: 1280px; margin: 0 auto; width: 100%;">
+                    {{block "content" .}}
+                    <div style="text-align: center; color: var(--text-muted);">
+                        <p>Select a Virtual Airline to get started</p>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- JavaScript for Mobile Interactions and HTMX Helpers -->
+    <script>
+        // Mobile Drawer Toggle
+        function toggleDrawer() {
+            const drawer = document.getElementById('drawer');
+            const overlay = document.getElementById('overlay');
+            drawer.classList.toggle('open');
+            overlay.classList.toggle('open');
+        }
+
+        function closeDrawer() {
+            const drawer = document.getElementById('drawer');
+            const overlay = document.getElementById('overlay');
+            drawer.classList.remove('open');
+            overlay.classList.remove('open');
+        }
+
+        // Mobile FAB Toggle
+        function toggleFab() {
+            const menu = document.getElementById('fabMenu');
+            menu.classList.toggle('open');
+        }
+
+        function closeFab() {
+            const menu = document.getElementById('fabMenu');
+            menu.classList.remove('open');
+        }
+
+        // VA switching is handled via HTMX attributes in mobile-fab.html
+
+        // HTMX Helper: Update Active Sidebar
+        function updateActiveSidebar(element, vaId) {
+            // Remove active class from all sidebar buttons
+            document.querySelectorAll('[data-va-id]').forEach(btn => {
+                btn.classList.remove('active');
+                // Remove active indicator
+                const wrapper = btn.closest('.va-icon-wrapper');
+                if (wrapper) {
+                    const indicator = wrapper.querySelector('.va-active-indicator');
+                    if (indicator) {
+                        indicator.remove();
+                    }
+                }
+            });
+            
+            // Add active class to clicked button
+            element.classList.add('active');
+            
+            // Add active indicator
+            const wrapper = element.closest('.va-icon-wrapper');
+            if (wrapper && !wrapper.querySelector('.va-active-indicator')) {
+                const indicator = document.createElement('div');
+                indicator.className = 'va-active-indicator';
+                wrapper.appendChild(indicator);
+            }
+        }
+
+        // Close drawer when clicking outside (overlay)
+        document.addEventListener('click', function(event) {
+            const drawer = document.getElementById('drawer');
+            const overlay = document.getElementById('overlay');
+            const hamburger = document.querySelector('.hamburger-btn');
+            
+            if (drawer && overlay && drawer.classList.contains('open')) {
+                if (!drawer.contains(event.target) && 
+                    !hamburger.contains(event.target) && 
+                    overlay.contains(event.target)) {
+                    closeDrawer();
+                }
+            }
+        });
+
+        // Close FAB when clicking outside
+        document.addEventListener('click', function(event) {
+            const fabContainer = document.querySelector('.mobile-fab-container');
+            const fabMenu = document.getElementById('fabMenu');
+            const fabMain = document.querySelector('.fab-main');
+            
+            if (fabMenu && fabMenu.classList.contains('open')) {
+                if (!fabContainer.contains(event.target)) {
+                    closeFab();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

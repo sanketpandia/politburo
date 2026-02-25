@@ -2,35 +2,45 @@ package api
 
 import (
 	"encoding/json"
+	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/models/entities"
 	"net/http"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 )
 
-// HealthCheckHandler handles GET /healthCheck
-//
-// @Summary Health check
-// @Description Verifies the server is running.
-// @Tags Misc
-// @Success 200 {string} string "ok"
-// @Router /healthCheck [get]
-func HealthCheckHandler(db *sqlx.DB, upSince time.Time) http.HandlerFunc {
+func HealthCheckHandler(db *gorm.DB, cache *cache.RedisCacheService, upSince time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		services := make(map[string]entities.ServiceStatus)
 
 		// Check postgres
 		pgstatus := "ok"
-		pgDetails := "Postgres Connected"
-		if err := db.Ping(); err != nil {
+		pgDetails := "postgres connected"
+
+		cacheStatus := "ok"
+		cacheDetails := "redis connected"
+		sqlDB, err := db.DB()
+		if err != nil {
+			pgstatus = "down"
+			pgDetails = err.Error()
+		} else if err := sqlDB.Ping(); err != nil {
 			pgstatus = "down"
 			pgDetails = err.Error()
 		}
 		services["postgres"] = entities.ServiceStatus{
 			Status:  pgstatus,
 			Details: pgDetails,
+		}
+
+		if err := cache.Ping(); err != nil {
+			cacheStatus = "down"
+			cacheDetails = err.Error()
+		}
+		services["cache"] = entities.ServiceStatus{
+			Status:  cacheStatus,
+			Details: cacheDetails,
 		}
 
 		overallStatus := "ok"

@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/dtos"
 	"log"
@@ -36,7 +37,7 @@ func GetKeysStructMap(m map[string]struct{}) []string {
 // Use AircraftLiveryService.GetAircraftLivery instead for DB-backed livery lookups
 // This function remains for backwards compatibility but will be removed in a future version
 
-func GetSessionId(c *CacheService, server string) *string {
+func GetSessionId(c *cache.CacheService, server string) *string {
 	val, found := c.Get(string(constants.CachePrefixWorldDetails))
 	if !found {
 		return nil
@@ -60,7 +61,7 @@ func ContainsFlightID(summaries []dtos.FlightSummary, id string) bool {
 	return false
 }
 
-func GetFlightFromCache(c *CacheService, flightId string) *dtos.FlightInfo {
+func GetFlightFromCache(c *cache.CacheService, flightId string) *dtos.FlightInfo {
 
 	log.Printf("\nFinding key: %s\n", string(constants.CachePrefixFlightHistory)+flightId)
 	val, found := c.Get(string(constants.CachePrefixFlightHistory) + flightId)
@@ -74,7 +75,7 @@ func GetFlightFromCache(c *CacheService, flightId string) *dtos.FlightInfo {
 	return nil
 }
 
-func GetUserFlightsFromCache(c *CacheService, userID string) *dtos.UserFlights {
+func GetUserFlightsFromCache(c *cache.CacheService, userID string) *dtos.UserFlights {
 
 	log.Printf("\nFinding key: %s\n", string(constants.CachePrefixUserFlights)+userID)
 	val, found := c.Get(string(constants.CachePrefixUserFlights) + userID)
@@ -91,7 +92,7 @@ func GetUserFlightsFromCache(c *CacheService, userID string) *dtos.UserFlights {
 	return nil
 }
 
-func GetExpertServer(c *CacheService) *string {
+func GetExpertServer(c *cache.CacheService) *string {
 	val, found := c.Get(string(constants.CachePrefixExpertServer))
 	if !found {
 		return nil

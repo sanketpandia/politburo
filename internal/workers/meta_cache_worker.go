@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"infinite-experiment/politburo/infra/cache"
 	"context"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/constants"
@@ -11,7 +12,7 @@ import (
 )
 
 type MetaCacheWorker struct {
-	c          *common.CacheInterface
+	c          *cache.CacheInterface
 	api        *common.LiveAPIService
 	liveryRepo *repositories.AircraftLiveryRepository
 	liverySvc  *common.AircraftLiveryService
@@ -32,7 +33,7 @@ func (m *MetaCacheWorker) Start() {
 }
 
 func NewMetaCacheFiller(
-	c *common.CacheInterface,
+	c *cache.CacheInterface,
 	api *common.LiveAPIService,
 	liveryRepo *repositories.AircraftLiveryRepository,
 	liverySvc *common.AircraftLiveryService,

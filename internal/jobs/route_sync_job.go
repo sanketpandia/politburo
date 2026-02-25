@@ -3,12 +3,13 @@ package jobs
 import (
 	"context"
 	"fmt"
-	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
-	"infinite-experiment/politburo/internal/providers"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"log"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 // RouteSyncJob handles syncing route data from Airtable to local database
 type RouteSyncJob struct {
 	db                *gorm.DB
-	cache             common.CacheInterface
+	cache             cache.CacheInterface
 	configRepo        *repositories.DataProviderConfigRepo
 	syncHistoryRepo   *repositories.VASyncHistoryRepo
 	routeATSyncedRepo *repositories.RouteATSyncedRepo
@@ -30,7 +31,7 @@ type RouteSyncJob struct {
 // NewRouteSyncJob creates a new route sync job instance
 func NewRouteSyncJob(
 	db *gorm.DB,
-	cache common.CacheInterface,
+	cache cache.CacheInterface,
 	configRepo *repositories.DataProviderConfigRepo,
 	syncHistoryRepo *repositories.VASyncHistoryRepo,
 	routeATSyncedRepo *repositories.RouteATSyncedRepo,
@@ -49,6 +50,9 @@ func NewRouteSyncJob(
 
 // Run executes the route sync job for all active VAs with Airtable enabled
 func (j *RouteSyncJob) Run(ctx context.Context) error {
+	if 1 == 1 {
+		return nil
+	}
 	start := time.Now()
 	log.Printf("[RouteSyncJob] Starting route sync at %s", start.Format(time.RFC3339))
 
@@ -91,6 +95,11 @@ func (j *RouteSyncJob) Run(ctx context.Context) error {
 
 // SyncVARoutes syncs routes for a specific VA (exported for manual triggering)
 func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, error) {
+
+	if 1 == 1 {
+		return 0, nil
+	}
+
 	start := time.Now()
 	log.Printf("[RouteSyncJob] Syncing routes for VA %s", vaID)
 
@@ -151,8 +160,14 @@ func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, erro
 		lastModified = nil
 	}
 
-	// Set config in context for provider
-	ctx = context.WithValue(ctx, "provider_config", configData)
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	vaRouteSchema := convertDTOsEntitySchema(routeSchema)
+	creds, err := getCredentialsFromConfig(configData)
+	if err != nil {
+		return 0, fmt.Errorf("failed to extract credentials: %w", err)
+	}
+	// Set credentials in context for provider
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
 
 	// Fetch routes with pagination and optional modified-since filter
 	var allRecords []providers.RecordWithID
@@ -167,7 +182,7 @@ func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, erro
 			ModifiedSince: lastModified,
 		}
 
-		recordSet, err := j.airtableProvider.FetchRecords(ctx, routeSchema, filters)
+		recordSet, err := j.airtableProvider.FetchRecords(ctx, vaRouteSchema, filters)
 		if err != nil {
 			return 0, fmt.Errorf("failed to fetch records (page %d): %w", pageCount, err)
 		}
@@ -189,7 +204,7 @@ func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, erro
 	errorCount := 0
 
 	for i, record := range allRecords {
-		if err := j.upsertRoute(ctx, vaID, record.ID, record.Fields, routeSchema); err != nil {
+		if err := j.upsertRoute(ctx, vaID, record.ID, record.Fields, vaRouteSchema); err != nil {
 			log.Printf("[RouteSyncJob] VA %s: Error upserting record %d: %v", vaName, i+1, err)
 			errorCount++
 			continue
@@ -210,7 +225,7 @@ func (j *RouteSyncJob) SyncVARoutes(ctx context.Context, vaID string) (int, erro
 }
 
 // upsertRoute updates or creates a route record in route_at_synced
-func (j *RouteSyncJob) upsertRoute(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, schema *dtos.EntitySchema) error {
+func (j *RouteSyncJob) upsertRoute(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, schema *platformVA.EntitySchema) error {
 	// Extract field mappings
 	originField := schema.GetFieldMapping("origin")
 	destField := schema.GetFieldMapping("destination")
@@ -376,4 +391,49 @@ func (j *RouteSyncJob) RunScheduled(ctx context.Context, interval time.Duration)
 			return
 		}
 	}
+}
+
+// convertDTOsEntitySchema converts dtos.EntitySchema to platformVA.EntitySchema
+func convertDTOsEntitySchema(dtoSchema *dtos.EntitySchema) *platformVA.EntitySchema {
+	if dtoSchema == nil {
+		return nil
+	}
+	fields := make([]platformVA.FieldMapping, len(dtoSchema.Fields))
+	for i, f := range dtoSchema.Fields {
+		fields[i] = platformVA.FieldMapping{
+			InternalName: f.InternalName,
+			AirtableName: f.AirtableName,
+			DataType:     f.DataType,
+			Required:     f.Required,
+			DefaultValue: f.DefaultValue,
+			DisplayName:  f.DisplayName,
+			IsUserVisible: f.IsUserVisible,
+			DisplayFormat: f.DisplayFormat,
+			BotMetadata:   f.BotMetadata,
+		}
+	}
+	return &platformVA.EntitySchema{
+		EntityType:        dtoSchema.EntityType,
+		TableName:         dtoSchema.TableName,
+		Enabled:           dtoSchema.Enabled,
+		LastModifiedField: dtoSchema.LastModifiedField,
+		Fields:            fields,
+	}
+}
+
+// getCredentialsFromConfig extracts credentials from old config structure
+func getCredentialsFromConfig(configData *dtos.ProviderConfigData) (*platformVA.ProviderCredentials, error) {
+	if configData == nil {
+		return nil, fmt.Errorf("config data is nil")
+	}
+	return &platformVA.ProviderCredentials{
+		APIKey: configData.Credentials.APIKey,
+		BaseID: configData.Credentials.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          configData.SyncSettings.BatchSize,
+			RateLimitPerSecond: configData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      configData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     configData.SyncSettings.TimeoutSeconds,
+		},
+	}, nil
 }

@@ -1,0 +1,382 @@
+{{define "pirep-mode-edit-form"}}
+<style>
+    :root {
+        --nord0: #2E3440;
+        --nord1: #3B4252;
+        --nord2: #434C5E;
+        --nord3: #4C566A;
+        --nord4: #D8DEE9;
+        --nord5: #E5E9F0;
+        --nord6: #ECEFF4;
+        --nord8: #88C0D0;
+        --nord11: #BF616A;
+    }
+
+    .mode-edit-card {
+        background-color: var(--nord1);
+        border: 2px solid var(--nord8);
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        transition: all 0.2s ease;
+    }
+
+    .mode-edit-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--nord3);
+    }
+
+    .mode-edit-title {
+        font-size: 1.125rem;
+        font-weight: 700;
+        color: var(--nord8);
+        font-family: monospace;
+    }
+
+    .edit-mode-badge {
+        background-color: var(--nord8);
+        color: var(--nord0);
+        padding: 0.25rem 0.75rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--nord6);
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .form-input,
+    .form-textarea {
+        width: 100%;
+        padding: 0.625rem;
+        background-color: var(--nord2);
+        border: 1px solid var(--nord3);
+        border-radius: 0.375rem;
+        color: var(--nord6);
+        font-size: 0.95rem;
+        font-family: inherit;
+        transition: all 0.2s ease;
+        box-sizing: border-box;
+    }
+
+    .form-input:focus,
+    .form-textarea:focus {
+        outline: none;
+        border-color: var(--nord8);
+        box-shadow: 0 0 8px rgba(136, 192, 208, 0.2);
+    }
+
+    .form-textarea {
+        resize: vertical;
+        min-height: 5rem;
+    }
+
+    .form-input::placeholder,
+    .form-textarea::placeholder {
+        color: var(--nord3);
+    }
+
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem;
+        background-color: var(--nord2);
+        border-radius: 0.375rem;
+    }
+
+    .checkbox-input {
+        width: 1.25rem;
+        height: 1.25rem;
+        cursor: pointer;
+        accent-color: var(--nord8);
+    }
+
+    .checkbox-label {
+        flex: 1;
+        font-size: 0.95rem;
+        color: var(--nord6);
+        cursor: pointer;
+    }
+
+    .form-help-text {
+        font-size: 0.8rem;
+        color: var(--nord4);
+        margin-top: 0.25rem;
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--nord3);
+    }
+
+    .form-button {
+        padding: 0.625rem 1.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .button-save {
+        background-color: var(--nord8);
+        color: var(--nord0);
+        flex: 1;
+    }
+
+    .button-save:hover {
+        background-color: #8ECCE0;
+    }
+
+    .button-cancel {
+        background-color: var(--nord3);
+        color: var(--nord6);
+        flex: 0 0 auto;
+    }
+
+    .button-cancel:hover {
+        background-color: var(--nord4);
+        color: var(--nord0);
+    }
+
+    .button-save:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .form-error {
+        background-color: var(--nord11);
+        color: var(--nord6);
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+        display: none;
+    }
+
+    .form-error.show {
+        display: block;
+    }
+
+    /* HTMX Loading Indicator */
+    .htmx-request .form-button-indicator {
+        display: inline;
+    }
+
+    .htmx-indicator {
+        display: none;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .spin {
+        animation: spin 0.6s linear infinite;
+    }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+        .form-actions {
+            flex-direction: column;
+        }
+
+        .button-save,
+        .button-cancel {
+            flex: 1;
+        }
+    }
+</style>
+
+<form
+    class="mode-edit-card"
+    hx-post="/dashboard/settings/pirep/mode/{{.mode_id}}/update"
+    hx-target="closest .mode-card"
+    hx-swap="outerHTML swap:1s"
+    id="form-{{.mode_id}}"
+>
+    <!-- Header -->
+    <div class="mode-edit-header">
+        <span class="mode-edit-title">{{.mode_id}}</span>
+        <span class="edit-mode-badge">Editing</span>
+    </div>
+
+    <!-- Error Message (shown when validation fails) -->
+    <div class="form-error" id="form-error-{{.mode_id}}"></div>
+
+    <!-- Display Name -->
+    <div class="form-group">
+        <label class="form-label" for="display_name">Display Name</label>
+        <input
+            type="text"
+            id="display_name"
+            name="display_name"
+            class="form-input"
+            value="{{index . "display_name" | default ""}}"
+            placeholder="e.g., Classic Mode, Cargo Run"
+            required
+            maxlength="100"
+        >
+        <div class="form-help-text">The name shown to pilots when selecting a flight mode</div>
+    </div>
+
+    <!-- Description -->
+    <div class="form-group">
+        <label class="form-label" for="description">Description</label>
+        <textarea
+            id="description"
+            name="description"
+            class="form-textarea"
+            placeholder="Brief description of this flight mode (optional)"
+            maxlength="500"
+        >{{index . "description" | default ""}}</textarea>
+        <div class="form-help-text">Optional: Help text displayed to pilots</div>
+    </div>
+
+    <!-- Requires Route Selection -->
+    <div class="form-group">
+        <div class="checkbox-group">
+            <input
+                type="checkbox"
+                id="requires_route_selection"
+                name="requires_route_selection"
+                class="checkbox-input"
+                {{if index . "requires_route_selection"}}checked{{end}}
+                value="true"
+            >
+            <label class="checkbox-label" for="requires_route_selection">
+                Require route selection during PIREP submission
+            </label>
+        </div>
+        <div class="form-help-text" style="margin-left: 0; margin-top: 0.5rem;">
+            When enabled, pilots must select a specific route before filing a PIREP in this mode
+        </div>
+    </div>
+
+    <!-- Field Visibility Settings -->
+    {{if index . "fields"}}
+    <div class="form-group">
+        <label class="form-label">Discord Field Visibility</label>
+        <div class="form-help-text" style="margin-bottom: 1rem;">
+            Choose which fields appear in the Discord PIREP submission modal
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            {{range index . "fields"}}
+            <div class="checkbox-group">
+                <input
+                    type="checkbox"
+                    id="field_show_{{.name}}"
+                    name="field_show_{{.name}}"
+                    class="checkbox-input"
+                    {{if index . "show_in_discord"}}checked{{else}}checked{{end}}
+                    value="true"
+                >
+                <label class="checkbox-label" for="field_show_{{.name}}">
+                    <strong>{{.label}}</strong>
+                    <span style="color: var(--nord4); font-size: 0.85rem; display: block;">
+                        {{.name}} ({{.type}}){{if .required}} • Required{{end}}
+                    </span>
+                </label>
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Form Actions -->
+    <div class="form-actions">
+        <button type="submit" class="form-button button-save">
+            <span>Save Changes</span>
+        </button>
+        <button
+            type="button"
+            class="form-button button-cancel"
+            hx-get="/dashboard/settings/pirep/config"
+            hx-target="#pirep-modes-container"
+            hx-swap="innerHTML"
+        >
+            Cancel
+        </button>
+    </div>
+</form>
+
+<script>
+    (function() {
+        const form = document.getElementById('form-{{.mode_id}}');
+        const errorDiv = document.getElementById('form-error-{{.mode_id}}');
+
+        if (form) {
+            // Store original field visibility state before submission
+            const originalFields = {{json .Fields}};
+
+            // Show error if display_name is empty on submit attempt
+            form.addEventListener('submit', function(e) {
+                const displayName = document.getElementById('display_name').value.trim();
+                if (displayName === '') {
+                    e.preventDefault();
+                    errorDiv.textContent = 'Display name is required';
+                    errorDiv.classList.add('show');
+                    return false;
+                }
+
+                // Update field visibility from form checkboxes
+                if (originalFields && Array.isArray(originalFields)) {
+                    originalFields.forEach(function(field) {
+                        const checkbox = document.getElementById('field_show_' + field.name);
+                        if (checkbox) {
+                            field.show_in_discord = checkbox.checked;
+                        }
+                    });
+
+                    // Store updated fields back in form (as hidden input)
+                    let fieldsInput = document.getElementById('fields_json_{{.mode_id}}');
+                    if (!fieldsInput) {
+                        fieldsInput = document.createElement('input');
+                        fieldsInput.type = 'hidden';
+                        fieldsInput.id = 'fields_json_{{.mode_id}}';
+                        fieldsInput.name = 'fields_json';
+                        form.appendChild(fieldsInput);
+                    }
+                    fieldsInput.value = JSON.stringify(originalFields);
+                }
+            });
+
+            // Clear error on input
+            document.getElementById('display_name').addEventListener('input', function() {
+                errorDiv.classList.remove('show');
+            });
+
+            // Handle HTMX response errors
+            htmx.on(form, 'htmx:responseError', function(evt) {
+                errorDiv.textContent = 'Failed to save changes. Please try again.';
+                errorDiv.classList.add('show');
+                console.error('HTMX Error:', evt.detail.xhr.responseText);
+            });
+        }
+    })();
+</script>
+{{end}}

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"infinite-experiment/politburo/infra/cache"
 	"context"
 	"fmt"
 	"infinite-experiment/politburo/internal/constants"
@@ -14,11 +15,11 @@ import (
 )
 
 type AircraftLiveryService struct {
-	cache *CacheService
+	cache *cache.CacheService
 	repo  *repositories.AircraftLiveryRepository
 }
 
-func NewAircraftLiveryService(cache *CacheService, repo *repositories.AircraftLiveryRepository) *AircraftLiveryService {
+func NewAircraftLiveryService(cache *cache.CacheService, repo *repositories.AircraftLiveryRepository) *AircraftLiveryService {
 	return &AircraftLiveryService{
 		cache: cache,
 		repo:  repo,

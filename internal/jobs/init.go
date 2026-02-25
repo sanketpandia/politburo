@@ -2,84 +2,87 @@ package jobs
 
 import (
 	"context"
+	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/workers"
+	"infinite-experiment/politburo/internal/flights"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
-// JobsContainer holds all initialized jobs
+// JobsContainer holds all initialized non-sync jobs
+// Note: Sync jobs (routes, PIREPs) are now in sync.Container
 type JobsContainer struct {
-	PilotSync     *PilotSyncJob
-	RouteSync     *RouteSyncJob
-	PirepSync     *PirepSyncJob
-	PIREPBackfill *workers.PIREPBackfill
+	SessionCache *SessionCacheJob
+	FlightsCache *flights.CacheJob
 }
 
-// InitializeJobs initializes and starts all background jobs
+// InitializeJobs initializes and starts all non-sync background jobs
+// Note: Sync jobs (routes, PIREPs) are initialized via sync.InitializeJobs
 func InitializeJobs(
 	ctx context.Context,
 	db *gorm.DB,
-	cache common.CacheInterface,
+	cache cache.CacheInterface,
 	configRepo *repositories.DataProviderConfigRepo,
-	syncHistoryRepo *repositories.VASyncHistoryRepo,
-	pilotATSyncedRepo *repositories.PilotATSyncedRepo,
-	routeATSyncedRepo *repositories.RouteATSyncedRepo,
-	pirepATSyncedRepo *repositories.PirepATSyncedRepo,
-	airportIcaoRepo *repositories.AirportRepository,
+	syncHistoryRepo *repositories.VASyncHistoryRepo, // Still needed by pilot sync job
 	vaConfigService *common.VAConfigService,
-	redisQueue *common.RedisQueueService,
+	liveAPIService *common.LiveAPIService,
+	redisCache *cache.RedisCacheService,
 ) *JobsContainer {
-	// Initialize pilot sync job (syncs pilots from Airtable every hour)
-	pilotSyncJob := NewPilotSyncJob(
-		db,
-		cache,
-		configRepo,
-		syncHistoryRepo,
-		pilotATSyncedRepo,
-		vaConfigService,
-	)
-
-	// Initialize route sync job (syncs routes from Airtable every hour)
-	routeSyncJob := NewRouteSyncJob(
-		db,
-		cache,
-		configRepo,
-		syncHistoryRepo,
-		routeATSyncedRepo,
-		airportIcaoRepo,
-	)
-
-	// Initialize PIREP sync job (syncs PIREPs from Airtable every hour)
-	pirepSyncJob := NewPirepSyncJob(
-		db,
-		cache,
-		configRepo,
-		syncHistoryRepo,
-		pirepATSyncedRepo,
-		redisQueue,
-	)
+	// Initialize pilot sync job (syncs pilots from Airtable every 10 minutes)
+	// pilotSyncJob := pilots.NewSyncJob(
+	// 	db,
+	// 	cache,
+	// 	configRepo,
+	// 	syncHistoryRepo,
+	// 	pilotRepo,
+	// 	vaConfigService,
+	// )
 
 	// Initialize PIREP backfill job (backfills missing pilot/route data every 15 minutes)
-	pirepBackfillJob := workers.NewPIREPBackfill(
-		db,
-		cache,
-		*routeATSyncedRepo,
-		*pilotATSyncedRepo,
-	)
+	// // TODO: Update PIREPBackfill to accept sync.Repository instead of RouteATSyncedRepo
+	// pirepBackfillJob := workers.NewPIREPBackfill(
+	// 	db,
+	// 	cache,
+	// 	repositories.RouteATSyncedRepo{}, // Empty struct - TODO: migrate to sync.Repository
+	// 	*pilotRepo,                       // Pilots repository (dereferenced)
+	// )
 
-	// Start scheduled sync jobs in background (all run every hour)
-	go pilotSyncJob.RunScheduled(ctx, 10*time.Minute)
-	go routeSyncJob.RunScheduled(ctx, 10*time.Minute)
-	go pirepSyncJob.RunScheduled(ctx, 10*time.Minute)
-	go pirepBackfillJob.RunScheduled(ctx, 10*time.Minute)
+	// Start scheduled jobs in background
+	// go pilotSyncJob.RunScheduled(ctx, 10*time.Minute)
+	// go pirepBackfillJob.RunScheduled(ctx, 10*time.Minute)
+
+	// Initialize and start cache jobs (if Redis is enabled)
+	var sessionCacheJob *SessionCacheJob
+	var flightsCacheJob *flights.CacheJob
+
+	if redisCache != nil && liveAPIService != nil {
+		// Get logger for cache jobs
+		logger := logging.GetLogger()
+
+		// Initialize session cache job (runs every 5 minutes)
+		sessionCacheJob = NewSessionCacheJob(liveAPIService, redisCache, logger)
+
+		// Run session cache job immediately to populate cache on startup
+		if err := sessionCacheJob.Run(ctx); err != nil {
+			logger.Warn("Initial session cache job failed", zap.Error(err))
+		}
+
+		// Start scheduled session cache job
+		go sessionCacheJob.RunScheduled(ctx, 5*time.Minute)
+		logger.Info("Session cache job scheduled (every 5 minutes)")
+
+		// NOTE: Flights cache job is now registered via routes.RegisterScheduledJobs()
+		// This legacy initialization is kept for backwards compatibility but is not used
+		// The new scheduler system handles flights cache job registration
+		// flightsCacheJob = flights.NewCacheJob(...) // Moved to routes.RegisterScheduledJobs
+	}
 
 	return &JobsContainer{
-		PilotSync:     pilotSyncJob,
-		RouteSync:     routeSyncJob,
-		PirepSync:     pirepSyncJob,
-		PIREPBackfill: pirepBackfillJob,
+		SessionCache: sessionCacheJob,
+		FlightsCache: flightsCacheJob,
 	}
 }

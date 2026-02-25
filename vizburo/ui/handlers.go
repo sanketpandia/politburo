@@ -3,12 +3,16 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
+	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/models/dtos"
-	"infinite-experiment/politburo/internal/services"
+	"infinite-experiment/politburo/internal/pilots"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"log"
 	"math"
 	"net/http"
@@ -39,23 +43,17 @@ func DashboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Cast to SessionData
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
 	}
 
-	// Get active VA
-	activeVA := sessionData.GetActiveVA()
-
-	// Prepare template data
-	data := map[string]interface{}{
-		"ActiveVA":        activeVA,
-		"VirtualAirlines": sessionData.VirtualAirlines,
-		"Username":        sessionData.Username,
-		"UserID":          sessionData.UserID,
-		"ActiveVAID":      sessionData.ActiveVAID,
-		"PageTitle":       "Dashboard",
+	// Prepare template data using common helper
+	data, err := PrepareTemplateData(sessionData, "Dashboard")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// Render template
@@ -70,27 +68,17 @@ func DashboardHandler(w http.ResponseWriter, r *http.Request) {
 func LogbookHandler(w http.ResponseWriter, r *http.Request) {
 	// Get session data from context (guaranteed by auth middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
 	}
 
-	// Get active VA
-	activeVA := sessionData.GetActiveVA()
-	if activeVA == nil {
-		http.Error(w, "No active VA found", http.StatusInternalServerError)
+	// Prepare template data using common helper
+	data, err := PrepareTemplateData(sessionData, "Logbook")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Prepare template data
-	data := map[string]interface{}{
-		"ActiveVA":        activeVA,
-		"VirtualAirlines": sessionData.VirtualAirlines,
-		"Username":        sessionData.Username,
-		"UserID":          sessionData.UserID,
-		"ActiveVAID":      sessionData.ActiveVAID,
-		"PageTitle":       "Logbook",
 	}
 
 	// Render template
@@ -104,7 +92,7 @@ func LogbookHandler(w http.ResponseWriter, r *http.Request) {
 func LogbookFlightsHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	flightSvc *services.FlightsService,
+	flightSvc *flights.Service,
 ) {
 	// Get user claims from context
 	claims := auth.GetUserClaims(r.Context())
@@ -179,9 +167,9 @@ func LogbookFlightsHandler(
 func FlightMapHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	cache common.CacheInterface,
+	cache cache.CacheInterface,
 	liveAPI *common.LiveAPIService,
-	flightSvc *services.FlightsService,
+	flightSvc *flights.Service,
 ) {
 	// Get user claims
 	claims := auth.GetUserClaims(r.Context())
@@ -368,7 +356,7 @@ func PilotSearchHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -560,36 +548,30 @@ func MapResetHandler(w http.ResponseWriter, r *http.Request) {
 func PilotsHandler(w http.ResponseWriter, r *http.Request) {
 	// Get session data from context (guaranteed by auth middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
 	}
 
-	activeVA := sessionData.GetActiveVA()
-	if activeVA == nil {
-		http.Error(w, "No active VA found", http.StatusInternalServerError)
+	// Prepare template data using common helper
+	data, err := PrepareTemplateData(sessionData, "Pilots")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Prepare template data
-	data := map[string]interface{}{
-		"ActiveVA":        activeVA,
-		"VirtualAirlines": sessionData.VirtualAirlines,
-		"Username":        sessionData.Username,
-		"UserID":          sessionData.UserID,
-		"ActiveVAID":      sessionData.ActiveVAID,
-		"PageTitle":       "Pilots",
+	if err := RenderTemplate(w, "pages/pilots.html", data); err != nil {
+		http.Error(w, "Error rendering pilots page", http.StatusInternalServerError)
+		return
 	}
-
-	RenderTemplate(w, "pages/pilots.html", data)
 }
 
 // PilotsListHandler returns a list of pilots for the active VA (HTMX partial)
 func PilotsListHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	pilotMgmtSvc *services.PilotManagementService,
+	pilotMgmtSvc *pilots.ManagementService,
 ) {
 	// Get session data
 	sessionDataInterface := auth.GetSessionData(r.Context())
@@ -598,7 +580,7 @@ func PilotsListHandler(
 		return
 	}
 
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -611,23 +593,23 @@ func PilotsListHandler(
 	}
 
 	// Get pilots from service
-	pilots, err := pilotMgmtSvc.GetPilotsByVAID(
+	pilotsList, err := pilotMgmtSvc.GetPilotsByVAID(
 		r.Context(),
 		activeVA.VAID,
-		constants.VARole(activeVA.Role),
+		roles.VARole(activeVA.Role),
 	)
 	if err != nil {
 		http.Error(w, "Failed to fetch pilots: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if pilots == nil {
-		pilots = []services.PilotDTO{}
+	if pilotsList == nil {
+		pilotsList = []pilots.PilotDTO{}
 	}
 
 	// Prepare template data
 	data := map[string]interface{}{
-		"Pilots":    pilots,
+		"Pilots":    pilotsList,
 		"ActiveVA":  activeVA,
 		"IsAdmin":   activeVA.Role == "admin",
 	}
@@ -644,11 +626,11 @@ func PilotsListHandler(
 func UpdatePilotRoleHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	pilotMgmtSvc *services.PilotManagementService,
+	pilotMgmtSvc *pilots.ManagementService,
 ) {
 	// Get session data (guaranteed by auth middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -680,7 +662,7 @@ func UpdatePilotRoleHandler(
 		activeVA.VAID,
 		pilotID,
 		newRole,
-		constants.VARole(activeVA.Role),
+		roles.VARole(activeVA.Role),
 	)
 	if err != nil {
 		http.Error(w, "Failed to update pilot role: "+err.Error(), http.StatusInternalServerError)
@@ -688,10 +670,10 @@ func UpdatePilotRoleHandler(
 	}
 
 	// Re-fetch pilots and render updated table
-	pilots, err := pilotMgmtSvc.GetPilotsByVAID(
+	pilotsList, err := pilotMgmtSvc.GetPilotsByVAID(
 		r.Context(),
 		activeVA.VAID,
-		constants.VARole(activeVA.Role),
+		roles.VARole(activeVA.Role),
 	)
 	if err != nil {
 		http.Error(w, "Failed to fetch updated pilots", http.StatusInternalServerError)
@@ -699,7 +681,7 @@ func UpdatePilotRoleHandler(
 	}
 
 	data := map[string]interface{}{
-		"Pilots":   pilots,
+		"Pilots":   pilotsList,
 		"ActiveVA": activeVA,
 		"IsAdmin":  activeVA.Role == "admin",
 	}
@@ -715,11 +697,11 @@ func UpdatePilotRoleHandler(
 func UpdatePilotCallsignHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	pilotMgmtSvc *services.PilotManagementService,
+	pilotMgmtSvc *pilots.ManagementService,
 ) {
 	// Get session data (guaranteed by auth middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -747,7 +729,7 @@ func UpdatePilotCallsignHandler(
 		activeVA.VAID,
 		pilotID,
 		newCallsign,
-		constants.VARole(activeVA.Role),
+		roles.VARole(activeVA.Role),
 	)
 	if err != nil {
 		http.Error(w, "Failed to update callsign: "+err.Error(), http.StatusBadRequest)
@@ -755,10 +737,10 @@ func UpdatePilotCallsignHandler(
 	}
 
 	// Re-fetch pilots and render updated table
-	pilots, err := pilotMgmtSvc.GetPilotsByVAID(
+	pilotsList, err := pilotMgmtSvc.GetPilotsByVAID(
 		r.Context(),
 		activeVA.VAID,
-		constants.VARole(activeVA.Role),
+		roles.VARole(activeVA.Role),
 	)
 	if err != nil {
 		http.Error(w, "Failed to fetch updated pilots", http.StatusInternalServerError)
@@ -766,7 +748,7 @@ func UpdatePilotCallsignHandler(
 	}
 
 	data := map[string]interface{}{
-		"Pilots":   pilots,
+		"Pilots":   pilotsList,
 		"ActiveVA": activeVA,
 		"IsAdmin":  activeVA.Role == "admin",
 	}
@@ -782,11 +764,11 @@ func UpdatePilotCallsignHandler(
 func RemovePilotHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	pilotMgmtSvc *services.PilotManagementService,
+	pilotMgmtSvc *pilots.ManagementService,
 ) {
 	// Get session data (guaranteed by auth middleware)
 	sessionDataInterface := auth.GetSessionData(r.Context())
-	sessionData, ok := sessionDataInterface.(*common.SessionData)
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
 	if !ok {
 		http.Error(w, "Invalid session data", http.StatusInternalServerError)
 		return
@@ -810,7 +792,7 @@ func RemovePilotHandler(
 		r.Context(),
 		activeVA.VAID,
 		pilotID,
-		constants.VARole(activeVA.Role),
+		roles.VARole(activeVA.Role),
 	)
 	if err != nil {
 		http.Error(w, "Failed to remove pilot: "+err.Error(), http.StatusInternalServerError)
@@ -818,10 +800,10 @@ func RemovePilotHandler(
 	}
 
 	// Re-fetch pilots and render updated table
-	pilots, err := pilotMgmtSvc.GetPilotsByVAID(
+	pilotsList, err := pilotMgmtSvc.GetPilotsByVAID(
 		r.Context(),
 		activeVA.VAID,
-		constants.VARole(activeVA.Role),
+		roles.VARole(activeVA.Role),
 	)
 	if err != nil {
 		http.Error(w, "Failed to fetch updated pilots", http.StatusInternalServerError)
@@ -829,7 +811,7 @@ func RemovePilotHandler(
 	}
 
 	data := map[string]interface{}{
-		"Pilots":   pilots,
+		"Pilots":   pilotsList,
 		"ActiveVA": activeVA,
 		"IsAdmin":  activeVA.Role == "admin",
 	}

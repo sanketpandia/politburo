@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/models/dtos"
-	"infinite-experiment/politburo/internal/services"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,16 +14,24 @@ import (
 
 // Mock RegistrationServiceV2
 type mockRegistrationServiceV2 struct {
-	initUserRegistrationFunc func(ctx context.Context, discordUserID, ifcId, lastFlight string) (*dtos.InitApiResponse, error)
+	initUserRegistrationFunc func(ctx context.Context, discordUserID, discordServerID, ifcId, lastFlight string, callsign *string) (*dtos.InitApiResponse, error)
+	linkUserToVAFunc         func(ctx context.Context, discordUserID, discordServerID, callsign string) (map[string]interface{}, error)
 }
 
-func (m *mockRegistrationServiceV2) InitUserRegistration(ctx context.Context, discordUserID, ifcId, lastFlight string) (*dtos.InitApiResponse, error) {
-	return m.initUserRegistrationFunc(ctx, discordUserID, ifcId, lastFlight)
+func (m *mockRegistrationServiceV2) InitUserRegistration(ctx context.Context, discordUserID, discordServerID, ifcId, lastFlight string, callsign *string) (*dtos.InitApiResponse, error) {
+	return m.initUserRegistrationFunc(ctx, discordUserID, discordServerID, ifcId, lastFlight, callsign)
+}
+
+func (m *mockRegistrationServiceV2) LinkUserToVA(ctx context.Context, discordUserID, discordServerID, callsign string) (map[string]interface{}, error) {
+	if m.linkUserToVAFunc != nil {
+		return m.linkUserToVAFunc(ctx, discordUserID, discordServerID, callsign)
+	}
+	return nil, nil
 }
 
 func TestInitUserRegistrationHandlerV2_Success(t *testing.T) {
 	mockService := &mockRegistrationServiceV2{
-		initUserRegistrationFunc: func(ctx context.Context, discordUserID, ifcId, lastFlight string) (*dtos.InitApiResponse, error) {
+		initUserRegistrationFunc: func(ctx context.Context, discordUserID, discordServerID, ifcId, lastFlight string, callsign *string) (*dtos.InitApiResponse, error) {
 			return &dtos.InitApiResponse{
 				IfcId:   ifcId,
 				Status:  true,
@@ -51,8 +59,8 @@ func TestInitUserRegistrationHandlerV2_Success(t *testing.T) {
 
 	// Add claims to context
 	claims := &auth.APIKeyClaims{
-		DiscordUserIDValue:   "discord-123",
-		DiscordServerIDValue: "server-456",
+		DiscordUIDVal:      "discord-123",
+		DiscordServerIDVal: "server-456",
 	}
 	ctx := auth.SetUserClaims(req.Context(), claims)
 	req = req.WithContext(ctx)
@@ -103,7 +111,7 @@ func TestInitUserRegistrationHandlerV2_InvalidJSON(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	claims := &auth.APIKeyClaims{
-		DiscordUserIDValue: "discord-123",
+		DiscordUIDVal: "discord-123",
 	}
 	ctx := auth.SetUserClaims(req.Context(), claims)
 	req = req.WithContext(ctx)
@@ -130,7 +138,7 @@ func TestInitUserRegistrationHandlerV2_MissingIfcId(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	claims := &auth.APIKeyClaims{
-		DiscordUserIDValue: "discord-123",
+		DiscordUIDVal: "discord-123",
 	}
 	ctx := auth.SetUserClaims(req.Context(), claims)
 	req = req.WithContext(ctx)
@@ -164,7 +172,7 @@ func TestInitUserRegistrationHandlerV2_MissingLastFlight(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	claims := &auth.APIKeyClaims{
-		DiscordUserIDValue: "discord-123",
+		DiscordUIDVal: "discord-123",
 	}
 	ctx := auth.SetUserClaims(req.Context(), claims)
 	req = req.WithContext(ctx)
@@ -179,17 +187,14 @@ func TestInitUserRegistrationHandlerV2_MissingLastFlight(t *testing.T) {
 
 func TestInitUserRegistrationHandlerV2_ServiceError(t *testing.T) {
 	mockService := &mockRegistrationServiceV2{
-		initUserRegistrationFunc: func(ctx context.Context, discordUserID, ifcId, lastFlight string) (*dtos.InitApiResponse, error) {
+		initUserRegistrationFunc: func(ctx context.Context, discordUserID, discordServerID, ifcId, lastFlight string, callsign *string) (*dtos.InitApiResponse, error) {
 			return &dtos.InitApiResponse{
 				IfcId:  ifcId,
 				Status: false,
 				Steps: []dtos.RegistrationStep{
 					{Name: "duplicate_check", Status: false, Message: "User already exists"},
 				},
-			}, &services.RegistrationError{
-				Code:    "DUPLICATE_USER",
-				Message: "User already registered",
-			}
+			}, fmt.Errorf("DUPLICATE_USER: User already registered")
 		},
 	}
 
@@ -205,7 +210,7 @@ func TestInitUserRegistrationHandlerV2_ServiceError(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	claims := &auth.APIKeyClaims{
-		DiscordUserIDValue: "discord-123",
+		DiscordUIDVal: "discord-123",
 	}
 	ctx := auth.SetUserClaims(req.Context(), claims)
 	req = req.WithContext(ctx)

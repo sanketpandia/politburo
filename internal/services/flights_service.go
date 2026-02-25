@@ -1,6 +1,7 @@
 package services
 
 import (
+	"infinite-experiment/politburo/infra/cache"
 	"context"
 	"errors"
 	"fmt"
@@ -18,7 +19,7 @@ import (
 )
 
 type FlightsService struct {
-	Cache      common.CacheInterface
+	Cache      cache.CacheInterface
 	ApiService *common.LiveAPIService
 	Cfg        *common.VAConfigService
 	LiverySvc  *common.AircraftLiveryService
@@ -63,7 +64,7 @@ func SplitCallsign(raw string) (variable, prefix, suffix string) {
 }
 
 func NewFlightsService(
-	cache common.CacheInterface,
+	cache cache.CacheInterface,
 	liveApi *common.LiveAPIService,
 	cfgSvc *common.VAConfigService,
 	liverySvc *common.AircraftLiveryService,
@@ -531,6 +532,145 @@ func (svc *FlightsService) GetVALiveFlights(ctx context.Context, vaId string) (*
 
 	return &va_flt, nil
 
+}
+
+// GetVALiveFlightsFromCache retrieves VA flights from cache with API fallback
+// This method tries to read from the cache populated by FlightsCacheJob first,
+// then falls back to the direct API call (GetVALiveFlights) if cache is unavailable
+func (svc *FlightsService) GetVALiveFlightsFromCache(ctx context.Context, vaId string) (*[]dtos.LiveFlight, error) {
+	// Get VA config (prefix/suffix patterns and session ID)
+	sId, ok := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyIFServerID)
+	if !ok || sId == "" {
+		return nil, errors.New("Game server not configured")
+	}
+
+	pfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyCallsignPrefix)
+	sfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyCallsignSuffix)
+
+	// At least one of prefix or suffix must be configured
+	if pfx == "" && sfx == "" {
+		return nil, errors.New("callsign prefix or suffix not configured for airline")
+	}
+
+	// Try to get flights from cache first
+	cachedFlights, err := svc.getFlightsFromCache(sId, pfx, sfx)
+	if err == nil && cachedFlights != nil && len(*cachedFlights) > 0 {
+		// Cache hit - enrich and return
+		enriched := svc.enrichFlightData(cachedFlights)
+		return enriched, nil
+	}
+
+	// Cache miss - fallback to direct API call
+	return svc.GetVALiveFlights(ctx, vaId)
+}
+
+// getFlightsFromCache reads flights from Redis cache populated by FlightsCacheJob
+func (svc *FlightsService) getFlightsFromCache(sId string, prefix string, suffix string) (*[]dtos.LiveFlight, error) {
+	// Get callsign list for session
+	callsignKey := fmt.Sprintf("if:session:callsigns:%s", sId)
+	callsignVal, found := svc.Cache.Get(callsignKey)
+	if !found {
+		return nil, errors.New("cache miss: no callsigns")
+	}
+
+	callsignStr, ok := callsignVal.(string)
+	if !ok || callsignStr == "" {
+		return nil, errors.New("invalid callsign format")
+	}
+
+	callsigns := strings.Split(callsignStr, "|")
+	flights := make([]dtos.LiveFlight, 0)
+
+	// Fetch each flight from cache
+	for _, callsign := range callsigns {
+		if callsign == "" {
+			continue
+		}
+
+		// Filter by VA pattern before fetching
+		if !common.MatchesVAPattern(callsign, prefix, suffix) {
+			continue
+		}
+
+		// Get flight data from cache using session+callsign key
+		flightKey := fmt.Sprintf("if:session:%s:flight:%s", sId, callsign)
+		flightVal, found := svc.Cache.Get(flightKey)
+		if !found {
+			continue
+		}
+
+		// Convert cached data to LiveFlight DTO
+		flight, err := svc.convertCachedToLiveFlight(flightVal)
+		if err != nil {
+			continue
+		}
+
+		flights = append(flights, flight)
+	}
+
+	if len(flights) == 0 {
+		return nil, errors.New("no flights found in cache")
+	}
+
+	return &flights, nil
+}
+
+
+// convertCachedToLiveFlight converts cached flight data to LiveFlight DTO
+func (svc *FlightsService) convertCachedToLiveFlight(cachedData interface{}) (dtos.LiveFlight, error) {
+	// Cached data is a map[string]interface{}
+	data, ok := cachedData.(map[string]interface{})
+	if !ok {
+		return dtos.LiveFlight{}, errors.New("invalid cached flight format")
+	}
+
+	// Helper to safely get string from interface{}
+	getString := func(key string) string {
+		if val, ok := data[key]; ok {
+			if str, ok := val.(string); ok {
+				return str
+			}
+		}
+		return ""
+	}
+
+	// Helper to safely get float64 from interface{}
+	getFloat := func(key string) float64 {
+		if val, ok := data[key]; ok {
+			if f, ok := val.(float64); ok {
+				return f
+			}
+		}
+		return 0
+	}
+
+	// Helper to safely get time from interface{}
+	getTimeString := func(key string) string {
+		if val, ok := data[key]; ok {
+			if t, ok := val.(time.Time); ok {
+				return t.Format(time.RFC3339)
+			}
+		}
+		return ""
+	}
+
+	flight := dtos.LiveFlight{
+		FlightID:    getString("flight_id"),
+		Callsign:    getString("callsign"),
+		SessionID:   getString("session_id"),
+		SpeedKts:    int(getFloat("speed")),
+		AltitudeFt:  int(getFloat("altitude")),
+		FlightPhase: getString("phase"),       // NEW
+		LastUpdated: getTimeString("last_updated"), // NEW
+	}
+
+	// Parse callsign into components
+	variable, prefix, suffix := SplitCallsign(flight.Callsign)
+	flight.CallsignVar = variable
+	flight.CallsignPrefix = prefix
+	flight.CallsignSuffix = suffix
+
+	return flight, nil
 }
 
 func (svc *FlightsService) GetLiveServers() (*[]dtos.Session, error) {

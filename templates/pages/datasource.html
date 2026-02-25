@@ -1,0 +1,55 @@
+{{define "content"}}
+<style>
+    .datasource-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .page-header {
+        margin-bottom: 2rem;
+    }
+
+    .page-title {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+    }
+
+    .page-subtitle {
+        font-size: 0.95rem;
+        color: var(--text-secondary);
+    }
+
+    .card {
+        background-color: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        padding: 2rem;
+    }
+</style>
+
+<!-- Secondary Navigation -->
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" .CurrentPage "MenuItems" .MenuItems}}
+
+<!-- Page Header -->
+<div class="page-header">
+    <h2 class="page-title">Datasource Configuration</h2>
+    <p class="page-subtitle">Configure data synchronization for {{.ActiveVA.VAName}}</p>
+</div>
+
+<!-- Datasource Status Container (HTMX) -->
+<div class="card"
+     id="datasource-status-container"
+     hx-get="/dashboard/settings/datasource/status"
+     hx-trigger="load, credentials-saved from:body, schema-saved from:body"
+     hx-swap="innerHTML"
+     hx-indicator="#global-spinner">
+    <!-- Loading state -->
+    <div style="text-align: center; color: var(--text-secondary); padding: 2rem;">
+        <p>Loading datasource status...</p>
+    </div>
+</div>
+
+{{end}}

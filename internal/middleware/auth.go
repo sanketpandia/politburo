@@ -1,11 +1,12 @@
 package middleware
 
 import (
+	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/internal/auth"
 	authCtx "infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/common"
-	"infinite-experiment/politburo/internal/constants"
-	"infinite-experiment/politburo/internal/db/repositories"
+	"infinite-experiment/politburo/internal/platform/apikeys"
+	"infinite-experiment/politburo/internal/platform/claims"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"log"
 	"net/http"
 	"strings"
@@ -13,9 +14,9 @@ import (
 )
 
 func AuthMiddleware(
-	userRepo *repositories.UserRepositoryGORM,
-	keysRepo *repositories.KeysRepo,
-	sessionSvc *common.SessionService,
+	claimsRepo *claims.Repository,
+	keysRepo *apikeys.Repository,
+	sessionSvc *session.SessionService,
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +45,7 @@ func AuthMiddleware(
 							claims = &auth.APIKeyClaims{
 								UserUUID:           session.UserID,
 								VaUUID:             session.ActiveVAID,
-								RoleValue:          constants.VARole(activeVA.Role),
+								RoleValue:          roles.VARole(activeVA.Role),
 								DiscordUIDVal:      session.DiscordID,
 								DiscordServerIDVal: activeVA.DiscordServerID,
 							}
@@ -95,7 +96,7 @@ func AuthMiddleware(
 					return
 				}
 
-				claims = auth.MakeClaimsFromApi(r.Context(), userRepo, serverId, userId)
+				claims = auth.MakeClaimsFromApi(r.Context(), claimsRepo, serverId, userId)
 				ctx := authCtx.SetUserClaims(r.Context(), claims)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return

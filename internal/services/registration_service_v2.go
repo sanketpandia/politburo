@@ -3,23 +3,28 @@ package services
 import (
 	"context"
 	"fmt"
-	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/models/dtos"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
-	"infinite-experiment/politburo/internal/providers"
 	"log"
 
 	"gorm.io/gorm"
 )
 
+// LiveAPIProviderInterface defines the methods needed from the Live API provider
+type LiveAPIProviderInterface interface {
+	GetUserByIfcId(ctx context.Context, ifcId string) (*dtos.UserStatsResponse, int, error)
+	GetUserFlights(ctx context.Context, userID string, page int) (*dtos.UserFlightsResponse, int, error)
+}
+
 // RegistrationServiceV2 handles user registration using GORM and provider pattern
 type RegistrationServiceV2 struct {
 	db              *gorm.DB
-	liveAPIProvider *providers.LiveAPIProvider
+	liveAPIProvider LiveAPIProviderInterface
 }
 
 // NewRegistrationServiceV2 creates a new V2 registration service
-func NewRegistrationServiceV2(db *gorm.DB, liveAPIProvider *providers.LiveAPIProvider) *RegistrationServiceV2 {
+func NewRegistrationServiceV2(db *gorm.DB, liveAPIProvider LiveAPIProviderInterface) *RegistrationServiceV2 {
 	return &RegistrationServiceV2{
 		db:              db,
 		liveAPIProvider: liveAPIProvider,
@@ -183,7 +188,7 @@ func (svc *RegistrationServiceV2) InitUserRegistration(
 				pilotRole := gormModels.UserVARole{
 					UserID:   newUser.ID,
 					VAID:     va.ID,
-					Role:     constants.RolePilot,
+					Role:     roles.RolePilot,
 					Callsign: *callsign,
 					IsActive: true,
 				}
@@ -407,7 +412,7 @@ func (svc *RegistrationServiceV2) InitServerRegistration(
 		adminRole := gormModels.UserVARole{
 			UserID:   user.ID,
 			VAID:     newVA.ID,
-			Role:     constants.RoleAdmin, // Admin role
+			Role:     roles.RoleAdmin, // Admin role
 			IsActive: true,
 		}
 
@@ -492,7 +497,7 @@ func (svc *RegistrationServiceV2) LinkUserToVA(
 	pilotRole := gormModels.UserVARole{
 		UserID:   user.ID,
 		VAID:     va.ID,
-		Role:     constants.RolePilot,
+		Role:     roles.RolePilot,
 		Callsign: callsign,
 		IsActive: true,
 	}
@@ -508,6 +513,6 @@ func (svc *RegistrationServiceV2) LinkUserToVA(
 		"va_code":  va.Code,
 		"va_name":  va.Name,
 		"callsign": callsign,
-		"role":     string(constants.RolePilot),
+		"role":     string(roles.RolePilot),
 	}, nil
 }

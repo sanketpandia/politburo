@@ -2,16 +2,16 @@ package auth
 
 import (
 	"context"
-	"infinite-experiment/politburo/internal/constants"
-	"infinite-experiment/politburo/internal/db/repositories"
+	"infinite-experiment/politburo/internal/platform/claims"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"log"
 	"os"
 )
 
 // MakeClaimsFromApi creates API key claims using GORM repository
-func MakeClaimsFromApi(ctx context.Context, userRepo *repositories.UserRepositoryGORM, serverId string, userId string) *APIKeyClaims {
+func MakeClaimsFromApi(ctx context.Context, claimsRepo *claims.Repository, serverId string, userId string) *APIKeyClaims {
 
-	member, err := userRepo.FindUserMembership(ctx, serverId, userId)
+	member, err := claimsRepo.GetMembershipByDiscordIDs(ctx, userId, serverId)
 	if err != nil {
 		// Return a minimal claims object; UUIDs stay empty
 		return &APIKeyClaims{
@@ -28,7 +28,7 @@ func MakeClaimsFromApi(ctx context.Context, userRepo *repositories.UserRepositor
 	}
 
 	var userUUID, vaUUID string
-	var role constants.VARole
+	var role roles.VARole
 	if member.UserID != nil {
 		userUUID = *member.UserID
 	}

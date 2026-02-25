@@ -1,44 +1,37 @@
 package workers
 
 import (
-	"context"
+	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
-	"time"
+	"infinite-experiment/politburo/internal/platform/aircraft"
 
 	"gorm.io/gorm"
 )
 
 type WorkersContainer struct {
-	CacheFiller MetaCacheWorker
+	// MetaCacheWorker removed - now in aircraft package
 }
 
 func InitWorkers(
 	db *gorm.DB,
-	c *common.CacheInterface,
-	api *common.LiveAPIService,
-	liverySvc *common.AircraftLiveryService,
-	redQ *common.RedisQueueService,
-	liveryRepo *repositories.AircraftLiveryRepository,
+	c *cache.CacheInterface,
+	liveAPI *common.LiveAPIService,
+	aircraftSvc *aircraft.Service,
+	redQ *queue.RedisQueueService,
 	dataProvCfg *repositories.DataProviderConfigRepo,
-	pirepSyncedRepo *repositories.PirepATSyncedRepo,
-	vaSyncHRepo *repositories.VASyncHistoryRepo,
 ) *WorkersContainer {
-	mcf := NewMetaCacheFiller(c, api, liveryRepo, liverySvc)
+	// Aircraft worker (MetaCacheFiller) moved to aircraft package - initialized in router.go
 
 	// Start the logbook worker to cache flight routes on-demand
-	go LogbookWorker(*c, api, liverySvc)
+	go LogbookWorker(*c, liveAPI, aircraftSvc)
 
-	qWorker := NewPirepQueueWorker("pirep_queue", db, redQ, dataProvCfg, pirepSyncedRepo, vaSyncHRepo)
-	monitor := NewPirepQueueMonitor(db, redQ)
+	// DISABLED: PIREP workers disabled pending functionality redesign
+	// qWorker := NewPirepQueueWorker("pirep_queue", db, redQ, dataProvCfg, pirepSyncedRepo, vaSyncHRepo)
+	// monitor := NewPirepQueueMonitor(db, redQ)
+	// go qWorker.Start(context.Background(), 5)
+	// go monitor.Start(context.Background(), 30*time.Second)
 
-	go qWorker.Start(context.Background(), 5)
-	go monitor.Start(context.Background(), 30*time.Second)
-
-	// Start workers
-	go mcf.Start()
-
-	return &WorkersContainer{
-		CacheFiller: *mcf,
-	}
+	return &WorkersContainer{}
 }

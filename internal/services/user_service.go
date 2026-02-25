@@ -1,92 +1,103 @@
 package services
 
-import (
-	"context"
-	"fmt"
-	"log"
+// DEPRECATED
 
-	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/models/dtos/responses"
-	"infinite-experiment/politburo/internal/models/entities"
-)
+// import (
+// 	"context"
+// 	"errors"
+// 	"fmt"
+// 	"log"
 
-type UserService struct {
-	repo            *repositories.UserRepository
-	userRepoGorm    *repositories.UserRepositoryGORM
-	pilotStatsService *PilotStatsService
-}
+// 	"infinite-experiment/politburo/internal/models/dtos/responses"
+// 	"infinite-experiment/politburo/internal/pilots"
+// 	"infinite-experiment/politburo/internal/platform/users"
 
-func NewUserService(repo *repositories.UserRepository, repoGorm *repositories.UserRepositoryGORM, pilotStatsService *PilotStatsService) *UserService {
-	return &UserService{
-		repo:            repo,
-		userRepoGorm:    repoGorm,
-		pilotStatsService: pilotStatsService,
-	}
-}
+// 	"gorm.io/gorm"
+// )
 
-func (s *UserService) RegisterUser(ctx context.Context, user *entities.User) error {
-	return s.repo.InsertUser(ctx, user)
-}
+// // ErrUserNotFound is returned when a user is not found in the database
+// var ErrUserNotFound = errors.New("user not found")
 
-// GetUserDetails retrieves user details with VA affiliations and current VA status
-func (s *UserService) GetUserDetails(ctx context.Context, userDiscordID, vaDiscordServerID string) (*responses.UserDetailResponse, error) {
-	// Fetch user with all VA affiliations
-	user, err := s.userRepoGorm.GetUserWithVAAffiliations(ctx, userDiscordID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user details: %w", err)
-	}
+// type UserService struct {
+// 	repo              *users.Repository
+// 	pilotStatsService *pilots.StatsService
+// }
 
-	// Build affiliations list
-	affiliations := make([]responses.VAAffiliation, 0, len(user.UserVARoles))
-	var currentVA *responses.CurrentVAStatus
+// func NewUserService(repo *users.Repository, pilotStatsService *pilots.StatsService) *UserService {
+// 	return &UserService{
+// 		repo:              repo,
+// 		pilotStatsService: pilotStatsService,
+// 	}
+// }
 
-	for _, vaRole := range user.UserVARoles {
-		affiliation := responses.VAAffiliation{
-			VAID:     vaRole.VAID,
-			VAName:   vaRole.VA.Name,
-			VACode:   vaRole.VA.Code,
-			Role:     string(vaRole.Role),
-			IsActive: vaRole.IsActive,
-			JoinedAt: vaRole.JoinedAt,
-			Callsign: vaRole.Callsign,
-		}
-		affiliations = append(affiliations, affiliation)
+// func (s *UserService) RegisterUser(ctx context.Context, discordID, ifCommunityID string, ifApiID *string, isActive bool) error {
+// 	_, err := s.repo.InsertUser(ctx, discordID, ifCommunityID, ifApiID, isActive)
+// 	return err
+// }
 
-		// Check if this is the current VA (from context)
-		// Debug logging
-		log.Printf("[GetUserDetails] Comparing VA DiscordID '%s' with context serverID '%s'", vaRole.VA.DiscordID, vaDiscordServerID)
+// // GetUserDetails retrieves user details with VA affiliations and current VA status
+// func (s *UserService) GetUserDetails(ctx context.Context, userDiscordID, vaDiscordServerID string) (*responses.UserDetailResponse, error) {
+// 	// Fetch user with all VA affiliations
+// 	user, err := s.repo.GetUserWithVAAffiliations(ctx, userDiscordID)
+// 	if err != nil {
+// 		// Return specific error if user not found
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return nil, ErrUserNotFound
+// 		}
+// 		return nil, fmt.Errorf("failed to get user details: %w", err)
+// 	}
 
-		if vaRole.VA.DiscordID == vaDiscordServerID {
-			currentVA = &responses.CurrentVAStatus{
-				IsMember: true,
-				Role:     string(vaRole.Role),
-				IsActive: vaRole.IsActive,
-				Callsign: vaRole.Callsign,
-			}
-			// Note: Pilot stats (including Airtable data) are now fetched via separate /api/v1/pilot/stats endpoint
-		}
-	}
+// 	// Build affiliations list
+// 	affiliations := make([]responses.VAAffiliation, 0, len(user.UserVARoles))
+// 	var currentVA *responses.CurrentVAStatus
 
-	// If current VA not found in affiliations, set IsMember to false
-	if currentVA == nil {
-		currentVA = &responses.CurrentVAStatus{
-			IsMember: false,
-			IsActive: false,
-		}
-	}
+// 	for _, vaRole := range user.UserVARoles {
+// 		affiliation := responses.VAAffiliation{
+// 			VAID:     vaRole.VAID,
+// 			VAName:   vaRole.VA.Name,
+// 			VACode:   vaRole.VA.Code,
+// 			Role:     string(vaRole.Role),
+// 			IsActive: vaRole.IsActive,
+// 			JoinedAt: vaRole.JoinedAt,
+// 			Callsign: vaRole.Callsign,
+// 		}
+// 		affiliations = append(affiliations, affiliation)
 
-	// Build response
-	response := &responses.UserDetailResponse{
-		UserID:        user.ID,
-		DiscordID:     user.DiscordID,
-		IFCommunityID: user.IFCommunityID,
-		IFApiID:       user.IFApiID,
-		UserName:      user.UserName,
-		IsActive:      user.IsActive,
-		CreatedAt:     user.CreatedAt,
-		Affiliations:  affiliations,
-		CurrentVA:     currentVA,
-	}
+// 		// Check if this is the current VA (from context)
+// 		// Debug logging
+// 		log.Printf("[GetUserDetails] Comparing VA DiscordID '%s' with context serverID '%s'", vaRole.VA.DiscordID, vaDiscordServerID)
 
-	return response, nil
-}
+// 		if vaRole.VA.DiscordID == vaDiscordServerID {
+// 			currentVA = &responses.CurrentVAStatus{
+// 				IsMember: true,
+// 				Role:     string(vaRole.Role),
+// 				IsActive: vaRole.IsActive,
+// 				Callsign: vaRole.Callsign,
+// 			}
+// 			// Note: Pilot stats (including Airtable data) are now fetched via separate /api/v1/pilot/stats endpoint
+// 		}
+// 	}
+
+// 	// If current VA not found in affiliations, set IsMember to false
+// 	if currentVA == nil {
+// 		currentVA = &responses.CurrentVAStatus{
+// 			IsMember: false,
+// 			IsActive: false,
+// 		}
+// 	}
+
+// 	// Build response
+// 	response := &responses.UserDetailResponse{
+// 		UserID:        user.ID,
+// 		DiscordID:     user.DiscordID,
+// 		IFCommunityID: user.IFCommunityID,
+// 		IFApiID:       user.IFApiID,
+// 		UserName:      user.UserName,
+// 		IsActive:      user.IsActive,
+// 		CreatedAt:     user.CreatedAt,
+// 		Affiliations:  affiliations,
+// 		CurrentVA:     currentVA,
+// 	}
+
+// 	return response, nil
+// }

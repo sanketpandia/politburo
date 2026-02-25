@@ -2,28 +2,39 @@ package repositories
 
 import (
 	"context"
-	"infinite-experiment/politburo/internal/constants"
-	"infinite-experiment/politburo/internal/models/entities"
+	"fmt"
 
-	"github.com/jmoiron/sqlx"
+	"infinite-experiment/politburo/internal/models/entities"
+	gormModels "infinite-experiment/politburo/internal/models/gorm"
+
+	"gorm.io/gorm"
 )
 
 type KeysRepo struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
-func NewApiKeysRepo(db *sqlx.DB) *KeysRepo {
-	return &KeysRepo{db}
+func NewApiKeysRepo(db *gorm.DB) *KeysRepo {
+	return &KeysRepo{db: db}
 }
 
 func (r *KeysRepo) GetStatus(ctx context.Context, key string) (*entities.ApiKey, error) {
-	var keyRes entities.ApiKey
+	var gormKey gormModels.ApiKey
 
-	err := r.db.QueryRowxContext(ctx, constants.GetStatusByApiKey, key).StructScan(&keyRes)
+	err := r.db.WithContext(ctx).
+		Where("id = ?", key).
+		First(&gormKey).Error
 
 	if err != nil {
-		return nil, err
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("API key not found")
+		}
+		return nil, fmt.Errorf("failed to fetch API key: %w", err)
 	}
 
-	return &keyRes, nil
+	// Convert GORM model to entity
+	return &entities.ApiKey{
+		ApiKey: gormKey.ID,
+		Status: gormKey.Status,
+	}, nil
 }

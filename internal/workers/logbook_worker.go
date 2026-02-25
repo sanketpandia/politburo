@@ -1,10 +1,12 @@
 package workers
 
 import (
+	"infinite-experiment/politburo/infra/cache"
 	"context"
 	"fmt"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/models/dtos"
+	"infinite-experiment/politburo/internal/platform/aircraft"
 	"log"
 	"math"
 	"time"
@@ -53,7 +55,7 @@ func formatDuration(seconds int) string {
 	return fmt.Sprintf("%02d:%02d", hours, mins)
 }
 
-func LogbookWorker(cache common.CacheInterface, liveApiService *common.LiveAPIService, liverySvc *common.AircraftLiveryService) {
+func LogbookWorker(cache cache.CacheInterface, liveApiService *common.LiveAPIService, liverySvc *aircraft.Service) {
 	log.Printf("[DEBUG] LogbookWorker started, queue_addr=%p", LogbookQueue)
 	for req := range LogbookQueue {
 

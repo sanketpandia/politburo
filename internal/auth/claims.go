@@ -1,6 +1,6 @@
 package auth
 
-import "infinite-experiment/politburo/internal/constants"
+import "infinite-experiment/politburo/internal/platform/roles"
 
 // Common interface.
 /**
@@ -23,7 +23,7 @@ type UserClaims interface {
 
 type JWTClaims struct {
 	UserUUID  string
-	RoleValue constants.VARole
+	RoleValue roles.VARole
 	VaUUID    string
 }
 
@@ -39,7 +39,7 @@ func (c *JWTClaims) DiscordServerID() string   { return "" }
 
 type APIKeyClaims struct {
 	UserUUID           string
-	RoleValue          constants.VARole
+	RoleValue          roles.VARole
 	VaUUID             string
 	DiscordUIDVal      string
 	DiscordServerIDVal string

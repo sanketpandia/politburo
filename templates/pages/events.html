@@ -1,0 +1,109 @@
+{{define "content"}}
+<style>
+    .events-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .events-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .btn-create-event {
+        padding: 0.625rem 1.25rem;
+        background-color: var(--accent-primary);
+        color: white;
+        border: none;
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .btn-create-event:hover {
+        background-color: #2563eb;
+    }
+</style>
+
+<!-- Secondary Navigation -->
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" .CurrentPage "MenuItems" .MenuItems}}
+
+<!-- Page Header -->
+<div class="page-header">
+    <h2 class="page-title">Events Management</h2>
+    <p class="page-subtitle">Manage events and legs for {{.ActiveVA.VAName}}</p>
+</div>
+
+<!-- Events Content -->
+<div class="card">
+    <div class="events-header">
+        <div>
+            <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;">Events</h3>
+            <p class="page-subtitle" style="font-size: 0.875rem;">Create and manage events with multiple legs</p>
+        </div>
+        <button type="button" 
+                class="btn-create-event"
+                hx-get="/dashboard/events/form"
+                hx-target="#event-form-container"
+                hx-swap="innerHTML"
+                hx-indicator="#global-spinner">
+            + Create Event
+        </button>
+    </div>
+
+    <!-- Event Form Container (HTMX Target) -->
+    <div id="event-form-container" style="display: none; margin-bottom: 1.5rem;"></div>
+
+    <!-- Events List Container (HTMX Target) -->
+    <div id="events-container"
+         hx-get="/dashboard/events/list"
+         hx-trigger="load, eventCreated from:body, eventUpdated from:body, eventDeleted from:body"
+         hx-swap="innerHTML"
+         hx-indicator="#global-spinner">
+        <!-- Loading state -->
+        <div style="display: flex; align-items: center; justify-content: center; padding: 2rem; color: var(--text-muted);">
+            <p>Loading events...</p>
+        </div>
+    </div>
+
+    <!-- Leg Form Container (HTMX Target) - outside events list so it persists -->
+    <div id="leg-form-container" style="display: none; margin-top: 1.5rem;"></div>
+</div>
+
+<script>
+    // Show event form container when content is loaded
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        if (event.detail.target.id === 'event-form-container') {
+            document.getElementById('event-form-container').style.display = 'block';
+        }
+        // Show leg form container when content is loaded
+        if (event.detail.target.id === 'leg-form-container') {
+            document.getElementById('leg-form-container').style.display = 'block';
+        }
+    });
+
+    // Toggle event legs visibility
+    function toggleEventLegs(eventId) {
+        const legsRow = document.getElementById('legs-' + eventId);
+        const eventRow = legsRow.previousElementSibling;
+        
+        if (!legsRow || !eventRow) {
+            return;
+        }
+
+        // Toggle visibility
+        if (legsRow.style.display === 'none') {
+            legsRow.style.display = 'table-row';
+            eventRow.classList.add('event-row-expanded');
+        } else {
+            legsRow.style.display = 'none';
+            eventRow.classList.remove('event-row-expanded');
+        }
+    }
+</script>
+{{end}}

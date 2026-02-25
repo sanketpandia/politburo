@@ -1,0 +1,809 @@
+{{define "content"}}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<style>
+    /* Page-specific styles only - design system classes used elsewhere */
+    .live-flights-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 300px);
+        min-height: 600px;
+    }
+
+    .live-flights-header {
+        flex-shrink: 0;
+    }
+
+    #leaflet-map-wrapper {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        min-height: 0; /* Important for flex children */
+    }
+
+    #leaflet-map {
+        width: 100%;
+        height: 100%;
+        min-height: 400px;
+        flex: 1;
+        position: relative;
+        box-sizing: border-box;
+    }
+
+    /* Leaflet marker styling */
+    .flight-marker {
+        background: transparent;
+        border: none;
+    }
+
+    .flight-tooltip {
+        background-color: var(--bg-app);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    /* Flight Details Card Styles */
+    .flight-card {
+        position: absolute;
+        background-color: var(--bg-surface);
+        border: 1px solid var(--border-color);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s;
+    }
+
+    .fc-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+
+    .fc-airline {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+
+    .fc-callsign {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .fc-badge {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    /* Phase-specific badge colors */
+    .fc-badge.phase-cruise {
+        background: rgba(59, 130, 246, 0.2);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+    .fc-badge.phase-climb {
+        background: rgba(16, 185, 129, 0.2);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .fc-badge.phase-descent {
+        background: rgba(168, 85, 247, 0.2);
+        color: #a78bfa;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+    .fc-badge.phase-takeoff {
+        background: rgba(245, 158, 11, 0.2);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .fc-badge.phase-on_ground,
+    .fc-badge.phase-landed {
+        background: rgba(100, 116, 139, 0.2);
+        color: #94a3b8;
+        border: 1px solid rgba(100, 116, 139, 0.3);
+    }
+    .fc-badge.phase-unknown {
+        background: rgba(148, 163, 184, 0.2);
+        color: #cbd5e1;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    .fc-close {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 4px;
+        position: relative;
+        z-index: 1001;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+    .fc-close:hover {
+        color: var(--text-primary);
+    }
+    .fc-close:active {
+        color: var(--text-primary);
+        opacity: 0.7;
+    }
+
+    .fc-body {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .fc-route {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(0,0,0,0.2);
+        padding: 12px;
+        border-radius: 8px;
+    }
+
+    .fc-airport {
+        font-family: monospace;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .fc-route-line {
+        flex: 1;
+        height: 2px;
+        background: #334155;
+        margin: 0 12px;
+        position: relative;
+    }
+
+    .fc-route-plane {
+        position: absolute;
+        top: 50%;
+        left: 60%;
+        transform: translate(-50%, -50%) rotate(90deg);
+        color: var(--text-secondary);
+    }
+
+    .fc-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+
+    .fc-metadata {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        background: rgba(0,0,0,0.2);
+        border-radius: 8px;
+        font-size: 0.8rem;
+    }
+
+    .metadata-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .metadata-label {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
+
+    .metadata-value {
+        color: var(--text-secondary);
+        font-family: monospace;
+        font-size: 0.75rem;
+    }
+
+    .stat-item {
+        background: rgba(255,255,255,0.03);
+        padding: 8px;
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .stat-label {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+    }
+
+    .stat-value {
+        font-size: 0.95rem;
+        font-weight: 600;
+        font-family: monospace;
+        color: var(--text-primary);
+    }
+
+    .fc-footer {
+        margin-top: 4px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .user-tag {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    /* Desktop: Floating Card Bottom Left */
+    @media (min-width: 769px) {
+        .flight-card {
+            width: 400px;
+            bottom: 24px;
+            left: 24px;
+            border-radius: 12px;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(20px);
+        }
+        .flight-card.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+        }
+    }
+
+    /* Mobile: Bottom Sheet */
+    @media (max-width: 768px) {
+        .live-flights-container {
+            height: calc(100vh - 250px);
+            min-height: 400px;
+        }
+        .flight-card {
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            border-radius: 16px 16px 0 0;
+            border-left: none;
+            border-right: none;
+            border-bottom: none;
+            transform: translateY(100%);
+        }
+        .flight-card.active {
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+        .fc-stats {
+            gap: 8px;
+            grid-template-columns: repeat(2, 1fr);
+        }
+        .stat-value {
+            font-size: 0.85rem;
+        }
+        .fc-metadata {
+            gap: 6px;
+            padding: 10px;
+        }
+    }
+</style>
+
+<!-- Secondary Navigation -->
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" "live" "MenuItems" .MenuItems}}
+
+<!-- Live Flights Content -->
+<div class="card live-flights-container">
+    <div class="live-flights-header">
+        <h2 class="page-title" style="font-size: 1.5rem; margin-bottom: 0.5rem;">Live Flights</h2>
+        <p class="page-subtitle">Real-time tracking of active flights for {{.ActiveVA.VAName}}</p>
+    </div>
+
+    <!-- Map Container -->
+    <div id="leaflet-map-wrapper" style="position: relative; background-color: var(--bg-app);">
+        <div id="leaflet-map" style="position: relative;">
+            <div class="loading-state">
+                <div class="spinner"></div>
+                <span>Loading map...</span>
+            </div>
+        </div>
+
+        <!-- Flight Details Card -->
+        <div id="flight-details-card" class="flight-card">
+            <div class="fc-header">
+                <div>
+                    <div class="fc-airline" id="fc-session-name"></div>
+                    <div class="fc-callsign">
+                        <span id="fc-callsign"></span>
+                        <span class="fc-badge" id="fc-phase-badge"></span>
+                    </div>
+                </div>
+                <button class="fc-close" id="fc-close-btn" onclick="closeFlightCard()">
+                    <i data-lucide="x" size="20"></i>
+                </button>
+            </div>
+
+            <div class="fc-body">
+                <!-- Route Strip -->
+                <div class="fc-route">
+                    <span class="fc-airport" id="fc-origin">----</span>
+                    <div class="fc-route-line">
+                        <i data-lucide="plane" class="fc-route-plane" size="14"></i>
+                    </div>
+                    <span class="fc-airport" id="fc-destination">----</span>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="fc-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Altitude</span>
+                        <span class="stat-value" id="fc-altitude">----<span style="font-size:0.7em; color:var(--text-muted);">ft</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Speed</span>
+                        <span class="stat-value" id="fc-speed">----<span style="font-size:0.7em; color:var(--text-muted);">kts</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">V/S</span>
+                        <span class="stat-value" id="fc-vs">----<span style="font-size:0.7em; color:var(--text-muted);">fpm</span></span>
+                    </div>
+                </div>
+
+                <!-- Metadata Section -->
+                <div class="fc-metadata">
+                    <div class="metadata-item" id="fc-max-altitude" style="display: none;">
+                        <span class="metadata-label">Max Altitude:</span>
+                        <span class="metadata-value" id="fc-max-altitude-value"></span>
+                    </div>
+                    <div class="metadata-item" id="fc-max-speed" style="display: none;">
+                        <span class="metadata-label">Max Speed:</span>
+                        <span class="metadata-value" id="fc-max-speed-value"></span>
+                    </div>
+                    <div class="metadata-item" id="fc-detected-at" style="display: none;">
+                        <span class="metadata-label">Detected:</span>
+                        <span class="metadata-value" id="fc-detected-at-value"></span>
+                    </div>
+                    <div class="metadata-item" id="fc-last-updated" style="display: none;">
+                        <span class="metadata-label">Last Updated:</span>
+                        <span class="metadata-value" id="fc-last-updated-value"></span>
+                    </div>
+                    <div class="metadata-item" id="fc-last-report" style="display: none;">
+                        <span class="metadata-label">Last Report:</span>
+                        <span class="metadata-value" id="fc-last-report-value"></span>
+                    </div>
+                    <div class="metadata-item" id="fc-flight-plan" style="display: none;">
+                        <span class="metadata-label">Flight Plan:</span>
+                        <span class="metadata-value" id="fc-flight-plan-value"></span>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="fc-footer">
+                    <div class="user-tag">
+                        <i data-lucide="user" size="14"></i>
+                        <span id="fc-username"></span>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="color: var(--text-primary); font-weight: 500;" id="fc-aircraft"></div>
+                        <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px;" id="fc-livery"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden container for HTMX route data -->
+    <div id="route-data-container" 
+         hx-get="/dashboard/flights/placeholder/waypoints"
+         hx-trigger="none"
+         hx-swap="none"
+         hx-on::htmx:after-request="handleRouteData(event)">
+    </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+<script type="module">
+  import { FlightMap } from '/static/js/flight-map.mjs';
+
+  let flightMap = null;
+
+  // Get flights data from template (passed from handler)
+  const flightsData = {{.FlightsJSON}};
+
+  // Function to format flight phase for display
+  function formatPhase(phase) {
+    const phaseMap = {
+      'cruise': 'Cruise',
+      'climb': 'Climb',
+      'descent': 'Descent',
+      'takeoff': 'Takeoff',
+      'on_ground': 'On Ground',
+      'landed': 'Landed',
+      'unknown': 'Unknown'
+    };
+    return phaseMap[phase] || 'Unknown';
+  }
+
+  // Function to show flight details card
+  function showFlightCard(flight) {
+    const card = document.getElementById('flight-details-card');
+    if (!card) return;
+
+    // Populate card data
+    document.getElementById('fc-session-name').textContent = flight.session_name || 'Unknown Session';
+    document.getElementById('fc-callsign').textContent = flight.callsign || 'N/A';
+    
+    // Phase badge
+    const phaseBadge = document.getElementById('fc-phase-badge');
+    phaseBadge.textContent = formatPhase(flight.phase);
+    phaseBadge.className = 'fc-badge phase-' + (flight.phase || 'unknown');
+    
+    // Route
+    document.getElementById('fc-origin').textContent = flight.origin || '----';
+    document.getElementById('fc-destination').textContent = flight.destination || '----';
+    
+    // Stats
+    document.getElementById('fc-altitude').innerHTML = 
+      (flight.altitude || 0).toLocaleString() + '<span style="font-size:0.7em; color:var(--text-muted);">ft</span>';
+    document.getElementById('fc-speed').innerHTML = 
+      (flight.speed || 0) + '<span style="font-size:0.7em; color:var(--text-muted);">kts</span>';
+    document.getElementById('fc-vs').innerHTML = 
+      (flight.vertical_speed || 0) + '<span style="font-size:0.7em; color:var(--text-muted);">fpm</span>';
+    
+    // Metadata - format timestamps
+    function formatTimestamp(isoString) {
+      if (!isoString) return null;
+      try {
+        const date = new Date(isoString);
+        return date.toLocaleString('en-US', { 
+          month: 'short', 
+          day: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: true 
+        });
+      } catch (e) {
+        return null;
+      }
+    }
+    
+    // Show/hide and populate metadata
+    // Max stats (only show if available)
+    if (flight.max_altitude != null) {
+      const maxAltEl = document.getElementById('fc-max-altitude');
+      const maxAltValue = document.getElementById('fc-max-altitude-value');
+      maxAltValue.textContent = flight.max_altitude.toLocaleString() + ' ft';
+      maxAltEl.style.display = 'flex';
+    }
+    
+    if (flight.max_speed != null) {
+      const maxSpeedEl = document.getElementById('fc-max-speed');
+      const maxSpeedValue = document.getElementById('fc-max-speed-value');
+      maxSpeedValue.textContent = flight.max_speed + ' kts';
+      maxSpeedEl.style.display = 'flex';
+    }
+    
+    // Timestamps
+    if (flight.detected_at) {
+      const detectedEl = document.getElementById('fc-detected-at');
+      const detectedValue = document.getElementById('fc-detected-at-value');
+      const formatted = formatTimestamp(flight.detected_at);
+      if (formatted) {
+        detectedValue.textContent = formatted;
+        detectedEl.style.display = 'flex';
+      }
+    }
+    
+    if (flight.last_updated) {
+      const updatedEl = document.getElementById('fc-last-updated');
+      const updatedValue = document.getElementById('fc-last-updated-value');
+      const formatted = formatTimestamp(flight.last_updated);
+      if (formatted) {
+        updatedValue.textContent = formatted;
+        updatedEl.style.display = 'flex';
+      }
+    }
+    
+    if (flight.last_report) {
+      const reportEl = document.getElementById('fc-last-report');
+      const reportValue = document.getElementById('fc-last-report-value');
+      const formatted = formatTimestamp(flight.last_report);
+      if (formatted) {
+        reportValue.textContent = formatted;
+        reportEl.style.display = 'flex';
+      }
+    }
+    
+    if (flight.last_flight_plan_fetch) {
+      const planEl = document.getElementById('fc-flight-plan');
+      const planValue = document.getElementById('fc-flight-plan-value');
+      const formatted = formatTimestamp(flight.last_flight_plan_fetch);
+      if (formatted) {
+        planValue.textContent = formatted;
+        planEl.style.display = 'flex';
+      }
+    }
+    
+    // Footer
+    document.getElementById('fc-username').textContent = flight.username || 'Unknown';
+    document.getElementById('fc-aircraft').textContent = flight.aircraft_name || 'Unknown Aircraft';
+    document.getElementById('fc-livery').textContent = flight.livery_name || '';
+    
+    // Show card
+    card.classList.add('active');
+    
+    // Re-initialize Lucide icons
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  }
+
+  // Function to close flight card (make it globally accessible)
+  function closeFlightCard() {
+    console.log('closeFlightCard called');
+    const card = document.getElementById('flight-details-card');
+    if (card) {
+      card.classList.remove('active');
+      console.log('Card closed');
+    }
+    // Clear route when closing
+    if (flightMap) {
+      flightMap.clearRoute();
+    }
+  }
+
+  // Make function globally accessible
+  window.closeFlightCard = closeFlightCard;
+
+  // Handle route data from HTMX response
+  async function handleRouteData(event) {
+    const detail = event.detail;
+    
+    if (!detail || !detail.xhr) {
+      console.warn('handleRouteData: No response data');
+      return;
+    }
+
+    try {
+      const response = detail.xhr;
+      if (response.status !== 200) {
+        if (response.status === 404) {
+          console.warn('Flight not found or has no waypoints');
+          return;
+        }
+        throw new Error(`Failed to fetch waypoints: ${response.statusText}`);
+      }
+
+      const result = JSON.parse(response.responseText);
+      const waypoints = result.data; // common.RespondSuccess wraps data in {data: ...}
+
+      console.log('handleRouteData: Received waypoints', {
+        waypointsCount: waypoints?.length,
+        firstWaypoint: waypoints?.[0],
+        resultKeys: Object.keys(result)
+      });
+
+      if (!waypoints || !Array.isArray(waypoints) || waypoints.length < 2) {
+        console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`, waypoints);
+        return;
+      }
+
+      // Convert waypoints to format expected by addRoute
+      // WaypointSnapshot has: timestamp, latitude, longitude, altitude, speed, track
+      const routePoints = waypoints.map(wp => ({
+        latitude: wp.latitude,
+        longitude: wp.longitude,
+        altitude: wp.altitude,
+        speed: wp.speed,
+        track: wp.track,
+        timestamp: wp.timestamp,
+      }));
+
+      console.log('handleRouteData: Converted route points', {
+        routePointsCount: routePoints.length,
+        firstPoint: routePoints[0],
+        lastPoint: routePoints[routePoints.length - 1]
+      });
+
+      // Render route on map
+      if (flightMap) {
+        flightMap.addRoute(routePoints, { colorBy: 'altitude' });
+        console.log(`handleRouteData: Called addRoute with ${routePoints.length} waypoints`);
+      } else {
+        console.error('handleRouteData: flightMap is not initialized');
+      }
+    } catch (error) {
+      console.error('Error processing route data:', error);
+    }
+  }
+
+  // Initialize map when DOM is ready
+  function initializeMap() {
+    try {
+      const mapContainer = document.getElementById('leaflet-map');
+      if (!mapContainer) {
+        console.error('Map container not found');
+        return;
+      }
+
+      // Clear loading state
+      mapContainer.innerHTML = '';
+
+      // Initialize FlightMap
+      flightMap = new FlightMap('leaflet-map', {
+        center: [0, 0],
+        zoom: 2,
+        maxAltitude: 30000,
+        routeLineWidth: 3
+      });
+
+      // Add flights to map
+      if (flightsData && Array.isArray(flightsData) && flightsData.length > 0) {
+        flightMap.addFlights(flightsData);
+      }
+
+      // Set up click handler for flights
+      flightMap.onFlightClick(async (flight) => {
+        if (flight && flight.flight_id) {
+          console.log('Clicked flight:', flight.flight_id);
+          
+          // Show flight details card
+          showFlightCard(flight);
+          
+          // Fetch and display route directly using fetch API
+          try {
+            console.log('Fetching waypoints for flight:', flight.flight_id);
+            const response = await fetch(`/dashboard/flights/${flight.flight_id}/waypoints`);
+            
+            if (!response.ok) {
+              if (response.status === 404) {
+                console.warn('Flight not found or has no waypoints');
+                return;
+              }
+              throw new Error(`Failed to fetch waypoints: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            const waypoints = result.data; // common.RespondSuccess wraps data in {data: ...}
+
+            console.log('handleRouteData: Received waypoints', {
+              waypointsCount: waypoints?.length,
+              firstWaypoint: waypoints?.[0],
+              resultKeys: Object.keys(result)
+            });
+
+            if (!waypoints || !Array.isArray(waypoints) || waypoints.length < 2) {
+              console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`, waypoints);
+              return;
+            }
+
+            // Convert waypoints to format expected by addRoute
+            // WaypointSnapshot has: timestamp, latitude, longitude, altitude, speed, track
+            const routePoints = waypoints.map(wp => ({
+              latitude: wp.latitude,
+              longitude: wp.longitude,
+              altitude: wp.altitude,
+              speed: wp.speed,
+              track: wp.track,
+              timestamp: wp.timestamp,
+            }));
+
+            console.log('handleRouteData: Converted route points', {
+              routePointsCount: routePoints.length,
+              firstPoint: routePoints[0],
+              lastPoint: routePoints[routePoints.length - 1]
+            });
+
+            // Render route on map
+            if (flightMap) {
+              flightMap.addRoute(routePoints, { colorBy: 'altitude' });
+              console.log(`handleRouteData: Called addRoute with ${routePoints.length} waypoints`);
+            } else {
+              console.error('handleRouteData: flightMap is not initialized');
+            }
+          } catch (error) {
+            console.error('Error fetching waypoints:', error);
+          }
+        }
+      });
+
+      // Ensure close button works (especially on mobile)
+      const closeBtn = document.getElementById('fc-close-btn');
+      if (closeBtn) {
+        // Remove any existing listeners
+        const newCloseBtn = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+        
+        // Add event listeners for both click and touch
+        newCloseBtn.addEventListener('click', closeFlightCard);
+        newCloseBtn.addEventListener('touchend', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeFlightCard();
+        });
+        
+        // Also ensure onclick works
+        newCloseBtn.onclick = closeFlightCard;
+      }
+
+      // Close card when clicking map background
+      const mapWrapper = document.getElementById('leaflet-map-wrapper');
+      if (mapWrapper) {
+        mapWrapper.addEventListener('click', function(e) {
+          // Only close if clicking directly on the wrapper or map, not on the card
+          if (e.target === this || e.target.id === 'leaflet-map') {
+            closeFlightCard();
+          }
+        });
+      }
+
+      // Initialize Lucide icons
+      if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+      }
+
+      console.log('FlightMap initialized successfully');
+      
+      // Test route rendering (remove this after debugging)
+      // Uncomment to test if route rendering works at all
+      /*
+      setTimeout(() => {
+        const testRoute = [
+          { latitude: 33.6405, longitude: -84.4279, altitude: 0 },
+          { latitude: 34.0522, longitude: -84.2744, altitude: 5000 },
+          { latitude: 40.7128, longitude: -74.0060, altitude: 35000 },
+          { latitude: 51.5074, longitude: -0.1278, altitude: 37000 }
+        ];
+        console.log('Testing route rendering with sample data');
+        flightMap.addRoute(testRoute, { colorBy: 'altitude' });
+      }, 2000);
+      */
+    } catch (error) {
+      console.error("Error initializing flight map:", error);
+      console.error("Stack trace:", error.stack);
+      const mapContainer = document.getElementById('leaflet-map');
+      if (mapContainer) {
+        mapContainer.innerHTML =
+          '<div class="loading-state" style="color: #ef4444;"><span>Error loading map: ' + error.message + '</span></div>';
+      }
+    }
+  }
+
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeMap);
+  } else {
+    // DOM already loaded
+    initializeMap();
+  }
+</script>
+{{end}}

@@ -7,9 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
+
 	"github.com/go-chi/chi/v5"
-	"infinite-experiment/politburo/internal/logging"
-	"infinite-experiment/politburo/internal/metrics"
+	"github.com/google/uuid"
 )
 
 // MetricsMiddleware records HTTP metrics for each request
@@ -17,9 +19,11 @@ func MetricsMiddleware(metricsReg *metrics.MetricsRegistry) func(http.Handler) h
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get the route pattern from chi context
-			routePattern := chi.RouteContext(r.Context()).RoutePattern()
-			if routePattern == "" {
-				routePattern = "unknown"
+			routePattern := "unknown"
+			if rctx := chi.RouteContext(r.Context()); rctx != nil {
+				if pattern := rctx.RoutePattern(); pattern != "" {
+					routePattern = pattern
+				}
 			}
 
 			// Record request in flight
@@ -80,9 +84,8 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 		requestID := r.Header.Get("X-Request-ID")
 		if requestID == "" {
 			// Generate a request ID if not provided
-			requestID = "req-" + time.Now().Format("20060102150405")
+			requestID = "req-" + uuid.New().String()
 		}
-
 		// Store request ID in context
 		ctx := context.WithValue(r.Context(), "request_id", requestID)
 
@@ -114,21 +117,6 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 		r.written = true
 	}
 	return r.ResponseWriter.Write(b)
-}
-
-// NormalizeEndpoint normalizes an endpoint path for metrics
-// Removes IDs to avoid metric cardinality explosion
-func NormalizeEndpoint(path string) string {
-	// Replace numeric IDs with placeholder
-	// e.g., /api/v1/users/12345 -> /api/v1/users/{id}
-	parts := strings.Split(path, "/")
-	for i, part := range parts {
-		// Check if part looks like a numeric ID or UUID
-		if isIDLike(part) {
-			parts[i] = "{id}"
-		}
-	}
-	return strings.Join(parts, "/")
 }
 
 // isIDLike checks if a string looks like an ID (numeric or UUID)

@@ -194,18 +194,7 @@
 </style>
 
 <!-- Secondary Navigation -->
-<nav class="secondary-nav">
-    <a href="/dashboard" class="secondary-nav-item" data-page="dashboard">Dashboard</a>
-
-    {{if or (eq .ActiveVA.Role "admin") (eq .ActiveVA.Role "staff")}}
-    <a href="/dashboard/logbook" class="secondary-nav-item active" data-page="logbook">Logbook</a>
-    <a href="/dashboard/pilots" class="secondary-nav-item" data-page="pilots">Pilots</a>
-    {{end}}
-
-    {{if eq .ActiveVA.Role "admin"}}
-    <a href="/dashboard/settings" class="secondary-nav-item" data-page="settings" style="opacity: 0.5; cursor: not-allowed;" title="Coming soon">Settings</a>
-    {{end}}
-</nav>
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" "logbook" "IsAdmin" .IsAdmin "IsStaff" .IsStaff}}
 
 <!-- Split Layout: Flight List + Map -->
 <div class="logbook-container">
@@ -227,7 +216,7 @@
                        hx-trigger="keyup changed delay:500ms"
                        hx-target="#search-results"
                        hx-swap="innerHTML"
-                       hx-include="this"
+                       hx-include="this" 
                        onkeydown="if(event.key==='Enter' && this.value.trim() !== '') { executeSearch(this.value); }">
 
                 <!-- Search Button -->

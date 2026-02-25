@@ -1,4 +1,39 @@
-1. Remove Swagger Dependency
-2. Config Driven Approach to airtable connections
-3. Rewrite user registration handler
-4. Caching driver and redis setup locally via docker compose
+Refactoring:
+
+Goals:
+Create and update the infra directory.
+
+It should house the following: logging, metrics, redis, database, airtable, liveAPI 
+Common files/ clients of these should be housed there
+
+Split our internal by functions like so:
+
+flights/
+- flights_cache_job.go
+- handler.go
+- service.go
+- dtos.go
+- ui/
+    - flight_map.go
+
+Similarly for configs/, va/, pilots/
+
+This needs to be planned and made into a document for quicker implementation. 
+
+Also we want to stick to a single naming convention for files and any variables that we write in the future. We want to refer to:
+https://google.github.io/styleguide/go/best-practices
+https://google.github.io/styleguide/go/guide
+
+Dont alter any already running code just for the purpose of the style guide but this should be adhered to when working on new functionality. 
+
+Make the plan document
+
+
+- Remove all code for legacyCache
+- Remove all deprecated code.
+
+
+For future:
+1 session: sub routing setup for grafana, ssh to prod database, configure loki and grafana
+1 session: Proper metrics
+Tonight: Test and validate existing flows. 

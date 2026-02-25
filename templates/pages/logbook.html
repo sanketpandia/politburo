@@ -1,0 +1,534 @@
+{{define "content"}}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<style>
+    /* Page-specific styles only - design system classes used elsewhere */
+    .logbook-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 300px);
+        min-height: 600px;
+    }
+
+    .logbook-header {
+        flex-shrink: 0;
+        margin-bottom: 1.5rem;
+    }
+
+    .logbook-input-section {
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-end;
+        margin-bottom: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .input-group {
+        flex: 0 0 auto;
+        min-width: 250px;
+        max-width: 400px;
+    }
+
+    .input-label {
+        display: block;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+
+    .input-field {
+        width: 100%;
+        padding: 0.625rem 0.75rem;
+        font-size: 0.875rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        background-color: var(--bg-surface);
+        color: var(--text-primary);
+        transition: all 0.2s ease;
+        box-sizing: border-box;
+    }
+
+    .input-field:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .logbook-input-section .btn-primary {
+        padding: 0.625rem 1.25rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        background-color: var(--accent-primary);
+        color: white;
+        border: none;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+        height: fit-content;
+        align-self: flex-end;
+    }
+
+    .logbook-input-section .btn-primary:hover {
+        background-color: #2563eb;
+    }
+
+    .logbook-input-section .btn-primary:active {
+        background-color: #1d4ed8;
+    }
+
+    /* Split layout: Flight list + Map */
+    .logbook-content {
+        display: flex;
+        gap: 1rem;
+        flex: 1;
+        min-height: 0;
+        align-items: stretch;
+    }
+
+    /* Flight list panel (25% width) */
+    .flight-list-panel {
+        flex: 0 0 25%;
+        display: flex;
+        flex-direction: column;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+        background-color: var(--bg-surface);
+        min-width: 0;
+    }
+
+    .flight-list-content {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 0.5rem;
+        min-height: 0;
+    }
+
+    .flight-item {
+        display: block;
+        width: 100%;
+        padding: 0.75rem;
+        text-align: left;
+        color: var(--text-secondary);
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 0.375rem;
+        transition: all 0.15s ease;
+        margin: 0.25rem 0;
+        border-left: 3px solid transparent;
+        box-sizing: border-box;
+    }
+
+    .flight-item:hover {
+        background-color: rgba(255, 255, 255, 0.03);
+        color: var(--text-primary);
+    }
+
+    .flight-item.active {
+        background-color: rgba(59, 130, 246, 0.1);
+        color: var(--text-primary);
+        border-left-color: var(--accent-primary);
+    }
+
+    .flight-item-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 0.5rem;
+        gap: 0.75rem;
+    }
+
+    .flight-item-main {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .flight-item-route {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+        word-break: break-word;
+    }
+
+    .flight-item-meta {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        word-break: break-word;
+    }
+
+    .flight-item-date {
+        text-align: right;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .flight-item-stats {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        flex-wrap: wrap;
+    }
+
+    .flight-list-pagination {
+        padding: 1rem;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+        gap: 1rem;
+    }
+
+    .flight-list-pagination .btn-primary {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        white-space: nowrap;
+    }
+
+    /* Map panel (75% width) */
+    .map-panel {
+        flex: 1;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+        position: relative;
+        background-color: var(--bg-surface);
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #leaflet-map {
+        width: 100%;
+        height: 100%;
+        min-height: 400px;
+        flex: 1;
+        position: relative;
+    }
+
+    /* Map empty state styling */
+    .map-empty-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        padding: 2rem;
+        background-color: transparent;
+    }
+
+    .map-empty-content {
+        text-align: center;
+    }
+
+    .map-empty-icon {
+        width: 4rem;
+        height: 4rem;
+        margin: 0 auto 1rem;
+        color: var(--text-muted);
+        opacity: 0.5;
+    }
+
+    .map-empty-title {
+        font-size: 1.125rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+    }
+
+    .map-empty-subtitle {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+    }
+
+    /* Responsive design */
+    @media (max-width: 1024px) {
+        .logbook-content {
+            flex-direction: column;
+        }
+
+        .flight-list-panel {
+            flex: 0 0 50%;
+            max-height: 400px;
+        }
+
+        .map-panel {
+            flex: 1;
+            min-height: 500px;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .logbook-container {
+            height: calc(100vh - 250px);
+            min-height: 400px;
+        }
+
+        .logbook-content {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .flight-list-panel {
+            flex: 0 0 40%;
+            max-height: 300px;
+        }
+
+        .map-panel {
+            flex: 1;
+            min-height: 400px;
+        }
+
+        .logbook-input-section {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .input-group {
+            max-width: 100%;
+        }
+
+        .logbook-input-section .btn-primary {
+            width: 100%;
+            align-self: stretch;
+        }
+    }
+</style>
+
+<!-- Secondary Navigation -->
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" "logbook" "MenuItems" .MenuItems}}
+
+<!-- Logbook Content -->
+<div class="card logbook-container">
+    <div class="logbook-header">
+        <h2 class="page-title" style="font-size: 1.5rem; margin-bottom: 0.5rem;">Logbook</h2>
+        <p class="page-subtitle">View flight history and routes for pilots</p>
+    </div>
+
+    <!-- IFC ID Input Section -->
+    <div class="logbook-input-section">
+        <div class="input-group">
+            <label class="input-label" for="ifc-id-input">IFC ID</label>
+            <input type="text" 
+                   id="ifc-id-input" 
+                   class="input-field" 
+                   placeholder="Enter IFC ID..."
+                   onkeydown="if(event.key==='Enter') { loadLogbook(); }">
+        </div>
+        <button type="button" class="btn-primary" onclick="loadLogbook()">Load Logbook</button>
+    </div>
+
+    <!-- Split Layout: Flight List + Map -->
+    <div class="logbook-content">
+        <!-- LEFT PANEL: Flight List (25% width) -->
+        <div class="flight-list-panel">
+            <!-- Flight List (HTMX target) -->
+            <nav id="flight-list" class="flight-list-content">
+                <!-- Initial empty state -->
+                <div class="flex items-center justify-center h-full" style="color: var(--text-muted);">
+                    <div class="text-center">
+                        <p class="text-sm">Enter an IFC ID and click "Load Logbook" to view flights</p>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Pagination (OOB update target) -->
+            <div id="pagination" class="flight-list-pagination"></div>
+        </div>
+
+        <!-- RIGHT PANEL: Map (75% width) -->
+        <div id="map-container" class="map-panel">
+            <div id="leaflet-map">
+                <!-- Initial empty state -->
+                <div class="map-empty-state">
+                    <div class="map-empty-content">
+                        <svg class="map-empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                        <p class="map-empty-title">Select a flight to view route</p>
+                        <p class="map-empty-subtitle">Load a logbook and click a flight to see the map</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+<script type="module">
+  import { FlightMap } from '/static/js/flight-map.mjs';
+
+  let flightMap = null;
+
+  // Function to load logbook
+  function loadLogbook() {
+    const ifcID = document.getElementById('ifc-id-input').value.trim();
+    if (!ifcID) {
+      alert('Please enter an IFC ID');
+      return;
+    }
+
+    // Load flights via HTMX
+    htmx.ajax('GET', '/dashboard/logbook/flights?user_id=' + encodeURIComponent(ifcID) + '&page=1', {
+      target: '#flight-list',
+      swap: 'innerHTML'
+    });
+  }
+
+  // Make function globally accessible
+  window.loadLogbook = loadLogbook;
+
+  // Initialize map when DOM is ready
+  function initializeMap() {
+    try {
+      const mapContainer = document.getElementById('leaflet-map');
+      if (!mapContainer) {
+        console.error('Map container not found');
+        return;
+      }
+
+      // Initialize FlightMap
+      flightMap = new FlightMap('leaflet-map', {
+        center: [0, 0],
+        zoom: 2,
+        maxAltitude: 30000,
+        routeLineWidth: 3
+      });
+
+      // Default empty state HTML (matches the initial state)
+      const defaultEmptyStateHTML = `
+        <div class="map-empty-state">
+          <div class="map-empty-content">
+            <svg class="map-empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            <p class="map-empty-title">Select a flight to view route</p>
+            <p class="map-empty-subtitle">Load a logbook and click a flight to see the map</p>
+          </div>
+        </div>
+      `;
+
+      // Function to reset to default empty state
+      function resetToDefaultState() {
+        const mapContainer = document.getElementById('leaflet-map');
+        if (!mapContainer) return;
+        
+        // Properly destroy existing map instance if it exists
+        if (flightMap) {
+          try {
+            // Clear route first
+            flightMap.clearRoute();
+            // Destroy the map instance (removes Leaflet map from DOM)
+            flightMap.destroy();
+          } catch (e) {
+            // Ignore errors - map might not be fully initialized
+            console.debug('Could not destroy map:', e);
+          }
+          flightMap = null;
+        }
+        
+        // Show default empty state
+        mapContainer.innerHTML = defaultEmptyStateHTML;
+      }
+
+      // Set up click handler for flights (will be called from flight-list partial)
+      window.loadFlightRoute = async function(flightID) {
+        if (!flightID) return;
+
+        const mapContainer = document.getElementById('leaflet-map');
+        if (!mapContainer) return;
+
+        // STEP 1: Always reset to default state first
+        resetToDefaultState();
+
+        // STEP 2: Make API call
+        try {
+          console.log('Fetching waypoints for flight:', flightID);
+          const response = await fetch(`/dashboard/flights/${flightID}/waypoints`);
+          
+          if (!response.ok) {
+            if (response.status === 404) {
+              console.warn('Flight not found or has no waypoints');
+              // Already at default state, no need to do anything
+              return;
+            }
+            throw new Error(`Failed to fetch waypoints: ${response.statusText}`);
+          }
+
+          const result = await response.json();
+          const waypoints = result.data;
+
+          if (!waypoints || !Array.isArray(waypoints) || waypoints.length < 2) {
+            console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`);
+            // Already at default state, no need to do anything
+            return;
+          }
+
+          // STEP 3: If we have valid waypoints, initialize map and show route
+          // Clear the empty state and initialize map
+          mapContainer.innerHTML = '';
+          
+          // Initialize map
+          flightMap = new FlightMap('leaflet-map', {
+            center: [0, 0],
+            zoom: 2,
+            maxAltitude: 30000,
+            routeLineWidth: 3
+          });
+
+          // Convert waypoints to format expected by addRoute
+          const routePoints = waypoints.map(wp => ({
+            latitude: wp.latitude,
+            longitude: wp.longitude,
+            altitude: wp.altitude,
+            speed: wp.speed,
+            track: wp.track,
+            timestamp: wp.timestamp,
+          }));
+          
+          // Render route on map
+          flightMap.addRoute(routePoints, { colorBy: 'altitude' });
+          console.log(`Loaded route with ${routePoints.length} waypoints`);
+        } catch (error) {
+          console.error('Error fetching waypoints:', error);
+          // Already at default state from resetToDefaultState(), no need to do anything
+        }
+      };
+
+      console.log('FlightMap initialized successfully');
+    } catch (error) {
+      console.error("Error initializing flight map:", error);
+      const mapContainer = document.getElementById('leaflet-map');
+      if (mapContainer) {
+        mapContainer.innerHTML =
+          '<div class="loading-state" style="color: #ef4444;"><span>Error loading map: ' + error.message + '</span></div>';
+      }
+    }
+  }
+
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeMap);
+  } else {
+    initializeMap();
+  }
+</script>
+{{end}}

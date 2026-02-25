@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// DEPRECATED: Use common.RespondSuccess instead.
+// These functions lack response time tracking and use inconsistent response structures.
+// They will be removed in a future release.
 func respondWithSuccess[T any](w http.ResponseWriter, statusCode int, data *T) {
 	resp := responses.APIResponse[T]{
 		Status:    "success",
@@ -20,6 +23,9 @@ func respondWithSuccess[T any](w http.ResponseWriter, statusCode int, data *T) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// DEPRECATED: Use common.RespondError instead.
+// These functions lack response time tracking and use inconsistent response structures.
+// They will be removed in a future release.
 func respondWithError(w http.ResponseWriter, statusCode int, message string) {
 	resp := responses.APIResponse[any]{
 		Status:    "error",

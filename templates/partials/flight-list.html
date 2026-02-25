@@ -1,0 +1,71 @@
+{{define "flight-list"}}
+{{if .Flights}}
+{{range .Flights}}
+<button type="button"
+        class="flight-item"
+        onclick="loadFlightRoute('{{.FlightID}}'); this.classList.add('active'); document.querySelectorAll('.flight-item').forEach(el => { if(el !== this) el.classList.remove('active'); });">
+    <div class="flight-item-content">
+        <div class="flight-item-main">
+            <div class="flight-item-route">
+                {{.Origin}} → {{.Dest}}
+            </div>
+            <div class="flight-item-meta">
+                {{.Aircraft}}{{if .Livery}} • {{.Livery}}{{end}}
+            </div>
+        </div>
+        <div class="flight-item-date">
+            {{.TimeStamp.Format "Jan 2, 2006"}}
+        </div>
+    </div>
+    <div class="flight-item-stats">
+        <span>Duration: {{.Duration}}</span>
+        <span>XP: {{.XP}}</span>
+        {{if .Violations}}
+        <span style="color: #f59e0b;">Violations: {{.Violations}}</span>
+        {{end}}
+    </div>
+</button>
+{{end}}
+
+<!-- Pagination -->
+{{if or .HasNext .HasPrevious}}
+<div id="pagination" class="flight-list-pagination">
+    <div>
+        {{if .HasPrevious}}
+        <button type="button"
+                class="btn-primary"
+                hx-get="/dashboard/logbook/flights?user_id={{.UserID}}&page={{.PrevPage}}"
+                hx-target="#flight-list"
+                hx-swap="innerHTML"
+                hx-select="#flight-list"
+                hx-swap-oob="true">
+            Previous
+        </button>
+        {{end}}
+    </div>
+    <div style="color: var(--text-secondary); text-align: center; flex: 1;">
+        Page {{.PageNo}} of {{.TotalPages}} ({{.TotalCount}} flights)
+    </div>
+    <div>
+        {{if .HasNext}}
+        <button type="button"
+                class="btn-primary"
+                hx-get="/dashboard/logbook/flights?user_id={{.UserID}}&page={{.NextPage}}"
+                hx-target="#flight-list"
+                hx-swap="innerHTML"
+                hx-select="#flight-list"
+                hx-swap-oob="true">
+            Next
+        </button>
+        {{end}}
+    </div>
+</div>
+{{end}}
+{{else}}
+<div class="flex items-center justify-center h-full" style="color: var(--text-muted);">
+    <div class="text-center">
+        <p class="text-sm">No flights found for this IFC ID</p>
+    </div>
+</div>
+{{end}}
+{{end}}

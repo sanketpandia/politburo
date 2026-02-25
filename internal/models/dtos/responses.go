@@ -272,4 +272,10 @@ type LiveFlight struct {
 
 	ReportTime  time.Time `json:"lastReport"`
 	IsConnected bool      `json:"isConnected"`
+
+	// Flight phase tracking (from cache jobs)
+	FlightPhase string `json:"flightPhase,omitempty"` // "on_ground", "takeoff", "climb", "cruise", "descent", "landed"
+	TakeoffTime string `json:"takeoffTime,omitempty"` // ISO8601 timestamp
+	LandingTime string `json:"landingTime,omitempty"` // ISO8601 timestamp
+	LastUpdated string `json:"lastUpdated,omitempty"` // Cache freshness indicator
 }

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"infinite-experiment/politburo/infra/cache"
 	"context"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
@@ -9,11 +10,11 @@ import (
 )
 
 type AtSyncService struct {
-	cache *common.CacheService
+	cache *cache.CacheService
 	repo  *repositories.SyncRepository
 }
 
-func NewAtSyncService(cache *common.CacheService, repo *repositories.SyncRepository) *AtSyncService {
+func NewAtSyncService(cache *cache.CacheService, repo *repositories.SyncRepository) *AtSyncService {
 	return &AtSyncService{
 		cache: cache,
 		repo:  repo,
@@ -36,7 +37,7 @@ func (svc *AtSyncService) ParseAndUpsertRecords(
 
 		switch event {
 		case common.ATTypePilot:
-			p := entities.PilotATSynced{
+			p := repositories.PilotATSynced{
 				ATID:       atID,
 				ServerID:   serverID,
 				Registered: false,

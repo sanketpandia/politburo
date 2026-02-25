@@ -67,7 +67,7 @@ func TestRegistrationServiceV2_InitUserRegistration_Success(t *testing.T) {
 	service := NewRegistrationServiceV2(db, mockProvider)
 
 	ctx := context.Background()
-	response, err := service.InitUserRegistration(ctx, "discord-123", "testuser", "KJFK-KLAX")
+	response, err := service.InitUserRegistration(ctx, "discord-123", "server-456", "testuser", "KJFK-KLAX", nil)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -115,7 +115,7 @@ func TestRegistrationServiceV2_InitUserRegistration_DuplicateUser(t *testing.T) 
 	service := NewRegistrationServiceV2(db, mockProvider)
 
 	ctx := context.Background()
-	response, err := service.InitUserRegistration(ctx, "discord-123", "testuser", "KJFK-KLAX")
+	response, err := service.InitUserRegistration(ctx, "discord-123", "server-456", "testuser", "KJFK-KLAX", nil)
 
 	if err == nil {
 		t.Error("Expected error for duplicate user")
@@ -153,7 +153,7 @@ func TestRegistrationServiceV2_InitUserRegistration_UserNotFoundInAPI(t *testing
 	service := NewRegistrationServiceV2(db, mockProvider)
 
 	ctx := context.Background()
-	response, err := service.InitUserRegistration(ctx, "discord-123", "nonexistent", "KJFK-KLAX")
+	response, err := service.InitUserRegistration(ctx, "discord-123", "server-456", "nonexistent", "KJFK-KLAX", nil)
 
 	if err == nil {
 		t.Error("Expected error for user not found")
@@ -191,7 +191,7 @@ func TestRegistrationServiceV2_InitUserRegistration_FlightMismatch(t *testing.T)
 	service := NewRegistrationServiceV2(db, mockProvider)
 
 	ctx := context.Background()
-	response, err := service.InitUserRegistration(ctx, "discord-123", "testuser", "KJFK-KLAX")
+	response, err := service.InitUserRegistration(ctx, "discord-123", "server-456", "testuser", "KJFK-KLAX", nil)
 
 	if err == nil {
 		t.Error("Expected error for flight mismatch")
@@ -224,7 +224,7 @@ func TestRegistrationServiceV2_InitUserRegistration_NoRecentFlights(t *testing.T
 	service := NewRegistrationServiceV2(db, mockProvider)
 
 	ctx := context.Background()
-	response, err := service.InitUserRegistration(ctx, "discord-123", "testuser", "KJFK-KLAX")
+	response, err := service.InitUserRegistration(ctx, "discord-123", "server-456", "testuser", "KJFK-KLAX", nil)
 
 	if err == nil {
 		t.Error("Expected error for no flights")
@@ -247,7 +247,7 @@ func TestRegistrationServiceV2_InitUserRegistration_APIError(t *testing.T) {
 	service := NewRegistrationServiceV2(db, mockProvider)
 
 	ctx := context.Background()
-	response, err := service.InitUserRegistration(ctx, "discord-123", "testuser", "KJFK-KLAX")
+	response, err := service.InitUserRegistration(ctx, "discord-123", "server-456", "testuser", "KJFK-KLAX", nil)
 
 	if err == nil {
 		t.Error("Expected error for API failure")
