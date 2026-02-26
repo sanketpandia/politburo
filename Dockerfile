@@ -44,6 +44,7 @@ WORKDIR /app
 COPY --from=builder /app/bin/app .
 # Copy template files for the UI
 COPY --from=builder /app/vizburo/ui/templates ./vizburo/ui/templates
+COPY --from=builder /app/templates ./templates
 # Copy static files
 COPY --from=builder /app/static ./static
 
