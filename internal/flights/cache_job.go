@@ -54,11 +54,13 @@ func (j *CacheJob) Name() string {
 }
 
 // Run executes the flights cache job
+// This job tracks live flights for all active VAs that have callsign prefix/suffix configured.
+// It does NOT require Airtable to be enabled - only callsign configuration is needed.
 func (j *CacheJob) Run(ctx context.Context) error {
 	startTime := time.Now()
 	logging.Info("Starting flights cache job")
 
-	// 1. Refresh VA patterns every 5 minutes
+	// 1. Refresh VA patterns every 5 minutes (only depends on callsign config, not Airtable)
 	if err := j.refreshVAPatterns(ctx); err != nil {
 		logging.Warn("Failed to refresh VA patterns, using cached patterns", "error", err)
 	}
@@ -224,13 +226,16 @@ func (j *CacheJob) Run(ctx context.Context) error {
 }
 
 // refreshVAPatterns loads VA callsign patterns from repository and caches in memory
+// NOTE: This job ONLY depends on callsign prefix/suffix configuration, NOT on Airtable being enabled.
+// Any active VA with callsign_prefix OR callsign_suffix configured will have its flights tracked.
 func (j *CacheJob) refreshVAPatterns(ctx context.Context) error {
 	// Refresh every 5 minutes
 	if time.Since(j.lastPatternUpdate) < 5*time.Minute {
 		return nil // Too soon, skip refresh
 	}
 
-	// Fetch from repository
+	// Fetch from repository - only requires active VA with callsign prefix/suffix config
+	// Does NOT check is_airtable_enabled or any Airtable configuration
 	configs, err := j.vaRepo.GetAllActiveVACallsignConfigs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to fetch VA callsign configs: %w", err)
@@ -255,11 +260,12 @@ func (j *CacheJob) refreshVAPatterns(ctx context.Context) error {
 	j.vaPatterns = patterns
 	j.lastPatternUpdate = time.Now()
 
-	logging.Debug("Refreshed VA callsign patterns", "count", len(patterns))
+	logging.Info("Refreshed VA callsign patterns", "count", len(patterns))
 	return nil
 }
 
 // matchFlightToVAs returns all VA IDs that match this callsign
+// Matches based on callsign prefix/suffix only - no Airtable dependency
 func (j *CacheJob) matchFlightToVAs(callsign string) []string {
 	if len(j.vaPatterns) == 0 {
 		return nil // Fail closed if no patterns
@@ -268,13 +274,15 @@ func (j *CacheJob) matchFlightToVAs(callsign string) []string {
 	matchedVAs := make([]string, 0, 1) // Most flights match 0-1 VAs
 
 	// Check against all VA patterns (single pass)
+	// Works with VAs that have prefix only, suffix only, or both
 	for _, pattern := range j.vaPatterns {
-		// Skip VAs with no pattern requirements
+		// Skip VAs with no pattern requirements (both prefix and suffix empty)
 		if pattern.Prefix == "" && pattern.Suffix == "" {
 			continue
 		}
 
 		// Use platform VA function (handles game suffix stripping)
+		// Matches if callsign satisfies the configured prefix/suffix pattern
 		if va.MatchesVAPattern(callsign, pattern.Prefix, pattern.Suffix) {
 			matchedVAs = append(matchedVAs, pattern.VAID)
 		}
