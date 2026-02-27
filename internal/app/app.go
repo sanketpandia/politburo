@@ -22,6 +22,7 @@ import (
 	"infinite-experiment/politburo/internal/events"
 	membershipsFeature "infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
+	vaRoutes "infinite-experiment/politburo/internal/va_routes"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/platform/apikeys"
 	"infinite-experiment/politburo/internal/platform/claims"
@@ -316,7 +317,8 @@ func (a *App) initFeatures() error {
 	// Initialize events feature
 	eventRepo := events.NewRepository(a.Infra.DB)
 	eventSvc := events.NewService(eventRepo)
-	eventsHandler := events.NewHandler(eventSvc, a.Infra.TemplateRenderer)
+	routeRepo := vaRoutes.NewRepository(a.Infra.DB)
+	eventsHandler := events.NewHandler(eventSvc, a.Infra.TemplateRenderer, routeRepo)
 	logging.Debug("Events feature initialized")
 
 	// Initialize sync jobs (route sync, etc.)

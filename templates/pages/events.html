@@ -78,6 +78,10 @@
 <script>
     // Show event form container when content is loaded
     document.body.addEventListener('htmx:afterSwap', function(event) {
+        // Only handle swaps for specific containers, ignore route-search-dropdown
+        if (event.detail.target.id === 'route-search-dropdown') {
+            return; // Don't do anything for route search dropdown swaps
+        }
         if (event.detail.target.id === 'event-form-container') {
             document.getElementById('event-form-container').style.display = 'block';
         }

@@ -90,18 +90,19 @@ type EventSummaryResponse struct {
 
 // EventLegResponse represents a leg in API responses
 type EventLegResponse struct {
-	ID           string    `json:"id"`
-	EventID      string    `json:"event_id"`
-	LegNumber    int       `json:"leg_number"`
-	Origin       string    `json:"origin"`
-	Destination  string    `json:"destination"`
-	RouteATID    *string   `json:"route_at_id,omitempty"`
-	Description  *string   `json:"description,omitempty"`
-	ThumbnailURL *string   `json:"thumbnail_url,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	CreatedByID  *string   `json:"created_by_id,omitempty"`
-	UpdatedByID  *string   `json:"updated_by_id,omitempty"`
+	ID             string                 `json:"id"`
+	EventID        string                 `json:"event_id"`
+	LegNumber      int                    `json:"leg_number"`
+	Origin         string                 `json:"origin"`
+	Destination    string                 `json:"destination"`
+	RouteATID      *string                `json:"route_at_id,omitempty"`
+	Description    *string                `json:"description,omitempty"`
+	ThumbnailURL   *string                `json:"thumbnail_url,omitempty"`
+	AdditionalData map[string]interface{} `json:"additional_data,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	CreatedByID    *string                `json:"created_by_id,omitempty"`
+	UpdatedByID    *string                `json:"updated_by_id,omitempty"`
 }
 
 // Service methods
@@ -149,6 +150,17 @@ func (s *Service) CreateEvent(ctx context.Context, vaID, createdByID string, req
 				CreatedByID:  &createdByID,
 			}
 			event.Legs = append(event.Legs, leg)
+		}
+	}
+
+	// Validate: Only one active multi-leg event at a time
+	if status == "active" && len(req.Legs) > 1 {
+		existing, err := s.GetActiveMultiLegEvent(ctx, vaID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check existing multi-leg event: %w", err)
+		}
+		if existing != nil {
+			return nil, fmt.Errorf("cannot activate multi-leg event: another active multi-leg event exists (ID: %s)", existing.ID)
 		}
 	}
 
@@ -267,6 +279,24 @@ func (s *Service) GetActiveEvents(ctx context.Context, vaID string) ([]Event, er
 	return s.repo.GetActiveByVA(ctx, vaID)
 }
 
+// GetActiveMultiLegEvent retrieves the active multi-leg event for a VA (if any)
+// Returns the active event with more than 1 leg, or nil if none exists
+func (s *Service) GetActiveMultiLegEvent(ctx context.Context, vaID string) (*Event, error) {
+	events, err := s.repo.GetActiveByVA(ctx, vaID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find event with more than 1 leg
+	for _, event := range events {
+		if len(event.Legs) > 1 {
+			return &event, nil
+		}
+	}
+
+	return nil, nil // No active multi-leg event
+}
+
 // UpdateEventStatus updates the status of an event
 func (s *Service) UpdateEventStatus(ctx context.Context, eventID, updatedByID, status string) (*Event, error) {
 	// Validate status
@@ -277,6 +307,17 @@ func (s *Service) UpdateEventStatus(ctx context.Context, eventID, updatedByID, s
 	event, err := s.repo.GetByID(ctx, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("event not found: %w", err)
+	}
+
+	// Validate: Only one active multi-leg event at a time
+	if status == "active" && len(event.Legs) > 1 {
+		existing, err := s.GetActiveMultiLegEvent(ctx, event.VAID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check existing multi-leg event: %w", err)
+		}
+		if existing != nil && existing.ID != eventID {
+			return nil, fmt.Errorf("cannot activate multi-leg event: another active multi-leg event exists (ID: %s)", existing.ID)
+		}
 	}
 
 	event.Status = status
@@ -353,6 +394,34 @@ func (s *Service) UpdateEventLeg(ctx context.Context, legID, updatedByID string,
 
 	if err := s.repo.UpdateLeg(ctx, leg); err != nil {
 		return nil, fmt.Errorf("failed to update leg: %w", err)
+	}
+
+	return s.repo.GetLegByID(ctx, legID)
+}
+
+// UpdateEventLegAdditionalData updates the additional_data field of an event leg
+func (s *Service) UpdateEventLegAdditionalData(ctx context.Context, legID, updatedByID string, additionalData AdditionalData) (*EventLeg, error) {
+	leg, err := s.repo.GetLegByID(ctx, legID)
+	if err != nil {
+		return nil, fmt.Errorf("leg not found: %w", err)
+	}
+
+	// Initialize AdditionalData if nil
+	if leg.AdditionalData == nil {
+		leg.AdditionalData = AdditionalData{}
+	}
+
+	// Merge the provided data into existing data
+	if len(additionalData) > 0 {
+		for k, v := range additionalData {
+			leg.AdditionalData[k] = v
+		}
+	}
+
+	leg.UpdatedByID = &updatedByID
+
+	if err := s.repo.UpdateLeg(ctx, leg); err != nil {
+		return nil, fmt.Errorf("failed to update leg additional data: %w", err)
 	}
 
 	return s.repo.GetLegByID(ctx, legID)
@@ -522,18 +591,24 @@ func (s *Service) ToResponse(event *Event) EventResponse {
 
 // ToLegResponse converts an EventLeg to EventLegResponse
 func (s *Service) ToLegResponse(leg *EventLeg) EventLegResponse {
+	additionalData := make(map[string]interface{})
+	if leg.AdditionalData != nil {
+		additionalData = map[string]interface{}(leg.AdditionalData)
+	}
+
 	return EventLegResponse{
-		ID:           leg.ID,
-		EventID:      leg.EventID,
-		LegNumber:    leg.LegNumber,
-		Origin:       leg.Origin,
-		Destination:  leg.Destination,
-		RouteATID:    leg.RouteATID,
-		Description:  leg.Description,
-		ThumbnailURL: leg.ThumbnailURL,
-		CreatedAt:    leg.CreatedAt,
-		UpdatedAt:    leg.UpdatedAt,
-		CreatedByID:  leg.CreatedByID,
-		UpdatedByID:  leg.UpdatedByID,
+		ID:             leg.ID,
+		EventID:        leg.EventID,
+		LegNumber:      leg.LegNumber,
+		Origin:         leg.Origin,
+		Destination:    leg.Destination,
+		RouteATID:      leg.RouteATID,
+		Description:    leg.Description,
+		ThumbnailURL:   leg.ThumbnailURL,
+		AdditionalData: additionalData,
+		CreatedAt:      leg.CreatedAt,
+		UpdatedAt:      leg.UpdatedAt,
+		CreatedByID:    leg.CreatedByID,
+		UpdatedByID:    leg.UpdatedByID,
 	}
 }

@@ -142,6 +142,7 @@ func NewRouter(application *app.App) http.Handler {
 			events.Post("/{id}/legs", application.Features.EventsHandler.CreateEventLeg())
 			events.Get("/{id}/legs/{leg_id}", application.Features.EventsHandler.GetEventLeg())
 			events.Put("/{id}/legs/{leg_id}", application.Features.EventsHandler.UpdateEventLeg())
+			events.Patch("/{id}/legs/{leg_id}/additional-data", application.Features.EventsHandler.UpdateEventLegAdditionalData())
 			events.Delete("/{id}/legs/{leg_id}", application.Features.EventsHandler.DeleteEventLeg())
 		})
 
@@ -213,6 +214,8 @@ func NewRouter(application *app.App) http.Handler {
 				events.Get("/form", application.Features.EventsHandler.EventFormHandler())
 				events.Get("/form/{event_id}", application.Features.EventsHandler.EventFormHandler())
 				events.Post("/create", application.Features.EventsHandler.CreateEventHandler())
+				// Routes search must come before dynamic {event_id} routes
+				events.Get("/routes/search", application.Features.EventsHandler.RouteSearchHandler())
 				events.Post("/{event_id}/update", application.Features.EventsHandler.UpdateEventHandler())
 				events.Delete("/{event_id}", application.Features.EventsHandler.DeleteEventHandler())
 				events.Get("/{event_id}/legs/form", application.Features.EventsHandler.LegFormHandler())
@@ -227,6 +230,7 @@ func NewRouter(application *app.App) http.Handler {
 				datasource.Get("/", application.Features.DatasourceHandler.DatasourcePageHandler())
 				datasource.Get("/status", application.Features.DatasourceHandler.GetDatasourceStatusHandler())
 				datasource.Get("/type-selector", application.Features.DatasourceHandler.GetDatasourceTypeSelectorHandler())
+				datasource.Get("/schema-selector", application.Features.DatasourceHandler.GetSchemaTypeSelectorHandler())
 				datasource.Get("/credentials-form", application.Features.DatasourceHandler.GetCredentialsFormHandler())
 				datasource.Post("/credentials", application.Features.DatasourceHandler.SaveCredentialsHandler())
 				datasource.Post("/test-connection", application.Features.DatasourceHandler.TestConnectionHandler())
