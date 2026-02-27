@@ -7,9 +7,11 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/scheduler"
 	"infinite-experiment/politburo/internal/app"
+	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/sessions"
+	vaRoutes "infinite-experiment/politburo/internal/va_routes"
 )
 
 // RegisterScheduledJobs registers all cron jobs with the scheduler
@@ -44,6 +46,25 @@ func RegisterScheduledJobs(application *app.App) error {
 	if application.Features.PilotSyncJob != nil {
 		registry.Add(application.Features.PilotSyncJob, "0 */1 * * * *")
 	}
+
+	// Route sync job - runs every 10 minutes
+	// Syncs routes from Airtable to local database
+	// Initialize here to avoid import cycle (routes/jobs.go imports app, app would import va_routes)
+	configRepo := repositories.NewDataProviderConfigRepo(application.Infra.DB)
+	syncHistoryRepo := repositories.NewVASyncHistoryRepo(application.Infra.DB)
+	routeRepo := vaRoutes.NewRepository(application.Infra.DB)
+	airportRepo := repositories.NewAirportRepository(application.Infra.DB)
+	routeSyncJob := vaRoutes.NewSyncJob(
+		application.Infra.DB,
+		application.Infra.RedisCache,
+		configRepo,
+		syncHistoryRepo,
+		routeRepo,
+		airportRepo,
+		application.Infra.MetricsReg,
+	)
+	registry.Add(routeSyncJob, "0 */10 * * * *")
+	logging.Info("Route sync job registered (every 10 minutes)")
 
 	return nil
 }

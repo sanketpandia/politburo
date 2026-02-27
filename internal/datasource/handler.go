@@ -127,6 +127,82 @@ func (h *Handler) GetDatasourceStatusHandler() http.HandlerFunc {
 	}
 }
 
+// GetSchemaTypeSelectorHandler handles GET /dashboard/settings/datasource/schema-selector
+// Returns HTMX partial for selecting schema type to add
+func (h *Handler) GetSchemaTypeSelectorHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+
+		activeVA := sessionData.GetActiveVA()
+		if activeVA == nil {
+			http.Error(w, "No active VA found", http.StatusInternalServerError)
+			return
+		}
+
+		// Get existing schemas to show which are already configured
+		schemas, err := h.vaSvc.GetAirtableSchemas(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to get schemas", "error", err)
+			// Continue anyway - just won't show configured status
+			schemas = make(map[string]*platformVA.SchemaConfig)
+		}
+
+		// Define available schema types
+		schemaTypes := []map[string]interface{}{
+			{
+				"Type":             "pilot",
+				"DisplayName":      "Pilot",
+				"Description":      "Sync pilot data including callsigns, ranks, and flight hours",
+				"Icon":             "👨‍✈️",
+				"AlreadyConfigured": schemas["pilot"] != nil,
+			},
+			{
+				"Type":             "route",
+				"DisplayName":      "Route",
+				"Description":      "Sync flight routes with origin, destination, and route information",
+				"Icon":             "🛫",
+				"AlreadyConfigured": schemas["route"] != nil,
+			},
+			{
+				"Type":             "pirep",
+				"DisplayName":      "PIREP",
+				"Description":      "Sync flight reports with flight details, aircraft, and completion data",
+				"Icon":             "📋",
+				"AlreadyConfigured": schemas["pirep"] != nil,
+			},
+			{
+				"Type":             "career_mode",
+				"DisplayName":      "Career Mode",
+				"Description":      "Sync career mode progress including hours, ranks, and assigned routes",
+				"Icon":             "🎯",
+				"AlreadyConfigured": schemas["career_mode"] != nil,
+			},
+		}
+
+		data := map[string]interface{}{
+			"SchemaTypes": schemaTypes,
+			"ActiveVA":    activeVA,
+		}
+
+		// Render schema selector partial
+		if err := h.templateRenderer.RenderPartial(w, "partials/datasource-schema-selector.html", data); err != nil {
+			logging.Error("Error rendering schema selector", "error", err)
+			http.Error(w, "Error rendering schema selector", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
 // GetDatasourceTypeSelectorHandler handles GET /dashboard/settings/datasource/type-selector
 // Returns HTMX partial for selecting datasource type
 func (h *Handler) GetDatasourceTypeSelectorHandler() http.HandlerFunc {

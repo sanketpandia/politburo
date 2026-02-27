@@ -12,6 +12,8 @@ import (
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+	vaRoutes "infinite-experiment/politburo/internal/va_routes"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -20,13 +22,15 @@ import (
 type Handler struct {
 	eventSvc         *Service
 	templateRenderer *templates.Renderer
+	routeRepo        *vaRoutes.Repository
 }
 
 // NewHandler creates a new events handler instance
-func NewHandler(eventSvc *Service, templateRenderer *templates.Renderer) *Handler {
+func NewHandler(eventSvc *Service, templateRenderer *templates.Renderer, routeRepo *vaRoutes.Repository) *Handler {
 	return &Handler{
 		eventSvc:         eventSvc,
 		templateRenderer: templateRenderer,
+		routeRepo:        routeRepo,
 	}
 }
 
@@ -160,14 +164,14 @@ func (h *Handler) EventFormHandler() http.HandlerFunc {
 			}
 
 			eventData = map[string]interface{}{
-				"IsEdit":     true,
-				"ID":         event.ID,
-				"Name":       event.Name,
+				"IsEdit":      true,
+				"ID":          event.ID,
+				"Name":        event.Name,
 				"Description": event.Description,
-				"Status":     event.Status,
-				"StartDate":  startDateStr,
-				"EndDate":    endDateStr,
-				"IsActive":   event.IsActive(),
+				"Status":      event.Status,
+				"StartDate":   startDateStr,
+				"EndDate":     endDateStr,
+				"IsActive":    event.IsActive(),
 			}
 		} else {
 			// New event
@@ -504,15 +508,28 @@ func (h *Handler) LegFormHandler() http.HandlerFunc {
 				return
 			}
 
+			// If route_at_id is set, fetch route details for display
+			var routeDisplay string
+			if leg.RouteATID != nil && *leg.RouteATID != "" {
+				route, err := h.routeRepo.FindByATID(r.Context(), activeVA.VAID, *leg.RouteATID)
+				if err == nil && route != nil {
+					routeDisplay = route.Route
+					if route.Origin != "" || route.Destination != "" {
+						routeDisplay += " (" + route.Origin + "-" + route.Destination + ")"
+					}
+				}
+			}
+
 			legData = map[string]interface{}{
-				"IsEdit":      true,
+				"IsEdit":       true,
 				"ID":           leg.ID,
-				"EventID":     leg.EventID,
-				"LegNumber":   leg.LegNumber,
-				"Origin":      leg.Origin,
-				"Destination": leg.Destination,
-				"RouteATID":   leg.RouteATID,
-				"Description": leg.Description,
+				"EventID":      leg.EventID,
+				"LegNumber":    leg.LegNumber,
+				"Origin":       leg.Origin,
+				"Destination":  leg.Destination,
+				"RouteATID":    leg.RouteATID,
+				"RouteDisplay": routeDisplay,
+				"Description":  leg.Description,
 				"ThumbnailURL": leg.ThumbnailURL,
 			}
 		} else {
@@ -529,6 +546,102 @@ func (h *Handler) LegFormHandler() http.HandlerFunc {
 		if err := h.templateRenderer.RenderPartial(w, "partials/event-leg-form.html", legData); err != nil {
 			logging.Error("Error rendering leg form", "error", err)
 			http.Error(w, "Error rendering leg form", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// RouteSearchHandler handles GET /dashboard/events/routes/search
+// Returns filtered routes for HTMX autocomplete in leg form
+func (h *Handler) RouteSearchHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get session data
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			logging.Error("RouteSearchHandler: No session data")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			logging.Error("RouteSearchHandler: Invalid session data type")
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+
+		activeVA := sessionData.GetActiveVA()
+		if activeVA == nil {
+			logging.Error("RouteSearchHandler: No active VA")
+			http.Error(w, "No active VA found", http.StatusInternalServerError)
+			return
+		}
+
+		// Get search query
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		logging.Info("RouteSearchHandler: Search query", "query", query, "va_id", activeVA.VAID)
+
+		// If no query, return empty results
+		if query == "" {
+			logging.Info("RouteSearchHandler: Empty query, returning empty results")
+			if err := h.templateRenderer.RenderPartial(w, "partials/route-search-results.html", map[string]interface{}{
+				"Results": []interface{}{},
+			}); err != nil {
+				logging.Error("Error rendering search results", "error", err)
+				http.Error(w, "Error rendering search results", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		// Get all routes for this VA
+		allRoutes, err := h.routeRepo.GetAllByVA(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to fetch routes", "error", err, "va_id", activeVA.VAID)
+			http.Error(w, "Failed to fetch routes", http.StatusInternalServerError)
+			return
+		}
+
+		logging.Info("RouteSearchHandler: Fetched routes", "count", len(allRoutes), "va_id", activeVA.VAID)
+
+		// Filter routes by query (case-insensitive search on route, origin, or destination)
+		queryLower := strings.ToLower(query)
+		var results []map[string]interface{}
+
+		for _, route := range allRoutes {
+			// Check if query matches route code, origin, or destination
+			routeLower := strings.ToLower(route.Route)
+			originLower := strings.ToLower(route.Origin)
+			destLower := strings.ToLower(route.Destination)
+
+			if strings.Contains(routeLower, queryLower) ||
+				strings.Contains(originLower, queryLower) ||
+				strings.Contains(destLower, queryLower) {
+
+				results = append(results, map[string]interface{}{
+					"Route":       route.Route,
+					"Origin":      route.Origin,
+					"Destination": route.Destination,
+					"ATID":        route.ATID,
+				})
+
+				// Limit to 10 results
+				if len(results) >= 10 {
+					break
+				}
+			}
+		}
+
+		logging.Info("RouteSearchHandler: Filtered results", "count", len(results), "query", query)
+
+		// Prepare template data
+		data := map[string]interface{}{
+			"Results": results,
+		}
+
+		// Render search results partial
+		if err := h.templateRenderer.RenderPartial(w, "partials/route-search-results.html", data); err != nil {
+			logging.Error("Error rendering route search results", "error", err)
+			http.Error(w, "Error rendering route search results", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -1294,6 +1407,68 @@ func (h *Handler) UpdateEventLeg() http.HandlerFunc {
 		updatedLeg, err := h.eventSvc.UpdateEventLeg(r.Context(), legID, userID, req)
 		if err != nil {
 			logging.Error("Failed to update leg", "error", err, "leg_id", legID)
+			httpdto.WriteError(w, initTime, "UPDATE_ERROR", err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		response := h.eventSvc.ToLegResponse(updatedLeg)
+		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
+	}
+}
+
+// UpdateEventLegAdditionalData handles PATCH /api/v1/events/{id}/legs/{leg_id}/additional-data
+func (h *Handler) UpdateEventLegAdditionalData() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Missing authentication claims", http.StatusUnauthorized)
+			return
+		}
+
+		userID := claims.UserID()
+		if userID == "" {
+			httpdto.WriteError(w, initTime, "INVALID_CLAIMS", "User ID not found", http.StatusBadRequest)
+			return
+		}
+
+		legID := chi.URLParam(r, "leg_id")
+		if legID == "" {
+			httpdto.WriteError(w, initTime, "MISSING_ID", "Leg ID is required", http.StatusBadRequest)
+			return
+		}
+
+		// Verify VA ownership via leg's event
+		leg, err := h.eventSvc.GetEventLeg(r.Context(), legID)
+		if err != nil {
+			httpdto.WriteError(w, initTime, "NOT_FOUND", "Leg not found", http.StatusNotFound)
+			return
+		}
+
+		event, err := h.eventSvc.GetEvent(r.Context(), leg.EventID)
+		if err != nil {
+			httpdto.WriteError(w, initTime, "NOT_FOUND", "Event not found", http.StatusNotFound)
+			return
+		}
+
+		vaID := claims.ServerID()
+		if event.VAID != vaID {
+			httpdto.WriteError(w, initTime, "FORBIDDEN", "Access denied", http.StatusForbidden)
+			return
+		}
+
+		var req struct {
+			AdditionalData AdditionalData `json:"additional_data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		updatedLeg, err := h.eventSvc.UpdateEventLegAdditionalData(r.Context(), legID, userID, req.AdditionalData)
+		if err != nil {
+			logging.Error("Failed to update leg additional data", "error", err, "leg_id", legID)
 			httpdto.WriteError(w, initTime, "UPDATE_ERROR", err.Error(), http.StatusBadRequest)
 			return
 		}

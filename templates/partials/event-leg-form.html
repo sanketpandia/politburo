@@ -126,12 +126,59 @@
     .button-cancel:hover {
         background-color: var(--bg-surface);
     }
+
+    .route-search-container {
+        position: relative;
+    }
+
+    .route-search-dropdown {
+        position: absolute;
+        z-index: 1000;
+        background-color: var(--bg-surface);
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        margin-top: 0.25rem;
+        max-height: 300px;
+        overflow-y: auto;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        width: 100%;
+    }
+
+    .route-search-item {
+        padding: 0.75rem;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border-color);
+        transition: background-color 0.2s;
+    }
+
+    .route-search-item:hover {
+        background-color: var(--bg-sidebar);
+    }
+
+    .route-search-item:last-child {
+        border-bottom: none;
+    }
 </style>
 
-<div class="form-card">
+<script>
+function selectRoute(atid, route, origin, destination) {
+    event.stopPropagation();
+    event.preventDefault();
+    document.getElementById('route_at_id').value = atid;
+    const displayText = route + (origin || destination ? ' (' + (origin || '?') + '-' + (destination || '?') + ')' : '');
+    document.getElementById('route_search_display').value = displayText;
+    document.getElementById('route-search-dropdown').innerHTML = '';
+    document.getElementById('route_search_display').style.display = 'block';
+    document.getElementById('route_search_input').style.display = 'none';
+    document.getElementById('route_search_input').value = '';
+    return false;
+}
+</script>
+
+<div class="form-card" onclick="event.stopPropagation();">
     <div class="form-header">
         <h2 class="form-title">{{if .IsEdit}}Edit Leg{{else}}Add New Leg{{end}}</h2>
-        <button type="button" class="close-form-btn" onclick="document.getElementById('leg-form-container').style.display = 'none';">
+        <button type="button" class="close-form-btn" onclick="event.stopPropagation(); document.getElementById('leg-form-container').style.display = 'none';">
             ✕
         </button>
     </div>
@@ -141,13 +188,15 @@
           {{else}}
           hx-post="/dashboard/events/{{.EventID}}/legs/create"
           {{end}}
-          hx-on::after-request="if (event.detail.xhr.status === 200) {
+          hx-on::after-request="if (event.detail.xhr.status === 200 && event.detail.target.id === 'events-container') {
               document.getElementById('leg-form-container').style.display = 'none';
               htmx.trigger('body', 'legCreated');
           }"
           hx-target="#events-container"
           hx-swap="innerHTML"
-          hx-indicator="#global-spinner">
+          hx-indicator="#global-spinner"
+          onclick="event.stopPropagation();"
+          onsubmit="event.stopPropagation();">
         <div class="form-group">
             <label class="form-label" for="origin">Origin (ICAO) *</label>
             <input type="text"
@@ -178,15 +227,42 @@
             <div class="form-help-text">ICAO code of destination airport (2-4 characters)</div>
         </div>
 
-        <div class="form-group">
-            <label class="form-label" for="route_at_id">Route Airtable ID</label>
-            <input type="text"
-                   id="route_at_id"
-                   name="route_at_id"
-                   class="form-input"
-                   value="{{if .IsEdit}}{{.RouteATID}}{{end}}"
-                   placeholder="Optional: Airtable route ID">
-            <div class="form-help-text">Optional: Link to Airtable route record</div>
+        <div class="form-group" onclick="event.stopPropagation();">
+            <label class="form-label" for="route_search_input">Route Airtable ID</label>
+            <div class="route-search-container" onclick="event.stopPropagation();">
+                <input type="text"
+                       id="route_search_input"
+                       name="q"
+                       class="form-input"
+                       placeholder="Type to search routes (e.g., KJFK-EGLL)"
+                       autocomplete="off"
+                       {{if .IsEdit}}{{if .RouteATID}}style="display: none;"{{end}}{{end}}
+                       hx-get="/dashboard/events/routes/search"
+                       hx-trigger="keyup changed delay:500ms"
+                       hx-target="#route-search-dropdown"
+                       hx-swap="innerHTML"
+                       hx-include="this"
+                       hx-on::after-swap="event.stopPropagation();"
+                       hx-on::before-swap="event.stopPropagation();"
+                       hx-on::after-request="event.stopPropagation();"
+                       onclick="event.stopPropagation();"
+                       onfocus="event.stopPropagation(); document.getElementById('route_search_display').style.display = 'none'; this.style.display = 'block';">
+                <input type="text"
+                       id="route_search_display"
+                       class="form-input"
+                       readonly
+                       value="{{if .IsEdit}}{{if .RouteDisplay}}{{.RouteDisplay}}{{end}}{{end}}"
+                       style="cursor: pointer; {{if .IsEdit}}{{if not .RouteATID}}display: none;{{end}}{{else}}display: none;{{end}}"
+                       onclick="event.stopPropagation(); event.preventDefault(); document.getElementById('route_search_display').style.display = 'none'; document.getElementById('route_search_input').style.display = 'block'; document.getElementById('route_search_input').focus(); document.getElementById('route_at_id').value = ''; return false;">
+                <input type="hidden"
+                       id="route_at_id"
+                       name="route_at_id"
+                       value="{{if .IsEdit}}{{.RouteATID}}{{end}}">
+                <div id="route-search-dropdown" 
+                     onclick="event.stopPropagation();"
+                     hx-on::after-swap="event.stopPropagation();"></div>
+            </div>
+            <div class="form-help-text">Optional: Search and select a route from synced Airtable routes</div>
         </div>
 
         <div class="form-group">
