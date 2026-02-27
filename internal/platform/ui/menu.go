@@ -17,15 +17,7 @@ type MenuItem struct {
 // GetMenuItems returns menu items based on user role
 // This is a pure function that takes session data and returns menu configuration
 func GetMenuItems(activeVA *session.VAMembership) []MenuItem {
-	baseItems := []MenuItem{
-		{
-			Label:        "Dashboard",
-			Path:         "/dashboard",
-			PageID:       "dashboard",
-			RequiredRole: roles.RolePilot,
-			Icon:         "dashboard",
-		},
-	}
+	baseItems := []MenuItem{}
 
 	// Staff and admin get additional items
 	if activeVA.Role == string(roles.RoleAirlineManager) || activeVA.Role == string(roles.RoleAdmin) {
@@ -43,13 +35,6 @@ func GetMenuItems(activeVA *session.VAMembership) []MenuItem {
 				PageID:       "logbook",
 				RequiredRole: roles.RoleAirlineManager,
 				Icon:         "logbook",
-			},
-			{
-				Label:        "Pilots",
-				Path:         "/dashboard/pilots",
-				PageID:       "pilots",
-				RequiredRole: roles.RoleAirlineManager,
-				Icon:         "pilots",
 			},
 		}...)
 	}
@@ -70,13 +55,6 @@ func GetMenuItems(activeVA *session.VAMembership) []MenuItem {
 				PageID:       "datasource",
 				RequiredRole: roles.RoleAdmin,
 				Icon:         "datasource",
-			},
-			{
-				Label:        "PIREP",
-				Path:         "/dashboard/settings/pirep",
-				PageID:       "pirep",
-				RequiredRole: roles.RoleAdmin,
-				Icon:         "pirep",
 			},
 			{
 				Label:        "Events",
