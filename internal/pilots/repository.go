@@ -27,9 +27,9 @@ func (r *Repository) Upsert(ctx context.Context, pilot *PilotATSyncedGORM) error
 	err := r.db.WithContext(ctx).
 		Where("server_id = ? AND at_id = ?", pilot.ServerID, pilot.ATID).
 		First(&existing).Error
-	
+
 	isUpdate := err == nil // Record exists
-	
+
 	result := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{
@@ -39,19 +39,19 @@ func (r *Repository) Upsert(ctx context.Context, pilot *PilotATSyncedGORM) error
 			DoUpdates: clause.AssignmentColumns([]string{"callsign", "registered"}),
 		}).
 		Create(pilot)
-	
+
 	if result.Error != nil {
 		return result.Error
 	}
-	
+
 	// Log the result for debugging
 	action := "INSERT"
 	if isUpdate {
 		action = "UPDATE"
 	}
-	log.Printf("[PilotRepo] Upsert %s - RowsAffected: %d, ATID: %s, Callsign: %s, ServerID: %s", 
+	log.Printf("[PilotRepo] Upsert %s - RowsAffected: %d, ATID: %s, Callsign: %s, ServerID: %s",
 		action, result.RowsAffected, pilot.ATID, pilot.Callsign, pilot.ServerID)
-	
+
 	return nil
 }
 

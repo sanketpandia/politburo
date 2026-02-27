@@ -205,6 +205,9 @@ func (r *Repository) UpsertVAConfig(ctx context.Context, vaID, key, value string
 }
 
 // GetAllActiveVACallsignConfigs retrieves callsign prefix/suffix for all active VAs
+// NOTE: This method ONLY checks for active VAs with callsign configuration.
+// It does NOT check is_airtable_enabled or any Airtable configuration.
+// Any active VA with callsign_prefix OR callsign_suffix configured will be included.
 func (r *Repository) GetAllActiveVACallsignConfigs(ctx context.Context) ([]map[string]string, error) {
 	type ConfigRow struct {
 		VAID        string `gorm:"column:id"`
