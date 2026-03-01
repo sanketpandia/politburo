@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/infra/cache"
-	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/internal/constants"
 )
 
 // Worker syncs aircraft/livery data from Infinite Flight API every 6 hours
 type Worker struct {
 	c          *cache.CacheInterface
-	api        *common.LiveAPIService
+	api        *liveapi.Client
 	liveryRepo *Repository
 	liverySvc  *Service
 }
@@ -21,7 +21,7 @@ type Worker struct {
 // NewWorker creates a new aircraft sync worker
 func NewWorker(
 	c *cache.CacheInterface,
-	api *common.LiveAPIService,
+	api *liveapi.Client,
 	liveryRepo *Repository,
 	liverySvc *Service,
 ) *Worker {
@@ -60,6 +60,12 @@ func (w *Worker) syncAircraftLiveriesTask() {
 		return
 	}
 
+	// Check for API errors
+	if resp.ErrorCode != 0 {
+		log.Printf("Error from IF API: errorCode=%d", resp.ErrorCode)
+		return
+	}
+
 	// Load existing liveries from database into map for change detection
 	existingLiveries, err := w.liveryRepo.GetLiveryMap(ctx)
 	if err != nil {
@@ -84,12 +90,12 @@ func (w *Worker) syncAircraftLiveriesTask() {
 				existingLivery.AircraftID != apiLivery.AircraftID ||
 				!existingLivery.IsActive {
 				// Update needed
-				toUpsert = append(toUpsert, ConvertAPILiveryToGORM(apiLivery))
+				toUpsert = append(toUpsert, ConvertLiveAPILiveryToGORM(apiLivery))
 				updatedCount++
 			}
 		} else {
 			// New livery
-			toUpsert = append(toUpsert, ConvertAPILiveryToGORM(apiLivery))
+			toUpsert = append(toUpsert, ConvertLiveAPILiveryToGORM(apiLivery))
 			addedCount++
 		}
 	}
@@ -141,12 +147,11 @@ func (w *Worker) syncAircraftLiveriesTask() {
 // refillWorldStatus caches world status metadata (separate concern, kept for now)
 func (w *Worker) refillWorldStatus() {
 	resp, err := w.api.GetSessions()
-
 	if err != nil {
 		return
 	}
-	c := *w.c
 
+	c := *w.c
 	c.Set(string(constants.CachePrefixWorldDetails), resp.Result, 60000*time.Minute)
 	for _, world := range resp.Result {
 		// Get expert server

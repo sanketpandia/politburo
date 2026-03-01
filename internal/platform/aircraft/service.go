@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/dtos"
 
@@ -142,7 +143,20 @@ func (s *Service) WarmCache(ctx context.Context) error {
 }
 
 // ConvertAPILiveryToGORM converts IF API livery DTO to GORM entity for persistence
+// DEPRECATED: Use ConvertLiveAPILiveryToGORM instead
 func ConvertAPILiveryToGORM(apiLivery dtos.AircraftLivery) AircraftLivery {
+	return AircraftLivery{
+		LiveryID:     apiLivery.LiveryId,
+		AircraftID:   apiLivery.AircraftID,
+		LiveryName:   apiLivery.LiveryName,
+		AircraftName: apiLivery.AircraftName,
+		IsActive:     true,
+		LastSyncedAt: time.Now(),
+	}
+}
+
+// ConvertLiveAPILiveryToGORM converts liveapi.AircraftLivery to GORM entity for persistence
+func ConvertLiveAPILiveryToGORM(apiLivery liveapi.AircraftLivery) AircraftLivery {
 	return AircraftLivery{
 		LiveryID:     apiLivery.LiveryId,
 		AircraftID:   apiLivery.AircraftID,

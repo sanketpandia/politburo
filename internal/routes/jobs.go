@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/scheduler"
 	"infinite-experiment/politburo/internal/app"
@@ -114,6 +115,23 @@ func RegisterWorkers(application *app.App) error {
 			}
 		}()
 		logging.Info("Pilot sync worker started")
+	}
+
+	// Start aircraft livery sync worker
+	// Syncs aircraft/livery data from Infinite Flight API to database every 6 hours
+	if application.Infra.LiveAPI != nil && application.Infra.RedisCache != nil {
+		// Create cache interface wrapper (RedisCache implements CacheInterface)
+		var cacheInterface cache.CacheInterface = application.Infra.RedisCache
+		aircraftWorker := aircraft.NewWorker(
+			&cacheInterface,
+			application.Infra.LiveAPI,
+			application.Platform.AircraftRepo,
+			application.Platform.AircraftSvc,
+		)
+		go func() {
+			aircraftWorker.Start()
+		}()
+		logging.Info("Aircraft livery sync worker started (syncs every 6 hours)")
 	}
 
 	return nil
