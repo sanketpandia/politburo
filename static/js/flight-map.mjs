@@ -128,14 +128,14 @@ export class FlightMap {
       zoom: zoom,
       zoomControl: true,
       attributionControl: true,
-      maxZoom: 18,
+      maxZoom: 22,
       minZoom: 2,
     });
 
     // Add OpenStreetMap tiles
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
-      maxZoom: 19
+      maxZoom: 22
     }).addTo(this.map);
 
     // Layer groups for managing flights and routes
@@ -211,7 +211,7 @@ export class FlightMap {
       const bounds = validFlights.map(f => [f.latitude, f.longitude]);
       this.map.fitBounds(bounds, {
         padding: [50, 50], // Padding in pixels
-        maxZoom: 18 // Allow deeper zoom
+        maxZoom: 22 // Allow deeper zoom
       });
     }
 
@@ -412,7 +412,7 @@ export class FlightMap {
       try {
         this.map.fitBounds(routeBounds, {
           padding: [50, 50],
-          maxZoom: 18,
+          maxZoom: 22,
           minZoom: 2
         });
         console.log(`FlightMap: Fitted bounds to route with ${routeBounds.length} valid points`);
