@@ -155,3 +155,24 @@ func (s *Service) GenerateSignedLink(
 ) (string, error) {
 	return s.urlSigner.GenerateSignedLink(ctx, userID, vaID, redirectTo, ttl)
 }
+
+// DestroyAllSessionsByIFCId destroys all sessions for a user identified by their IFC ID
+func (s *Service) DestroyAllSessionsByIFCId(ctx context.Context, ifcId string) (int, error) {
+	// Look up user by IFC ID
+	user, err := s.usersSvc.GetUserByIFCId(ctx, ifcId)
+	if err != nil {
+		return 0, fmt.Errorf("failed to lookup user by IFC ID: %w", err)
+	}
+	if user == nil {
+		return 0, fmt.Errorf("user not found with IFC ID: %s", ifcId)
+	}
+
+	// Delete all sessions for this user
+	deletedCount, err := s.sessionSvc.DeleteAllSessionsForUser(ctx, user.ID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete sessions: %w", err)
+	}
+
+	logging.Info("Destroyed all sessions for user", "ifc_id", ifcId, "user_id", user.ID, "deleted_count", deletedCount)
+	return deletedCount, nil
+}

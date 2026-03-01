@@ -10,6 +10,8 @@ import (
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // Handler provides HTTP handlers for authentication endpoints
@@ -191,6 +193,40 @@ func (h *Handler) GenerateSignedLink() http.HandlerFunc {
 			"url":         fmt.Sprintf("%s/auth/login?token=%s", uiBaseURL, token),
 			"expires_in":  int(ttl.Seconds()),
 			"redirect_to": req.RedirectTo,
+		}
+
+		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
+	}
+}
+
+// DestroySessionsByIFCId handles POST /api/v1/admin/sessions/destroy/{ifc_id}
+// Destroys all sessions for a user identified by their IFC ID
+func (h *Handler) DestroySessionsByIFCId() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		// Extract IFC ID from path parameter
+		ifcId := chi.URLParam(r, "ifc_id")
+		if ifcId == "" {
+			logging.Warn("DestroySessionsByIFCId: missing IFC ID")
+			httpdto.WriteError(w, initTime, "INVALID_REQUEST", "IFC ID is required", http.StatusBadRequest)
+			return
+		}
+
+		logging.Info("Destroying all sessions for user", "ifc_id", ifcId)
+
+		// Destroy all sessions for this user
+		deletedCount, err := h.svc.DestroyAllSessionsByIFCId(r.Context(), ifcId)
+		if err != nil {
+			logging.Error("Failed to destroy sessions", "error", err, "ifc_id", ifcId)
+			httpdto.WriteError(w, initTime, "DESTROY_FAILED", err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		response := map[string]interface{}{
+			"ifc_id":        ifcId,
+			"deleted_count": deletedCount,
+			"message":       fmt.Sprintf("Successfully destroyed %d session(s)", deletedCount),
 		}
 
 		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)

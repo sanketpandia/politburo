@@ -214,3 +214,66 @@ func (s *SessionData) HasVA(vaID string) bool {
 	}
 	return false
 }
+
+// DeleteAllSessionsForUser deletes all sessions for a given user ID
+// This scans all session keys in Redis and deletes those matching the userID
+func (s *SessionService) DeleteAllSessionsForUser(ctx context.Context, userID string) (int, error) {
+	log.Printf("[SessionService] DeleteAllSessionsForUser: Looking for sessions for userID=%s", userID)
+
+	// Scan all session keys with pattern "session:*"
+	var cursor uint64
+	var deletedCount int
+	var keysToDelete []string
+
+	// Use SCAN to iterate through all session keys
+	for {
+		var keys []string
+		var err error
+		keys, cursor, err = s.redis.Scan(ctx, cursor, "session:*", 100).Result()
+		if err != nil {
+			return 0, fmt.Errorf("failed to scan session keys: %w", err)
+		}
+
+		// Check each key to see if it belongs to the user
+		for _, key := range keys {
+			val, err := s.redis.Get(ctx, key).Result()
+			if err != nil {
+				if err == redis.Nil {
+					continue // Key was deleted between scan and get
+				}
+				log.Printf("[SessionService] ERROR: Failed to get session %s: %v", key, err)
+				continue
+			}
+
+			var session SessionData
+			if err := json.Unmarshal([]byte(val), &session); err != nil {
+				log.Printf("[SessionService] ERROR: Failed to unmarshal session %s: %v", key, err)
+				continue
+			}
+
+			// If this session belongs to the user, mark it for deletion
+			if session.UserID == userID {
+				keysToDelete = append(keysToDelete, key)
+			}
+		}
+
+		// If cursor is 0, we've scanned all keys
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// Delete all matching sessions
+	if len(keysToDelete) > 0 {
+		err := s.redis.Del(ctx, keysToDelete...).Err()
+		if err != nil {
+			return 0, fmt.Errorf("failed to delete sessions: %w", err)
+		}
+		deletedCount = len(keysToDelete)
+		log.Printf("[SessionService] DeleteAllSessionsForUser: Deleted %d sessions for userID=%s", deletedCount, userID)
+	} else {
+		log.Printf("[SessionService] DeleteAllSessionsForUser: No sessions found for userID=%s", userID)
+	}
+
+	return deletedCount, nil
+}
