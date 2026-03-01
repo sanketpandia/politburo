@@ -128,7 +128,7 @@ export class FlightMap {
       zoom: zoom,
       zoomControl: true,
       attributionControl: true,
-      maxZoom: 10,
+      maxZoom: 18,
       minZoom: 2,
     });
 
@@ -211,7 +211,7 @@ export class FlightMap {
       const bounds = validFlights.map(f => [f.latitude, f.longitude]);
       this.map.fitBounds(bounds, {
         padding: [50, 50], // Padding in pixels
-        maxZoom: 10 // Don't zoom in too much
+        maxZoom: 18 // Allow deeper zoom
       });
     }
 
@@ -412,7 +412,7 @@ export class FlightMap {
       try {
         this.map.fitBounds(routeBounds, {
           padding: [50, 50],
-          maxZoom: 10,
+          maxZoom: 18,
           minZoom: 2
         });
         console.log(`FlightMap: Fitted bounds to route with ${routeBounds.length} valid points`);
