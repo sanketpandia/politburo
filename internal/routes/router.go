@@ -60,6 +60,18 @@ func resolveProjectPath(relPath string) string {
 	return filepath.Join(wd, relPath)
 }
 
+// getAdditionalDataKeys extracts keys from AdditionalData map for logging
+func getAdditionalDataKeys(additionalData map[string]interface{}) []string {
+	if additionalData == nil {
+		return []string{}
+	}
+	keys := make([]string, 0, len(additionalData))
+	for k := range additionalData {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // NewRouter creates and configures the HTTP router with all routes
 // This is a pure routing function - all dependencies are injected via the App struct
 func NewRouter(application *app.App) http.Handler {
@@ -512,13 +524,74 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 			flightTimeSeconds = (hours * 3600) + (minutes * 60)
 		}
 
+		// Extract multiplier from event leg additional data
+		multiplier := 1 // Default multiplier (use 1 unless specified otherwise)
+		if matchedLeg.AdditionalData != nil {
+			logging.Debug("Tour PIREP submit: checking additional_data for multiplier",
+				"leg_id", matchedLeg.ID,
+				"leg_number", matchedLeg.LegNumber,
+				"additional_data_keys", getAdditionalDataKeys(matchedLeg.AdditionalData))
+			if multValue, exists := matchedLeg.AdditionalData["multiplier"]; exists {
+				logging.Debug("Tour PIREP submit: found multiplier value",
+					"value", multValue,
+					"type", fmt.Sprintf("%T", multValue))
+				// Handle different numeric types that might come from JSON
+				switch v := multValue.(type) {
+				case int:
+					multiplier = v
+				case int64:
+					multiplier = int(v)
+				case float64:
+					multiplier = int(v)
+				case string:
+					// Try to parse as integer
+					if parsed, err := strconv.Atoi(v); err == nil {
+						multiplier = parsed
+					} else {
+						logging.Warn("Tour PIREP submit: failed to parse multiplier string",
+							"value", v,
+							"error", err)
+					}
+				default:
+					logging.Warn("Tour PIREP submit: multiplier has unexpected type",
+						"value", multValue,
+						"type", fmt.Sprintf("%T", multValue))
+				}
+				logging.Info("Tour PIREP submit: extracted multiplier from event leg",
+					"multiplier", multiplier,
+					"leg_id", matchedLeg.ID,
+					"leg_number", matchedLeg.LegNumber)
+			} else {
+				logging.Info("Tour PIREP submit: multiplier key not found in additional_data, using default 1",
+					"leg_id", matchedLeg.ID,
+					"leg_number", matchedLeg.LegNumber,
+					"available_keys", getAdditionalDataKeys(matchedLeg.AdditionalData))
+			}
+		} else {
+			logging.Info("Tour PIREP submit: additional_data is nil, using default multiplier 1",
+				"leg_id", matchedLeg.ID,
+				"leg_number", matchedLeg.LegNumber)
+		}
+
+		// Apply multiplier to flight duration
+		originalFlightTimeSeconds := flightTimeSeconds
+		if multiplier > 0 {
+			flightTimeSeconds = flightTimeSeconds * multiplier
+		}
+		logging.Info("Tour PIREP submit: flight duration calculation",
+			"multiplier", multiplier,
+			"original_seconds", originalFlightTimeSeconds,
+			"adjusted_seconds", flightTimeSeconds,
+			"leg_id", matchedLeg.ID,
+			"leg_number", matchedLeg.LegNumber)
+
 		// Enrich the request with default mandatory values
 		// Create a copy to avoid modifying the original
 		enrichedRequest := submitRequest
 
 		// Calculate max speed and max altitude from waypoints
 		var maxSpeed, maxAltitude *int
-		if matchedFlight != nil && len(matchedFlight.Waypoints) > 0 {
+		if len(matchedFlight.Waypoints) > 0 {
 			maxSpeedVal := matchedFlight.Waypoints[0].Speed
 			maxAltitudeVal := matchedFlight.Waypoints[0].Altitude
 
@@ -540,7 +613,6 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 		if submitRequest.FlightTime != "" {
 			commentsParts = append(commentsParts, fmt.Sprintf("Actual FT: %s", submitRequest.FlightTime))
 		}
-		multiplier := 1 // Default multiplier (use 1 unless specified otherwise)
 		commentsParts = append(commentsParts, fmt.Sprintf("Multiplier: %d", multiplier))
 		if flightRoute != "" {
 			commentsParts = append(commentsParts, fmt.Sprintf("Actual Route from FPL: %s", flightRoute))
@@ -712,10 +784,26 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 		getFieldName := func(internalName string) string {
 			fieldMapping := pirepSchema.GetFieldMapping(internalName)
 			if fieldMapping != nil {
+				logging.Debug("Tour PIREP submit: found field mapping",
+					"internal_name", internalName,
+					"airtable_name", fieldMapping.AirtableName)
 				return fieldMapping.AirtableName
 			}
+			logging.Debug("Tour PIREP submit: field mapping not found", "internal_name", internalName)
 			return "" // Return empty if field not found in schema
 		}
+
+		// Log all available field mappings for debugging
+		fieldMappings := make([]map[string]string, len(pirepSchema.Fields))
+		for i, f := range pirepSchema.Fields {
+			fieldMappings[i] = map[string]string{
+				"internal_name": f.InternalName,
+				"airtable_name": f.AirtableName,
+			}
+		}
+		logging.Info("Tour PIREP submit: available field mappings",
+			"total_fields", len(pirepSchema.Fields),
+			"fields", fieldMappings)
 
 		// Prepare Airtable payload using schema field mappings
 		mappedFields := make(map[string]interface{})
@@ -739,11 +827,19 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 			if userVARole != nil && userVARole.AirtablePilotID != nil && *userVARole.AirtablePilotID != "" {
 				// Send as array of Airtable record IDs (linked record field)
 				mappedFields[callsignField] = []string{*userVARole.AirtablePilotID}
+				logging.Info("Tour PIREP submit: set callsign field", "callsign_field", callsignField, "pilot_at_id", *userVARole.AirtablePilotID)
 			} else {
-				logging.Warn("Tour PIREP submit: user has no Airtable Pilot ID", "va_id", va.ID, "user_id", user.ID)
+				logging.Warn("Tour PIREP submit: user has no Airtable Pilot ID - callsign field will be empty",
+					"va_id", va.ID,
+					"user_id", user.ID,
+					"callsign_field", callsignField,
+					"has_varole", userVARole != nil,
+					"has_pilot_id", userVARole != nil && userVARole.AirtablePilotID != nil)
 				// Don't set callsign if AirtablePilotID is missing - this will cause validation error
 				// but that's better than sending invalid data
 			}
+		} else {
+			logging.Warn("Tour PIREP submit: callsign field mapping not found in schema", "va_id", va.ID)
 		}
 
 		// Aircraft
@@ -766,9 +862,17 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 			if routeATID != "" {
 				// Route field should be an array of Airtable IDs for linked records
 				mappedFields[routeField] = []string{routeATID}
+				logging.Info("Tour PIREP submit: set route field", "route_field", routeField, "route_at_id", routeATID)
+			} else {
+				logging.Warn("Tour PIREP submit: route Airtable ID is empty - route field will be empty",
+					"route_field", routeField,
+					"flight_route", flightRoute,
+					"leg_id", matchedLeg.ID)
+				// Note: If routeATID is empty, we don't set the route field
+				// as Airtable linked record fields require valid IDs
 			}
-			// Note: If routeATID is empty, we don't set the route field
-			// as Airtable linked record fields require valid IDs
+		} else {
+			logging.Warn("Tour PIREP submit: route_at_id field mapping not found in schema", "va_id", va.ID)
 		}
 
 		// IFC Username (optional)
