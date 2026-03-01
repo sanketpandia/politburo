@@ -10,6 +10,7 @@ import (
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"log"
 	"net/http"
 	"os"
@@ -22,12 +23,12 @@ import (
 // Handler consolidates all flight-related API handlers
 type Handler struct {
 	svc         *Service
-	vaConfigSvc *common.VAConfigService
+	vaConfigSvc *platformVA.ConfigService
 	legacyCache *cache.CacheService
 }
 
 // NewHandler creates a new Handler instance
-func NewHandler(svc *Service, vaConfigSvc *common.VAConfigService, legacyCache *cache.CacheService) *Handler {
+func NewHandler(svc *Service, vaConfigSvc *platformVA.ConfigService, legacyCache *cache.CacheService) *Handler {
 	return &Handler{
 		svc:         svc,
 		vaConfigSvc: vaConfigSvc,
@@ -105,7 +106,7 @@ func (h *Handler) GetUserFlights() http.HandlerFunc {
 			return
 		}
 
-		serverID, ok := h.vaConfigSvc.GetConfigVal(r.Context(), claims.ServerID(), common.ConfigKeyIFServerID)
+		serverID, ok := h.vaConfigSvc.GetConfigVal(r.Context(), claims.ServerID(), platformVA.ConfigKeyIFServerID)
 		if !ok {
 			common.RespondError(w, initTime, nil, "IF Server not configured for VA", http.StatusInternalServerError)
 			return

@@ -3,8 +3,8 @@ package middleware
 import (
 	context "infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
-	"log"
 	"net/http"
+	"time"
 )
 
 func IsRegisteredMiddleware() func(http.Handler) http.Handler {
@@ -14,9 +14,13 @@ func IsRegisteredMiddleware() func(http.Handler) http.Handler {
 
 			claims := context.GetUserClaims(r.Context())
 
-			log.Printf("User ID: %s, God ID: %s", claims.UserID(), claims.DiscordUserID())
+			if claims == nil {
+				common.RespondError(w, time.Now(), nil, "Unauthorized: missing claims", http.StatusUnauthorized)
+				return
+			}
+
 			if claims.UserID() == "" && !context.IsGodMode(claims.DiscordUserID()) {
-				common.RespondPermissionDenied(w, "registered user")
+				common.RespondError(w, time.Now(), nil, "You must register before accessing this resource. Please use the /register command in Discord to register your account.", http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)

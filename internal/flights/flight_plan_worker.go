@@ -382,41 +382,28 @@ func (w *FlightPlanWorker) processFlightPlan(ctx context.Context, item *queue.Fl
 	return nil
 }
 
-// getFlightPlanCached fetches flight plan with caching (7 days)
+// getFlightPlanCached fetches flight plan from API (bypasses cache) and updates cache
 // Returns the flight plan or an error (which may be a permanent error for 400/404 status codes)
+// The worker always fetches fresh data to ensure flight plans are up-to-date
 func (w *FlightPlanWorker) getFlightPlanCached(sessionID, flightID string) (*liveapi.FlightPlanResponse, error) {
-	// Use same cache key pattern as flights.Service
-	cacheKey := string(constants.CachePrefixFPL) + sessionID + "_" + flightID
-
-	val, err := w.cache.GetOrSet(cacheKey, 7*24*time.Hour, func() (any, error) {
-		fpl, status, err := w.liveAPI.GetFlightPlan(sessionID, flightID)
-		if err != nil {
-			// Preserve status code in error for permanent error detection
-			// The error from liveapi.Client already includes status in the message
-			// but we can enhance it for better detection
-			if status == http.StatusBadRequest || status == http.StatusNotFound {
-				return nil, fmt.Errorf("unexpected status %d: %w", status, err)
-			}
-			return nil, err
-		}
-		return *fpl, nil
-	})
+	// Always fetch fresh data from API (bypass cache)
+	fpl, status, err := w.liveAPI.GetFlightPlan(sessionID, flightID)
 	if err != nil {
+		// Preserve status code in error for permanent error detection
+		// The error from liveapi.Client already includes status in the message
+		// but we can enhance it for better detection
+		if status == http.StatusBadRequest || status == http.StatusNotFound {
+			return nil, fmt.Errorf("unexpected status %d: %w", status, err)
+		}
 		return nil, err
 	}
 
-	// Convert cached value to FlightPlanResponse
-	// Redis cache returns map[string]interface{} after JSON unmarshaling
-	var fpl liveapi.FlightPlanResponse
-	jsonBytes, err := json.Marshal(val)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal cached flight plan: %w", err)
-	}
-	if err := json.Unmarshal(jsonBytes, &fpl); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal flight plan from cache: %w", err)
-	}
+	// Update cache with fresh data (7 days TTL) for other parts of the system
+	// Use same cache key pattern as flights.Service for consistency
+	cacheKey := string(constants.CachePrefixFPL) + sessionID + "_" + flightID
+	w.cache.Set(cacheKey, *fpl, 7*24*time.Hour)
 
-	return &fpl, nil
+	return fpl, nil
 }
 
 // extractRouteFromFPL extracts origin and destination from flight plan waypoints

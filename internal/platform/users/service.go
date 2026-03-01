@@ -18,6 +18,22 @@ func NewService(repo *Repository) *Service {
 	}
 }
 
+// IsIFCIdRegistered checks if an IFC ID is already registered to any user
+// Returns true if registered, false if not, or an error on database failure
+func (s *Service) IsIFCIdRegistered(ctx context.Context, ifcId string) (bool, error) {
+	user, err := s.repo.GetUserByIFCId(ctx, ifcId)
+	if err != nil {
+		return false, err
+	}
+	return user != nil, nil
+}
+
+// GetUserByIFCId retrieves a user by IFC ID
+// Returns the user if found, nil if not found, or an error on database failure
+func (s *Service) GetUserByIFCId(ctx context.Context, ifcId string) (*User, error) {
+	return s.repo.GetUserByIFCId(ctx, ifcId)
+}
+
 func (s *Service) RegisterUser(ctx context.Context, discordID, ifCommunityID string, ifApiID *string, isActive bool) error {
 	_, err := s.repo.InsertUser(ctx, discordID, ifCommunityID, ifApiID, isActive)
 	return err

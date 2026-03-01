@@ -21,10 +21,11 @@ type LiveAPIProvider interface {
 
 // Custom errors for registration flow
 var (
-	ErrIFCUserNotFound    = errors.New("IFC user not found in Infinite Flight system")
-	ErrNoRecentFlights    = errors.New("no recent flights found")
-	ErrFlightMismatch     = errors.New("last flight does not match logbook")
-	ErrRegistrationFailed = errors.New("failed to register user")
+	ErrIFCUserNotFound        = errors.New("IFC user not found in Infinite Flight system")
+	ErrNoRecentFlights        = errors.New("no recent flights found")
+	ErrFlightMismatch         = errors.New("last flight does not match logbook")
+	ErrRegistrationFailed     = errors.New("failed to register user")
+	ErrIFCIdAlreadyRegistered = errors.New("IFC ID is already registered to another user")
 )
 
 // RegistrationService handles pilot registration business logic
@@ -55,7 +56,22 @@ func (s *RegistrationService) RegisterPilot(
 	ifcId string,
 	lastFlight string,
 ) (*RegisterPilotResponse, error) {
-	// Step 1: Validate user exists in Infinite Flight Live API
+	// Step 1: HIGH PRIORITY - Check if IFC ID is already registered
+	logging.Info("Checking if IFC ID is already registered", "ifc_id", ifcId)
+	existingUser, err := s.usersSvc.GetUserByIFCId(ctx, ifcId)
+	if err != nil {
+		logging.Error("Failed to check IFC ID registration status", "error", err, "ifc_id", ifcId)
+		return nil, fmt.Errorf("failed to check IFC ID availability: %w", err)
+	}
+
+	if existingUser != nil {
+		logging.Warn("IFC ID already registered", "ifc_id", ifcId, "existing_discord_id", existingUser.DiscordID, "requesting_discord_id", discordUserID)
+		return nil, ErrIFCIdAlreadyRegistered
+	}
+
+	logging.Info("IFC ID is available", "ifc_id", ifcId)
+
+	// Step 2: Validate user exists in Infinite Flight Live API
 	logging.Info("Validating IFC user", "ifc_id", ifcId)
 	userStatsResp, statusCode, err := s.liveAPIProvider.GetUserByIfcId(ctx, ifcId)
 	if err != nil {
@@ -93,9 +109,16 @@ func (s *RegistrationService) RegisterPilot(
 	logging.Info("Last flight validated", "route", recentRoute)
 
 	// Step 3: Create user in database
+	// Note: IFC ID uniqueness is already validated in Step 1, but we still handle
+	// the constraint violation as a safety net in case of race conditions
 	logging.Info("Creating user", "discord_id", discordUserID, "ifc_id", ifcId, "if_api_id", ifApiID)
 	err = s.usersSvc.RegisterUser(ctx, discordUserID, ifcId, &ifApiID, true)
 	if err != nil {
+		// Check if this is an IFC ID duplicate error (race condition safety net)
+		if errors.Is(err, users.ErrIFCIdAlreadyRegistered) {
+			logging.Warn("IFC ID already registered (race condition detected)", "ifc_id", ifcId, "discord_id", discordUserID)
+			return nil, ErrIFCIdAlreadyRegistered
+		}
 		logging.Error("Failed to create user", "error", err, "discord_id", discordUserID)
 		return nil, fmt.Errorf("%w: %v", ErrRegistrationFailed, err)
 	}

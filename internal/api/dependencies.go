@@ -6,6 +6,7 @@ import (
 
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/db"
+	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/infra/queue"
@@ -48,7 +49,8 @@ type Services struct {
 	Cache              cache.CacheInterface     // Interface - supports Redis or in-memory
 	RedisCache         *cache.RedisCacheService // Redis cache (for jobs that need specific Redis features)
 	LegacyCache        *cache.CacheService      // For services that haven't been migrated to interface yet
-	Live               *common.LiveAPIService   // Changed to pointer
+	Live               *common.LiveAPIService   // Legacy: kept for backward compatibility
+	LiveAPI            *liveapi.Client          // NEW: Infra LiveAPI client
 	User               *users.Service
 	Reg                *services.RegistrationService // Changed to pointer
 	RegV2              *services.RegistrationServiceV2
@@ -140,12 +142,19 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		legacyCache = cache.NewCacheServiceWithMetrics(60000, 600, metricsReg)
 	}
 
-	liveSvc := common.NewLiveAPIService()
-	confSvc := common.NewVAConfigService(repositories.Va, cacheSvc) // Legacy: kept for compatibility
-
-	// Initialize VA services (new package)
-	vaConfigSvc := va.NewConfigService(vaRepo, cacheSvc)
+	// Initialize LiveAPI client (infra)
+	liveAPIClient := liveapi.NewClient()
+	
+	// Initialize aircraft service first (needed for VA config service)
+	aircraftSvc := aircraft.NewService(legacyCache, repositories.Aircraft)
+	
+	// Initialize VA services (platform)
+	vaConfigSvc := va.NewConfigService(vaRepo, cacheSvc, repositories.Aircraft, aircraftSvc)
 	vaService := va.NewService(vaRepo)
+	
+	// Legacy services for backward compatibility (used by some old services)
+	confSvc := common.NewVAConfigService(repositories.Va, cacheSvc) // Legacy: kept for compatibility
+	liveSvc := common.NewLiveAPIService() // Legacy: kept for compatibility
 
 	// Initialize memberships service
 	// TODO: Re-enable when memberships service is fixed
@@ -171,9 +180,6 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 
 	// Initialize V2 registration service with GORM and LiveAPIProvider
 	regServiceV2 := services.NewRegistrationServiceV2(db.PgDB, liveAPIProvider)
-
-	// Initialize aircraft service (platform level)
-	aircraftSvc := aircraft.NewService(legacyCache, repositories.Aircraft)
 
 	// Initialize Airtable provider
 	airtableProvider := providers.NewAirtableProvider(cacheSvc)
@@ -203,7 +209,7 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		AirtableApi:        common.NewAirtableApiService(confSvc),
 		AirtableProvider:   airtableProvider,
 		AirtableSync:       services.NewAtSyncService(legacyCache, repositories.UserVASync),
-		Flights:            flights.NewService(legacyCache, liveSvc, confSvc, aircraftSvc),
+		Flights:            flights.NewService(legacyCache, liveAPIClient, vaConfigSvc, aircraftSvc),
 		PilotStats:         pilotStatsSvc,
 		PilotMgmt:          pilotMgmtSvc,
 		DataProviderConfig: dataProviderConfigSvc,
@@ -211,7 +217,8 @@ func InitDependencies(metricsReg *metrics.MetricsRegistry) (*Dependencies, error
 		Cache:              cacheSvc,
 		RedisCache:         redisCacheSvc, // Redis cache for jobs (nil if not using Redis)
 		LegacyCache:        legacyCache,
-		Live:               liveSvc,
+		Live:               liveSvc, // Legacy: kept for backward compatibility
+		LiveAPI:            liveAPIClient, // NEW: Infra LiveAPI client
 		RedisQueue:         redisQSvc,
 		URLSigner:          urlSignerSvc,
 		Session:            sessionSvc,

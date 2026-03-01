@@ -111,9 +111,9 @@ func (h *Handler) GetDatasourceStatusHandler() http.HandlerFunc {
 		hasSchemas := len(schemas) > 0
 
 		data := map[string]interface{}{
-			"ActiveVA":        activeVA,
+			"ActiveVA":       activeVA,
 			"HasCredentials": hasCredentials,
-			"HasSchemas":      hasSchemas,
+			"HasSchemas":     hasSchemas,
 			"Credentials":    creds,
 			"Schemas":        schemas,
 		}
@@ -160,31 +160,31 @@ func (h *Handler) GetSchemaTypeSelectorHandler() http.HandlerFunc {
 		// Define available schema types
 		schemaTypes := []map[string]interface{}{
 			{
-				"Type":             "pilot",
-				"DisplayName":      "Pilot",
-				"Description":      "Sync pilot data including callsigns, ranks, and flight hours",
-				"Icon":             "👨‍✈️",
+				"Type":              "pilot",
+				"DisplayName":       "Pilot",
+				"Description":       "Sync pilot data including callsigns, ranks, and flight hours",
+				"Icon":              "👨‍✈️",
 				"AlreadyConfigured": schemas["pilot"] != nil,
 			},
 			{
-				"Type":             "route",
-				"DisplayName":      "Route",
-				"Description":      "Sync flight routes with origin, destination, and route information",
-				"Icon":             "🛫",
+				"Type":              "route",
+				"DisplayName":       "Route",
+				"Description":       "Sync flight routes with origin, destination, and route information",
+				"Icon":              "🛫",
 				"AlreadyConfigured": schemas["route"] != nil,
 			},
 			{
-				"Type":             "pirep",
-				"DisplayName":      "PIREP",
-				"Description":      "Sync flight reports with flight details, aircraft, and completion data",
-				"Icon":             "📋",
+				"Type":              "pirep",
+				"DisplayName":       "PIREP",
+				"Description":       "Sync flight reports with flight details, aircraft, and completion data",
+				"Icon":              "📋",
 				"AlreadyConfigured": schemas["pirep"] != nil,
 			},
 			{
-				"Type":             "career_mode",
-				"DisplayName":      "Career Mode",
-				"Description":      "Sync career mode progress including hours, ranks, and assigned routes",
-				"Icon":             "🎯",
+				"Type":              "career_mode",
+				"DisplayName":       "Career Mode",
+				"Description":       "Sync career mode progress including hours, ranks, and assigned routes",
+				"Icon":              "🎯",
 				"AlreadyConfigured": schemas["career_mode"] != nil,
 			},
 		}
@@ -445,10 +445,10 @@ func (h *Handler) GetSchemaConfigHandler() http.HandlerFunc {
 		}
 
 		data := map[string]interface{}{
-			"SchemaType": schemaType,
-			"Schema":     schema,
+			"SchemaType":  schemaType,
+			"Schema":      schema,
 			"Credentials": creds,
-			"ActiveVA":   activeVA,
+			"ActiveVA":    activeVA,
 		}
 
 		if err := h.templateRenderer.RenderPartial(w, "partials/datasource-schema-config.html", data); err != nil {
@@ -516,12 +516,12 @@ func (h *Handler) SyncTableSchemaHandler() http.HandlerFunc {
 
 		// Prepare data for template
 		data := map[string]interface{}{
-			"SchemaType":      schemaType,
-			"TableName":       tableName,
-			"AirtableFields":  fields,
-			"InternalFields":  internalFields,
-			"ExistingSchema":  existingSchema,
-			"ActiveVA":        activeVA,
+			"SchemaType":     schemaType,
+			"TableName":      tableName,
+			"AirtableFields": fields,
+			"InternalFields": internalFields,
+			"ExistingSchema": existingSchema,
+			"ActiveVA":       activeVA,
 		}
 
 		// Render field mapper partial
@@ -647,11 +647,11 @@ func (h *Handler) SaveSchemaHandler() http.HandlerFunc {
 
 // InternalFieldDefinition defines an internal field that can be mapped
 type InternalFieldDefinition struct {
-	Name         string
-	DisplayName  string
-	Required     bool
+	Name          string
+	DisplayName   string
+	Required      bool
 	IsUserVisible bool
-	Description  string
+	Description   string
 }
 
 // getInternalFieldsForSchemaType returns the list of internal fields for a schema type
@@ -679,14 +679,17 @@ func getInternalFieldsForSchemaType(schemaType string) []InternalFieldDefinition
 		}
 	case "pirep":
 		return []InternalFieldDefinition{
-			{Name: "callsign", DisplayName: "Callsign", Required: true, IsUserVisible: true, Description: "Pilot callsign"},
-			{Name: "route_at_id", DisplayName: "Route Airtable ID", Required: false, IsUserVisible: false, Description: "Reference to route record"},
+			{Name: "callsign", DisplayName: "Callsign", Required: true, IsUserVisible: true, Description: "Pilot callsign (linked to pilot record)"},
+			{Name: "ifc_username", DisplayName: "IF Community Username", Required: false, IsUserVisible: true, Description: "Infinite Flight Community username"},
+			{Name: "route_at_id", DisplayName: "Route Airtable ID", Required: false, IsUserVisible: false, Description: "Reference to route record (linked field)"},
 			{Name: "aircraft", DisplayName: "Aircraft", Required: false, IsUserVisible: true, Description: "Aircraft type"},
-			{Name: "flight_mode", DisplayName: "Flight Mode", Required: false, IsUserVisible: true, Description: "Flight mode (IFR/VFR)"},
-			{Name: "flight_time", DisplayName: "Flight Time", Required: false, IsUserVisible: true, Description: "Flight duration"},
+			{Name: "airline", DisplayName: "Airline", Required: false, IsUserVisible: true, Description: "Airline name"},
+			{Name: "flight_mode", DisplayName: "Flight Mode", Required: false, IsUserVisible: true, Description: "Flight mode name (e.g., Passenger Flight, Cargo Flight)"},
+			{Name: "flight_time", DisplayName: "Flight Time", Required: true, IsUserVisible: true, Description: "Flight duration in seconds (with multiplier applied)"},
 			{Name: "date_completed", DisplayName: "Date Completed", Required: false, IsUserVisible: true, Description: "Date flight was completed"},
-			{Name: "fuel_kg", DisplayName: "Fuel (kg)", Required: false, IsUserVisible: true, Description: "Fuel consumed"},
-			{Name: "cargo_kg", DisplayName: "Cargo (kg)", Required: false, IsUserVisible: true, Description: "Cargo weight"},
+			{Name: "pilot_remarks", DisplayName: "Pilot Remarks", Required: false, IsUserVisible: true, Description: "Pilot notes and remarks (may include bot metadata)"},
+			{Name: "fuel_kg", DisplayName: "Fuel (kg)", Required: false, IsUserVisible: true, Description: "Fuel consumed in kilograms"},
+			{Name: "cargo_kg", DisplayName: "Cargo (kg)", Required: false, IsUserVisible: true, Description: "Cargo weight in kilograms"},
 			{Name: "passengers", DisplayName: "Passengers", Required: false, IsUserVisible: true, Description: "Number of passengers"},
 		}
 	case "career_mode":

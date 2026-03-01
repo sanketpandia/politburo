@@ -115,3 +115,34 @@ func (r *Repository) FindByATID(ctx context.Context, vaID string, atID string) (
 
 	return &pilot, nil
 }
+
+// GetSampleCallsigns returns up to 3 random callsigns for a given VA
+func (r *Repository) GetSampleCallsigns(ctx context.Context, vaID string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit > 10 {
+		limit = 10 // Cap at 10 for safety
+	}
+
+	var pilots []PilotATSyncedGORM
+	err := r.db.WithContext(ctx).
+		Where("server_id = ? AND callsign IS NOT NULL AND callsign != ''", vaID).
+		Order("RANDOM()").
+		Limit(limit).
+		Select("callsign").
+		Find(&pilots).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	callsigns := make([]string, 0, len(pilots))
+	for _, pilot := range pilots {
+		if pilot.Callsign != "" {
+			callsigns = append(callsigns, pilot.Callsign)
+		}
+	}
+
+	return callsigns, nil
+}

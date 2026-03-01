@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
-	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/aircraft"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/workers"
 	"log"
 	"math"
@@ -22,8 +23,8 @@ import (
 
 type Service struct {
 	Cache      cache.CacheInterface
-	ApiService *common.LiveAPIService
-	Cfg        *common.VAConfigService
+	ApiService *liveapi.Client
+	Cfg        *platformVA.ConfigService
 	LiverySvc  *aircraft.Service
 }
 
@@ -67,8 +68,8 @@ func SplitCallsign(raw string) (variable, prefix, suffix string) {
 
 func NewService(
 	cache cache.CacheInterface,
-	liveApi *common.LiveAPIService,
-	cfgSvc *common.VAConfigService,
+	liveApi *liveapi.Client,
+	cfgSvc *platformVA.ConfigService,
 	liverySvc *aircraft.Service,
 ) *Service {
 	return &Service{
@@ -112,17 +113,57 @@ func (svc *Service) getUserByIfcIDCached(ifcID string) (*dtos.UserStatsResponse,
 
 	val, err := svc.Cache.GetOrSet(cacheKey, userTTL, func() (any, error) {
 		resp, _, err := svc.ApiService.GetUserByIfcId(ifcID)
-		return resp, err // ← store *value* (resp is a struct)
+		if err != nil {
+			return nil, err
+		}
+		// Convert liveapi.UserStatsResponse to dtos.UserStatsResponse
+		return convertUserStatsResponse(resp), nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	lookup, ok := val.(*dtos.UserStatsResponse) // cached value is already *ptr*
+	lookup, ok := val.(*dtos.UserStatsResponse)
 	if !ok {
 		return nil, fmt.Errorf("cache assertion failed for %s", cacheKey)
 	}
 	return lookup, nil
+}
+
+// convertUserStatsResponse converts liveapi.UserStatsResponse to dtos.UserStatsResponse
+func convertUserStatsResponse(resp *liveapi.UserStatsResponse) *dtos.UserStatsResponse {
+	if resp == nil {
+		return nil
+	}
+	result := make([]dtos.UserStats, len(resp.Result))
+	for i, stat := range resp.Result {
+		result[i] = dtos.UserStats{
+			OnlineFlights:         stat.OnlineFlights,
+			Violations:            stat.Violations,
+			XP:                    stat.XP,
+			LandingCount:          stat.LandingCount,
+			FlightTime:            stat.FlightTime,
+			ATCOperations:         stat.ATCOperations,
+			ATCRank:               stat.ATCRank,
+			Grade:                 stat.Grade,
+			Hash:                  stat.Hash,
+			ViolationCountByLevel: dtos.ViolationCountByLevel{
+				Level1: stat.ViolationCountByLevel.Level1,
+				Level2: stat.ViolationCountByLevel.Level2,
+				Level3: stat.ViolationCountByLevel.Level3,
+			},
+			Roles:               stat.Roles,
+			UserID:              stat.UserID,
+			VirtualOrganization: stat.VirtualOrganization,
+			DiscourseUsername:   stat.DiscourseUsername,
+			Groups:              stat.Groups,
+			ErrorCode:           stat.ErrorCode,
+		}
+	}
+	return &dtos.UserStatsResponse{
+		ErrorCode: resp.ErrorCode,
+		Result:    result,
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -138,7 +179,11 @@ func (svc *Service) getUserFlightsCached(userID string, page int) (*dtos.UserFli
 	val, err := svc.Cache.GetOrSet(cacheKey, fltTTL, func() (any, error) {
 		// Fetch from API with the specific page number
 		resp, _, err := svc.ApiService.GetUserFlights(userID, page)
-		return resp, err
+		if err != nil {
+			return nil, err
+		}
+		// Convert liveapi.UserFlightsResponse to dtos.UserFlightsResponse
+		return convertUserFlightsResponse(resp), nil
 	})
 	if err != nil {
 		return nil, err
@@ -149,6 +194,42 @@ func (svc *Service) getUserFlightsCached(userID string, page int) (*dtos.UserFli
 		return nil, fmt.Errorf("cache assertion failed for %s", cacheKey)
 	}
 	return flts, nil
+}
+
+// convertUserFlightsResponse converts liveapi.UserFlightsResponse to dtos.UserFlightsResponse
+func convertUserFlightsResponse(resp *liveapi.UserFlightsResponse) *dtos.UserFlightsResponse {
+	if resp == nil {
+		return nil
+	}
+	flights := make([]dtos.UserFlightEntry, len(resp.Flights))
+	for i, flight := range resp.Flights {
+		flights[i] = dtos.UserFlightEntry{
+			ID:                 flight.ID,
+			Created:            flight.Created,
+			UserID:             flight.UserID,
+			AircraftID:         flight.AircraftID,
+			LiveryID:           flight.LiveryID,
+			Callsign:           flight.Callsign,
+			Server:             flight.Server,
+			DayTime:            flight.DayTime,
+			NightTime:          flight.NightTime,
+			TotalTime:          flight.TotalTime,
+			LandingCount:       flight.LandingCount,
+			OriginAirport:      flight.OriginAirport,
+			DestinationAirport: flight.DestinationAirport,
+			XP:                 flight.XP,
+			WorldType:          flight.WorldType,
+			Violations:         flight.Violations,
+		}
+	}
+	return &dtos.UserFlightsResponse{
+		PageIndex:   resp.PageIndex,
+		TotalPages:  resp.TotalPages,
+		TotalCount:  resp.TotalCount,
+		HasPrevious: resp.HasPrevious,
+		HasNext:     resp.HasNext,
+		Flights:     flights,
+	}
 }
 
 func (svc *Service) GetUserFlights(ifcID string, page int, sID string) (*dtos.FlightHistoryDto, error) {
@@ -245,7 +326,7 @@ func (svc *Service) GetUserFlights(ifcID string, page int, sID string) (*dtos.Fl
 			Landings:   rec.LandingCount,
 			Server:     rec.Server,
 			SessionID:  sessionID, // ← Store session ID in response
-			Equipment:  fmt.Sprintf("%s %s", common.GetShortAircraftName(aircraftName), common.GetShortLiveryName(liveryName)),
+			Equipment:  fmt.Sprintf("%s %s", aircraft.GetShortAircraftName(aircraftName), aircraft.GetShortLiveryName(liveryName)),
 			Livery:     liveryName,
 			Callsign:   rec.Callsign,
 			Violations: len(rec.Violations),
@@ -315,7 +396,7 @@ func (svc *Service) UpdateUserFlightsCache(uId string, historyDto *dtos.FlightHi
 	log.Printf("[UpdateUserFlightsCache] Cached %d flight summaries for user %s", len(summaries), uId)
 }
 
-func (svc *Service) mapToLiveFlight(resp *dtos.FlightsResponse, sId string) *[]dtos.LiveFlight {
+func (svc *Service) mapToLiveFlight(resp *liveapi.FlightsResponse, sId string) *[]dtos.LiveFlight {
 
 	if resp == nil || len(resp.Flights) == 0 {
 		return nil
@@ -436,9 +517,11 @@ func (svc *Service) GetFlightPlan(ifSid string, flightId string) (*dtos.FlightPl
 			return nil, err
 		}
 
-		// log.Printf("\nFetched FPL. Waypoints: %d", len(fpl.Waypoints))
+		// Convert liveapi.FlightPlanResponse to dtos.FlightPlanResponse
+		converted := convertFlightPlanResponse(fpl)
+		// log.Printf("\nFetched FPL. Waypoints: %d", len(converted.Waypoints))
 
-		return *fpl, nil
+		return converted, nil
 	})
 	if err != nil {
 		return nil, err
@@ -451,6 +534,53 @@ func (svc *Service) GetFlightPlan(ifSid string, flightId string) (*dtos.FlightPl
 	}
 	// log.Printf("Fetched FPL with waypoints %d for %s", len(fpl.Waypoints), fpl.FlightID)
 	return &fpl, nil
+}
+
+// convertFlightPlanResponse converts liveapi.FlightPlanResponse to dtos.FlightPlanResponse
+func convertFlightPlanResponse(resp *liveapi.FlightPlanResponse) dtos.FlightPlanResponse {
+	if resp == nil {
+		return dtos.FlightPlanResponse{}
+	}
+	
+	items := make([]dtos.FlightPlanItem, len(resp.FlightPlanItems))
+	for i, item := range resp.FlightPlanItems {
+		items[i] = convertFlightPlanItem(item)
+	}
+	
+	return dtos.FlightPlanResponse{
+		FlightPlanID:    resp.FlightPlanID,
+		FlightID:        resp.FlightID,
+		Waypoints:       resp.Waypoints,
+		LastUpdate:      convertAPITime(resp.LastUpdate),
+		FlightPlanItems: items,
+	}
+}
+
+// convertFlightPlanItem converts liveapi.FlightPlanItem to dtos.FlightPlanItem
+func convertFlightPlanItem(item liveapi.FlightPlanItem) dtos.FlightPlanItem {
+	children := make([]dtos.FlightPlanItem, len(item.Children))
+	for i, child := range item.Children {
+		children[i] = convertFlightPlanItem(child)
+	}
+	
+	return dtos.FlightPlanItem{
+		Name:       item.Name,
+		Type:       item.Type,
+		Children:   children,
+		Identifier: item.Identifier,
+		Altitude:   item.Altitude,
+		Location: dtos.Location{
+			Latitude:  item.Location.Latitude,
+			Longitude: item.Location.Longitude,
+			Altitude:  item.Location.Altitude,
+		},
+	}
+}
+
+// convertAPITime converts liveapi.APITime to dtos.APITime
+func convertAPITime(t liveapi.APITime) dtos.APITime {
+	// Both APITime types embed time.Time, so we can directly convert
+	return dtos.APITime{Time: t.Time}
 }
 
 // Returns origin and Destination airports
@@ -508,14 +638,14 @@ func (svc *Service) enrichFlightData(flts *[]dtos.LiveFlight) *[]dtos.LiveFlight
 
 func (svc *Service) GetVALiveFlights(ctx context.Context, vaId string) (*[]dtos.LiveFlight, error) {
 
-	sId, ok := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyIFServerID)
+	sId, ok := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyIFServerID)
 
 	if !ok || sId == "" {
 		return nil, errors.New("Game server not configured")
 	}
 
-	pfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyCallsignPrefix)
-	sfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyCallsignSuffix)
+	pfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignPrefix)
+	sfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignSuffix)
 
 	// At least one of prefix or suffix must be configured
 	if pfx == "" && sfx == "" {
@@ -541,13 +671,13 @@ func (svc *Service) GetVALiveFlights(ctx context.Context, vaId string) (*[]dtos.
 // then falls back to the direct API call (GetVALiveFlights) if cache is unavailable
 func (svc *Service) GetVALiveFlightsFromCache(ctx context.Context, vaId string) (*[]dtos.LiveFlight, error) {
 	// Get VA config (prefix/suffix patterns and session ID)
-	sId, ok := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyIFServerID)
+	sId, ok := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyIFServerID)
 	if !ok || sId == "" {
 		return nil, errors.New("Game server not configured")
 	}
 
-	pfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyCallsignPrefix)
-	sfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, common.ConfigKeyCallsignSuffix)
+	pfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignPrefix)
+	sfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignSuffix)
 
 	// At least one of prefix or suffix must be configured
 	if pfx == "" && sfx == "" {
@@ -590,7 +720,7 @@ func (svc *Service) getFlightsFromCache(sId string, prefix string, suffix string
 		}
 
 		// Filter by VA pattern before fetching
-		if !common.MatchesVAPattern(callsign, prefix, suffix) {
+		if !platformVA.MatchesVAPattern(callsign, prefix, suffix) {
 			continue
 		}
 
@@ -689,10 +819,30 @@ func (svc *Service) GetLiveServers() (*[]dtos.Session, error) {
 		return nil, err
 	}
 
-	sessions := &data.Result
-	svc.Cache.Set(cacheKey, sessions, 5*time.Minute) // 5 minutes
+	// Convert liveapi.Session to dtos.Session
+	sessions := convertSessions(data.Result)
+	svc.Cache.Set(cacheKey, &sessions, 5*time.Minute) // 5 minutes
 
-	return sessions, nil
+	return &sessions, nil
+}
+
+// convertSessions converts []liveapi.Session to []dtos.Session
+func convertSessions(liveapiSessions []liveapi.Session) []dtos.Session {
+	sessions := make([]dtos.Session, len(liveapiSessions))
+	for i, session := range liveapiSessions {
+		sessions[i] = dtos.Session{
+			MaxUsers:          session.MaxUsers,
+			ID:                session.ID,
+			Name:              session.Name,
+			UserCount:         session.UserCount,
+			Type:              session.Type,
+			WorldType:         session.WorldType,
+			MinimumGradeLevel: session.MinimumGradeLevel,
+			MinimumAppVersion: session.MinimumAppVersion,
+			MaximumAppVersion: session.MaximumAppVersion,
+		}
+	}
+	return sessions
 }
 
 // FindUserCurrentFlight searches for the user's current flight in VA live flights

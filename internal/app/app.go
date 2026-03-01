@@ -20,9 +20,9 @@ import (
 	"infinite-experiment/politburo/internal/datasource"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/events"
+	"infinite-experiment/politburo/internal/flights"
 	membershipsFeature "infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
-	vaRoutes "infinite-experiment/politburo/internal/va_routes"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/platform/apikeys"
 	"infinite-experiment/politburo/internal/platform/claims"
@@ -31,6 +31,7 @@ import (
 	"infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/servers"
 	"infinite-experiment/politburo/internal/sync"
+	vaRoutes "infinite-experiment/politburo/internal/va_routes"
 	"infinite-experiment/politburo/internal/vaadmin"
 	"os"
 
@@ -75,6 +76,7 @@ type PlatformDeps struct {
 	// Services
 	UsersSvc       *users.Service
 	VASvc          *va.Service
+	VAConfigSvc    *va.ConfigService
 	MembershipsSvc *memberships.Service
 	AircraftSvc    *aircraft.Service
 
@@ -242,8 +244,8 @@ func (a *App) initPlatform() error {
 	// Aircraft service uses Redis cache directly (no legacy cache)
 	aircraftSvc := aircraft.NewService(a.Infra.RedisCache, aircraftRepo)
 
-	// Initialize VA config service
-	vaConfigSvc := va.NewConfigService(vaRepo, a.Infra.RedisCache)
+	// Initialize VA config service (with aircraft dependencies for mapping resolution)
+	vaConfigSvc := va.NewConfigService(vaRepo, a.Infra.RedisCache, aircraftRepo, aircraftSvc)
 
 	// Initialize VA handler (for API endpoints)
 	// Note: legacyVARepo is needed for FlightModesConfigService compatibility
@@ -261,6 +263,7 @@ func (a *App) initPlatform() error {
 		AircraftRepo:    aircraftRepo,
 		UsersSvc:        usersSvc,
 		VASvc:           vaSvc,
+		VAConfigSvc:     vaConfigSvc,
 		MembershipsSvc:  membershipsSvc,
 		AircraftSvc:     aircraftSvc,
 		VAHandler:       vaHandler,
@@ -318,7 +321,13 @@ func (a *App) initFeatures() error {
 	eventRepo := events.NewRepository(a.Infra.DB)
 	eventSvc := events.NewService(eventRepo)
 	routeRepo := vaRoutes.NewRepository(a.Infra.DB)
-	eventsHandler := events.NewHandler(eventSvc, a.Infra.TemplateRenderer, routeRepo)
+
+	// Initialize flights service for events handler (needed for live flight lookup)
+	// Use platform services: infra LiveAPI client and platform VA config service
+	flightsSvc := flights.NewService(a.Infra.RedisCache, a.Infra.LiveAPI, a.Platform.VAConfigSvc, a.Platform.AircraftSvc)
+
+	// Use platform VA service (not legacy repo) in events handler
+	eventsHandler := events.NewHandler(eventSvc, a.Infra.TemplateRenderer, routeRepo, flightsSvc, a.Platform.VASvc)
 	logging.Debug("Events feature initialized")
 
 	// Initialize sync jobs (route sync, etc.)
@@ -364,7 +373,7 @@ func (a *App) initFeatures() error {
 	}
 
 	// Initialize handlers
-	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc)
+	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc, pilotRepo, a.Platform.VAConfigSvc)
 	pilotsHandler := pilots.NewHandler(nil, pilotsRegSvc, logbookSvc)
 	serversHandler := servers.NewHandler(serversRegSvc)
 	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, a.Infra.TemplateRenderer)

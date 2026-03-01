@@ -6,6 +6,7 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/constants"
+	"infinite-experiment/politburo/internal/platform/aircraft"
 	"log"
 	"strings"
 	"time"
@@ -39,6 +40,8 @@ const (
 	ConfigKeyATFieldPIREPsFlightTime = "at_field_pireps_ft"
 
 	ConfigKeyATFieldLastModified = "at_field_last_modified"
+
+	ConfigKeyTourFlightMode = "tour_flight_mode"
 )
 
 var AllowedVAConfigKeys = map[string]struct{}{
@@ -60,6 +63,7 @@ var AllowedVAConfigKeys = map[string]struct{}{
 	ConfigKeyATFieldLastModified:          {},
 	ConfigKeyATFieldRoutesRoute:           {},
 	ConfigKeyAirtableCallsignColumnPrefix: {},
+	ConfigKeyTourFlightMode:               {},
 }
 
 func ListAllowedVAConfigKeys() []string {
@@ -81,13 +85,20 @@ func IsValidVAConfigKey(k string) bool {
 
 // ConfigService manages Virtual Airline configuration key-value pairs with caching support
 type ConfigService struct {
-	repo       *Repository
-	cacheStore cache.CacheInterface
+	repo         *Repository
+	cacheStore   cache.CacheInterface
+	aircraftRepo *aircraft.Repository
+	aircraftSvc  *aircraft.Service
 }
 
 // NewConfigService creates a new VA config service
-func NewConfigService(r *Repository, c cache.CacheInterface) *ConfigService {
-	return &ConfigService{repo: r, cacheStore: c}
+func NewConfigService(r *Repository, c cache.CacheInterface, aircraftRepo *aircraft.Repository, aircraftSvc *aircraft.Service) *ConfigService {
+	return &ConfigService{
+		repo:         r,
+		cacheStore:   c,
+		aircraftRepo: aircraftRepo,
+		aircraftSvc:  aircraftSvc,
+	}
 }
 
 func configCacheKey(vaID string) string {
@@ -332,4 +343,72 @@ func stripGameSuffixes(callsign string) string {
 	}
 
 	return trimmed
+}
+
+// ResolveAircraftName resolves the aircraft name for Airtable using livery mappings
+// Returns the mapped value if a mapping exists, otherwise returns the original aircraft name
+func (s *ConfigService) ResolveAircraftName(ctx stdCtx.Context, vaID, liveryID string) string {
+	if liveryID == "" {
+		return ""
+	}
+
+	// Get aircraft name from livery
+	liveryData := s.aircraftSvc.GetAircraftLivery(ctx, liveryID)
+	if liveryData == nil {
+		return ""
+	}
+
+	aircraftName := liveryData.AircraftName
+	if aircraftName == "" {
+		return ""
+	}
+
+	// Check for mapping
+	mappings, err := s.aircraftRepo.GetMappingsByLivery(ctx, vaID, liveryID)
+	if err != nil {
+		// Log but don't fail - return original name
+		log.Printf("[ConfigService] Error fetching aircraft mapping for va_id=%s, livery_id=%s: %v", vaID, liveryID, err)
+		return aircraftName
+	}
+
+	// If mapping exists for aircraft, use it; otherwise return original
+	if mappedAircraft, ok := mappings["aircraft"]; ok && mappedAircraft != "" {
+		return mappedAircraft
+	}
+
+	return aircraftName
+}
+
+// ResolveLiveryName resolves the livery/airline name for Airtable using livery mappings
+// Returns the mapped value if a mapping exists, otherwise returns the original livery name
+func (s *ConfigService) ResolveLiveryName(ctx stdCtx.Context, vaID, liveryID string) string {
+	if liveryID == "" {
+		return ""
+	}
+
+	// Get livery name from livery
+	liveryData := s.aircraftSvc.GetAircraftLivery(ctx, liveryID)
+	if liveryData == nil {
+		return ""
+	}
+
+	liveryName := liveryData.LiveryName
+	if liveryName == "" {
+		return ""
+	}
+
+	// Check for mapping
+	mappings, err := s.aircraftRepo.GetMappingsByLivery(ctx, vaID, liveryID)
+	if err != nil {
+		// Log but don't fail - return original name
+		log.Printf("[ConfigService] Error fetching livery mapping for va_id=%s, livery_id=%s: %v", vaID, liveryID, err)
+		return liveryName
+	}
+
+	// If mapping exists for airline, use it; otherwise return original
+	if mappedAirline, ok := mappings["airline"]; ok && mappedAirline != "" {
+		return mappedAirline
+	}
+
+	return liveryName
 }

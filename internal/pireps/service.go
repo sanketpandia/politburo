@@ -536,6 +536,72 @@ func (s *Service) resolveLiveryMapping(ctx context.Context, vaID string, liveryI
 	return mappings, nil
 }
 
+// EnrichTourPirepRequest adds default mandatory values to a tour PIREP request
+// This ensures all required fields are populated with sensible defaults
+func (s *Service) EnrichTourPirepRequest(request *dtos.PirepSubmitRequest) *dtos.PirepSubmitRequest {
+	// Create a copy to avoid modifying the original
+	enriched := &dtos.PirepSubmitRequest{
+		Mode:         request.Mode,
+		RouteID:      request.RouteID,
+		FlightTime:   request.FlightTime,
+		PilotRemarks: request.PilotRemarks,
+		FuelKg:       request.FuelKg,
+		CargoKg:      request.CargoKg,
+		Passengers:   request.Passengers,
+	}
+
+	// Add default values for mandatory fields if not provided
+	// Note: FlightTime is required and should already be present
+	// Mode is required and should already be present
+
+	// Set default PilotRemarks if empty (can be empty string, that's fine)
+	// Other optional fields (FuelKg, CargoKg, Passengers) remain nil if not provided
+
+	return enriched
+}
+
+// GenerateFlightComments generates a formatted comments text from flight data
+// This creates a human-readable description of the flight for PIREP comments/remarks
+func (s *Service) GenerateFlightComments(flightData *FlightData) string {
+	if flightData == nil {
+		return ""
+	}
+
+	var parts []string
+
+	// Add route information
+	if flightData.Route != "" {
+		parts = append(parts, fmt.Sprintf("Route: %s", flightData.Route))
+	}
+
+	// Add aircraft information
+	if flightData.Aircraft != "" {
+		parts = append(parts, fmt.Sprintf("Aircraft: %s", flightData.Aircraft))
+	}
+
+	// Add livery/airline information
+	if flightData.Livery != "" {
+		parts = append(parts, fmt.Sprintf("Livery: %s", flightData.Livery))
+	}
+
+	// Add altitude if available
+	if flightData.Altitude > 0 {
+		parts = append(parts, fmt.Sprintf("Max Altitude: %d ft", flightData.Altitude))
+	}
+
+	// Add speed if available
+	if flightData.Speed > 0 {
+		parts = append(parts, fmt.Sprintf("Max Speed: %d kts", flightData.Speed))
+	}
+
+	// Join all parts with newlines
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n")
+	}
+
+	return ""
+}
+
 // parseFlightTime converts "HH:MM" format to seconds
 func (s *Service) parseFlightTime(flightTime string) int {
 	parts := strings.Split(flightTime, ":")

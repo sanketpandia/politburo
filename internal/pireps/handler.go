@@ -210,6 +210,14 @@ func (h *Handler) Submit() http.HandlerFunc {
 			return
 		}
 
+		// Log the incoming PIREP request
+		requestJSON, _ := json.MarshalIndent(submitRequest, "", "  ")
+		log.Printf("[PirepHandler] Received PIREP submission request:\nMode: %s\nUser: %s\nVA: %s\nRequest:\n%s\n",
+			submitRequest.Mode,
+			claims.DiscordUserID(),
+			vaDiscordServerID,
+			string(requestJSON))
+
 		// Get user and their current flight for livery mapping
 		discordID := claims.DiscordUserID()
 		user, err := h.userRepo.GetUserWithVAAffiliations(r.Context(), discordID)

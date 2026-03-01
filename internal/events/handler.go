@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
+	"infinite-experiment/politburo/internal/flights"
+	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	vaRoutes "infinite-experiment/politburo/internal/va_routes"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -23,14 +26,24 @@ type Handler struct {
 	eventSvc         *Service
 	templateRenderer *templates.Renderer
 	routeRepo        *vaRoutes.Repository
+	flightsSvc       *flights.Service
+	vaSvc            *platformVA.Service
 }
 
 // NewHandler creates a new events handler instance
-func NewHandler(eventSvc *Service, templateRenderer *templates.Renderer, routeRepo *vaRoutes.Repository) *Handler {
+func NewHandler(
+	eventSvc *Service,
+	templateRenderer *templates.Renderer,
+	routeRepo *vaRoutes.Repository,
+	flightsSvc *flights.Service,
+	vaSvc *platformVA.Service,
+) *Handler {
 	return &Handler{
 		eventSvc:         eventSvc,
 		templateRenderer: templateRenderer,
 		routeRepo:        routeRepo,
+		flightsSvc:       flightsSvc,
+		vaSvc:            vaSvc,
 	}
 }
 
@@ -911,7 +924,7 @@ func (h *Handler) ListEvents() http.HandlerFunc {
 
 		vaID := claims.ServerID()
 		if vaID == "" {
-			httpdto.WriteError(w, initTime, "INVALID_VA", "VA ID not found", http.StatusBadRequest)
+			httpdto.WriteError(w, initTime, "NOT_MEMBER", "You are not a member of this virtual airline. Please join the VA first using the /membership command.", http.StatusForbidden)
 			return
 		}
 
@@ -1521,5 +1534,134 @@ func (h *Handler) DeleteEventLeg() http.HandlerFunc {
 		}
 
 		httpdto.WriteSuccess(w, initTime, map[string]string{"message": "Leg deleted successfully"}, http.StatusOK)
+	}
+}
+
+// GetEventPirepConfig handles GET /api/v1/events/pirep-config
+// Finds user by if_community_id in live flights and matches to active event leg
+// Returns event leg information and flight data for PIREP filing
+func (h *Handler) GetEventPirepConfig() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Missing authentication claims", http.StatusUnauthorized)
+			return
+		}
+
+		// Get if_community_id from query parameter
+		ifCommunityID := strings.TrimSpace(r.URL.Query().Get("if_community_id"))
+		if ifCommunityID == "" {
+			httpdto.WriteError(w, initTime, "MISSING_PARAM", "if_community_id query parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		// Get VA from Discord server ID
+		vaDiscordServerID := claims.DiscordServerID()
+		if vaDiscordServerID == "" {
+			httpdto.WriteError(w, initTime, "INVALID_VA", "VA Discord server ID not found", http.StatusBadRequest)
+			return
+		}
+
+		va, err := h.vaSvc.GetByDiscordServerID(r.Context(), vaDiscordServerID)
+		if err != nil || va == nil {
+			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
+			return
+		}
+
+		// Get VA live flights
+		vaFlights, err := h.flightsSvc.GetVALiveFlights(r.Context(), va.ID)
+		if err != nil {
+			logging.Error("Failed to fetch VA live flights", "error", err, "va_id", va.ID)
+			httpdto.WriteError(w, initTime, "FLIGHTS_ERROR", "Failed to fetch live flights", http.StatusInternalServerError)
+			return
+		}
+
+		if vaFlights == nil || len(*vaFlights) == 0 {
+			httpdto.WriteError(w, initTime, "NO_FLIGHTS", "No live flights found", http.StatusNotFound)
+			return
+		}
+
+		// Find user's live flight by matching if_community_id to Username
+		var userFlight *dtos.LiveFlight
+		for i := range *vaFlights {
+			flight := &(*vaFlights)[i]
+			if strings.EqualFold(flight.Username, ifCommunityID) {
+				userFlight = flight
+				break
+			}
+		}
+
+		if userFlight == nil {
+			httpdto.WriteError(w, initTime, "FLIGHT_NOT_FOUND", "No active flight found for this user", http.StatusNotFound)
+			return
+		}
+
+		// Get active multi-legged event for the VA
+		activeEvent, err := h.eventSvc.GetActiveMultiLegEvent(r.Context(), va.ID)
+		if err != nil {
+			logging.Error("Failed to get active multi-leg event", "error", err, "va_id", va.ID)
+			httpdto.WriteError(w, initTime, "EVENT_ERROR", "Failed to get active event", http.StatusInternalServerError)
+			return
+		}
+
+		if activeEvent == nil {
+			httpdto.WriteError(w, initTime, "NO_EVENT", "No active multi-legged event found", http.StatusNotFound)
+			return
+		}
+
+		// Match flight route (origin-destination) to event leg
+		// Normalize ICAO codes for comparison (uppercase, trim)
+		flightOrigin := strings.ToUpper(strings.TrimSpace(userFlight.Origin))
+		flightDest := strings.ToUpper(strings.TrimSpace(userFlight.Destination))
+
+		var matchedLeg *EventLeg
+		for i := range activeEvent.Legs {
+			leg := &activeEvent.Legs[i]
+			legOrigin := strings.ToUpper(strings.TrimSpace(leg.Origin))
+			legDest := strings.ToUpper(strings.TrimSpace(leg.Destination))
+
+			// Match if origin and destination match (in either direction for round trips)
+			if (legOrigin == flightOrigin && legDest == flightDest) ||
+				(legOrigin == flightDest && legDest == flightOrigin) {
+				matchedLeg = leg
+				break
+			}
+		}
+
+		if matchedLeg == nil {
+			httpdto.WriteError(w, initTime, "LEG_NOT_MATCHED", fmt.Sprintf("Flight route %s-%s does not match any event leg", flightOrigin, flightDest), http.StatusNotFound)
+			return
+		}
+
+		// Build response with event leg information and flight data
+		response := map[string]interface{}{
+			"event": map[string]interface{}{
+				"id":     activeEvent.ID,
+				"name":   activeEvent.Name,
+				"status": activeEvent.Status,
+			},
+			"leg": map[string]interface{}{
+				"id":            matchedLeg.ID,
+				"leg_number":    matchedLeg.LegNumber,
+				"origin":        matchedLeg.Origin,
+				"destination":   matchedLeg.Destination,
+				"description":   matchedLeg.Description,
+				"thumbnail_url": matchedLeg.ThumbnailURL,
+			},
+			"flight": map[string]interface{}{
+				"callsign":    userFlight.Callsign,
+				"aircraft":    userFlight.Aircraft,
+				"livery":      userFlight.Livery,
+				"livery_id":   userFlight.LiveryId,
+				"origin":      userFlight.Origin,
+				"destination": userFlight.Destination,
+				"altitude":    userFlight.AltitudeFt,
+				"speed":       userFlight.SpeedKts,
+			},
+		}
+
+		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
 	}
 }

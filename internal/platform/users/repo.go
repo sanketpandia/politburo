@@ -2,13 +2,19 @@ package users
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"infinite-experiment/politburo/internal/models/entities"
 	"infinite-experiment/politburo/internal/platform/roles"
 
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
+
+// ErrIFCIdAlreadyRegistered is returned when attempting to register an IFC ID that's already taken
+var ErrIFCIdAlreadyRegistered = errors.New("IFC ID is already registered to another user")
 
 type Repository struct {
 	db *gorm.DB
@@ -71,6 +77,30 @@ func (r *Repository) GetUserByDiscordID(ctx context.Context, discordID string) (
 		return nil, fmt.Errorf("failed to fetch user: %w", err)
 	}
 
+	return &user, nil
+}
+
+// GetUserByIFCId retrieves a user by IFC ID (if_community_id)
+// Returns the user if found, nil if not found, or an error on database failure
+func (r *Repository) GetUserByIFCId(ctx context.Context, ifcId string) (*User, error) {
+	if ifcId == "" {
+		return nil, fmt.Errorf("IFC ID cannot be empty")
+	}
+
+	var user User
+	err := r.db.WithContext(ctx).
+		Where("if_community_id = ?", ifcId).
+		First(&user).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// IFC ID is not registered - return nil, nil
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to check IFC ID: %w", err)
+	}
+
+	// IFC ID is already registered
 	return &user, nil
 }
 
@@ -137,6 +167,7 @@ func (r *Repository) FindUserMembership(ctx context.Context, discordServerID str
 }
 
 // InsertUser creates a new user in the database
+// Returns ErrIFCIdAlreadyRegistered if the IFC ID is already registered to another user
 func (r *Repository) InsertUser(ctx context.Context, discordID, ifCommunityID string, ifApiID *string, isActive bool) (*User, error) {
 	user := &User{
 		DiscordID:     discordID,
@@ -147,6 +178,25 @@ func (r *Repository) InsertUser(ctx context.Context, discordID, ifCommunityID st
 
 	err := r.db.WithContext(ctx).Create(user).Error
 	if err != nil {
+		// Check for PostgreSQL unique constraint violation (error code 23505)
+		// Use errors.As to unwrap the error chain since GORM may wrap the pq.Error
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) {
+			if pqErr.Code == "23505" {
+				// Check if it's the if_community_id constraint
+				if pqErr.Constraint == "users_if_community_id_key" {
+					return nil, ErrIFCIdAlreadyRegistered
+				}
+			}
+		}
+
+		// Fallback: Check error message string in case GORM converted it to string
+		// This handles cases where the error is wrapped as a string
+		errStr := err.Error()
+		if contains(errStr, "23505") && contains(errStr, "users_if_community_id_key") {
+			return nil, ErrIFCIdAlreadyRegistered
+		}
+
 		return nil, fmt.Errorf("failed to insert user: %w", err)
 	}
 
@@ -190,6 +240,11 @@ func (r *Repository) InsertMembership(ctx context.Context, userID, vaID string, 
 	}
 
 	return membership, nil
+}
+
+// contains is a case-insensitive string contains check
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // GetUserByCallsignAndVA retrieves a membership by callsign within a specific VA

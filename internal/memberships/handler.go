@@ -3,23 +3,33 @@ package memberships
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/auth"
+	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/httpdto"
 	platformMemberships "infinite-experiment/politburo/internal/platform/memberships"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 )
 
 // Handler provides HTTP handlers for membership-related endpoints
 type Handler struct {
-	svc *Service
+	svc         *Service
+	pilotRepo   *pilots.Repository
+	vaConfigSvc *platformVA.ConfigService
 }
 
 // NewHandler creates a new memberships handler
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, pilotRepo *pilots.Repository, vaConfigSvc *platformVA.ConfigService) *Handler {
+	return &Handler{
+		svc:         svc,
+		pilotRepo:   pilotRepo,
+		vaConfigSvc: vaConfigSvc,
+	}
 }
 
 // GetUserStatus handles GET /api/v1/user/status
@@ -116,7 +126,7 @@ func (h *Handler) JoinVA() http.HandlerFunc {
 
 		if err != nil {
 			logging.Error("Failed to join VA", "error", err, "discord_user_id", discordUserID)
-			h.handleJoinVAError(w, initTime, err)
+			h.handleJoinVAError(w, r, initTime, err, claims.ServerID())
 			return
 		}
 
@@ -126,7 +136,7 @@ func (h *Handler) JoinVA() http.HandlerFunc {
 }
 
 // handleJoinVAError maps domain errors to HTTP responses
-func (h *Handler) handleJoinVAError(w http.ResponseWriter, initTime time.Time, err error) {
+func (h *Handler) handleJoinVAError(w http.ResponseWriter, r *http.Request, initTime time.Time, err error, vaID string) {
 	if errors.Is(err, ErrUserNotFound) {
 		httpdto.WriteError(w, initTime, "USER_NOT_FOUND", "User not found", http.StatusNotFound)
 		return
@@ -149,6 +159,44 @@ func (h *Handler) handleJoinVAError(w http.ResponseWriter, initTime time.Time, e
 
 	if errors.Is(err, ErrInvalidCallsign) {
 		httpdto.WriteError(w, initTime, "INVALID_CALLSIGN", "Invalid callsign format", http.StatusBadRequest)
+		return
+	}
+
+	if errors.Is(err, ErrCallsignNotInAirtable) {
+		// Get sample callsigns and Airtable URL
+		var sampleCallsigns []string
+		var airtableURL string
+
+		if h.pilotRepo != nil && vaID != "" {
+			// Get sample callsigns
+			samples, err := h.pilotRepo.GetSampleCallsigns(r.Context(), vaID, 3)
+			if err == nil && len(samples) > 0 {
+				sampleCallsigns = samples
+			}
+		}
+
+		if h.vaConfigSvc != nil && vaID != "" {
+			// Get Airtable base ID from config
+			configs, err := h.vaConfigSvc.GetAllConfigValues(r.Context(), vaID)
+			if err == nil {
+				if baseID, ok := configs[platformVA.ConfigKeyAirtableVABase]; ok && baseID != "" {
+					airtableURL = fmt.Sprintf("https://airtable.com/%s", baseID)
+				}
+			}
+		}
+
+		// Build error message
+		message := "Your callsign could not be found in Airtable. Please enter the correct callsign as it appears in the linked Airtable."
+		
+		if airtableURL != "" {
+			message += fmt.Sprintf(" You can find your callsign in the Airtable: %s", airtableURL)
+		}
+
+		if len(sampleCallsigns) > 0 {
+			message += fmt.Sprintf(" Sample callsigns from the database: %s", strings.Join(sampleCallsigns, ", "))
+		}
+
+		httpdto.WriteError(w, initTime, "CALLSIGN_NOT_IN_AIRTABLE", message, http.StatusBadRequest)
 		return
 	}
 

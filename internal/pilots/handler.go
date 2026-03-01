@@ -150,6 +150,11 @@ func (h *Handler) handleRegistrationError(w http.ResponseWriter, initTime time.T
 		return
 	}
 
+	if errors.Is(err, ErrIFCIdAlreadyRegistered) {
+		httpdto.WriteError(w, initTime, "IFC_ID_ALREADY_REGISTERED", "This IFC ID is already registered to another Discord account. Each IFC ID can only be linked to one Discord account.", http.StatusConflict)
+		return
+	}
+
 	if errors.Is(err, ErrNoRecentFlights) {
 		httpdto.WriteError(w, initTime, "NO_RECENT_FLIGHTS", "No recent flights found in your logbook.", http.StatusBadRequest)
 		return
