@@ -1182,18 +1182,18 @@
     document.getElementById('fc-vs').innerHTML = 
       (flight.vertical_speed || 0) + '<span style="font-size:0.7em; color:var(--text-muted);">fpm</span>';
     
-    // Metadata - format timestamps
+    // Metadata - format timestamps in UTC 24-hour format
     function formatTimestamp(isoString) {
       if (!isoString) return null;
       try {
-        const date = new Date(isoString);
-        return date.toLocaleString('en-US', { 
-          month: 'short', 
-          day: 'numeric', 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: true 
-        });
+        const d = new Date(isoString);
+        const year = d.getUTCFullYear();
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        const hours = String(d.getUTCHours()).padStart(2, '0');
+        const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${monthNames[d.getUTCMonth()]} ${day}, ${year} ${hours}:${minutes} UTC`;
       } catch (e) {
         return null;
       }

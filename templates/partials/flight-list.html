@@ -3,7 +3,9 @@
 {{range .Flights}}
 <button type="button"
         class="flight-item"
-        onclick="loadFlightRoute('{{.FlightID}}'); this.classList.add('active'); document.querySelectorAll('.flight-item').forEach(el => { if(el !== this) el.classList.remove('active'); });">
+        data-flight-id="{{.FlightID}}"
+        data-flight-data='{{. | json}}'
+        onclick="handleFlightClick(this);">
     <div class="flight-item-content">
         <div class="flight-item-main">
             <div class="flight-item-route">
@@ -27,18 +29,16 @@
 </button>
 {{end}}
 
-<!-- Pagination -->
-{{if or .HasNext .HasPrevious}}
-<div id="pagination" class="flight-list-pagination">
+<!-- Pagination (OOB swap) - Always show if there are flights -->
+{{if .Flights}}
+<div id="pagination" class="flight-list-pagination" hx-swap-oob="true">
     <div>
         {{if .HasPrevious}}
         <button type="button"
-                class="btn-primary"
+                class="pagination-btn"
                 hx-get="/dashboard/logbook/flights?user_id={{.UserID}}&page={{.PrevPage}}"
                 hx-target="#flight-list"
-                hx-swap="innerHTML"
-                hx-select="#flight-list"
-                hx-swap-oob="true">
+                hx-swap="innerHTML">
             Previous
         </button>
         {{end}}
@@ -49,17 +49,18 @@
     <div>
         {{if .HasNext}}
         <button type="button"
-                class="btn-primary"
+                class="pagination-btn"
                 hx-get="/dashboard/logbook/flights?user_id={{.UserID}}&page={{.NextPage}}"
                 hx-target="#flight-list"
-                hx-swap="innerHTML"
-                hx-select="#flight-list"
-                hx-swap-oob="true">
+                hx-swap="innerHTML">
             Next
         </button>
         {{end}}
     </div>
 </div>
+{{else}}
+<!-- Clear pagination if no flights -->
+<div id="pagination" class="flight-list-pagination" hx-swap-oob="true"></div>
 {{end}}
 {{else}}
 <div class="flex items-center justify-center h-full" style="color: var(--text-muted);">

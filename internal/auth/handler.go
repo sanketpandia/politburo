@@ -26,6 +26,35 @@ func NewHandler(svc *Service) *Handler {
 	}
 }
 
+// GetUIBaseURL extracts the UI base URL from environment or request headers
+// This is a helper function that can be used by other packages to get the UI base URL
+func GetUIBaseURL(r *http.Request) string {
+	uiBaseURL := os.Getenv("UI_BASE_URL")
+	if uiBaseURL != "" {
+		return uiBaseURL
+	}
+
+	// Fallback to request headers
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		scheme = "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+	}
+	forwardedHost := r.Header.Get("X-Forwarded-Host")
+	if forwardedHost == "" {
+		forwardedHost = r.Host
+	}
+	return scheme + "://" + forwardedHost
+}
+
+// FormatSignedLinkURL formats a token into a complete signed link URL
+// This is a helper function that can be used by other packages to format signed links
+func FormatSignedLinkURL(baseURL, token string) string {
+	return fmt.Sprintf("%s/auth/login?token=%s", baseURL, token)
+}
+
 // TokenLogin handles presigned URL login (?token=...)
 // This handler is created but not registered yet - will be used in future router
 func (h *Handler) TokenLogin() http.HandlerFunc {
@@ -171,26 +200,13 @@ func (h *Handler) GenerateSignedLink() http.HandlerFunc {
 			return
 		}
 
-		// Get the UI base URL from environment, fallback to current request
-		uiBaseURL := os.Getenv("UI_BASE_URL")
-		if uiBaseURL == "" {
-			scheme := r.Header.Get("X-Forwarded-Proto")
-			if scheme == "" {
-				scheme = "http"
-				if r.TLS != nil {
-					scheme = "https"
-				}
-			}
-			forwardedHost := r.Header.Get("X-Forwarded-Host")
-			if forwardedHost == "" {
-				forwardedHost = r.Host
-			}
-			uiBaseURL = scheme + "://" + forwardedHost
-		}
+		// Get the UI base URL and format the signed link URL
+		uiBaseURL := GetUIBaseURL(r)
+		signedLinkURL := FormatSignedLinkURL(uiBaseURL, token)
 
 		// Return JSON response
 		response := map[string]interface{}{
-			"url":         fmt.Sprintf("%s/auth/login?token=%s", uiBaseURL, token),
+			"url":         signedLinkURL,
 			"expires_in":  int(ttl.Seconds()),
 			"redirect_to": req.RedirectTo,
 		}

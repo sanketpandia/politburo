@@ -2,7 +2,6 @@ package flights
 
 import (
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/logging"
@@ -13,7 +12,6 @@ import (
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -211,23 +209,9 @@ func GetVALiveFlightsFromCache(redisCache *cache.RedisCacheService, authSvc *aut
 				logging.Warn("Failed to generate signed link", "error", err, "userID", userID, "vaID", vaID)
 				// Continue without signed link - not a critical error
 			} else {
-				// Get UI base URL from environment or request
-				uiBaseURL := os.Getenv("UI_BASE_URL")
-				if uiBaseURL == "" {
-					scheme := r.Header.Get("X-Forwarded-Proto")
-					if scheme == "" {
-						scheme = "http"
-						if r.TLS != nil {
-							scheme = "https"
-						}
-					}
-					forwardedHost := r.Header.Get("X-Forwarded-Host")
-					if forwardedHost == "" {
-						forwardedHost = r.Host
-					}
-					uiBaseURL = scheme + "://" + forwardedHost
-				}
-				signedLink = fmt.Sprintf("%s/auth/login?token=%s", uiBaseURL, token)
+				// Use helper functions from auth package to format the signed link URL
+				uiBaseURL := auth.GetUIBaseURL(r)
+				signedLink = auth.FormatSignedLinkURL(uiBaseURL, token)
 			}
 		}
 
