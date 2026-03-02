@@ -807,6 +807,14 @@
                             <span class="metadata-label">Violations:</span>
                             <span class="metadata-value" id="fc-violations-value"></span>
                         </div>
+                        <div class="metadata-item" id="fc-max-speed" style="display: none;">
+                            <span class="metadata-label">Max Speed:</span>
+                            <span class="metadata-value" id="fc-max-speed-value"></span>
+                        </div>
+                        <div class="metadata-item" id="fc-max-altitude" style="display: none;">
+                            <span class="metadata-label">Max Altitude:</span>
+                            <span class="metadata-value" id="fc-max-altitude-value"></span>
+                        </div>
                     </div>
 
                     <!-- Footer -->
@@ -1224,6 +1232,18 @@
           document.getElementById('fc-violations').style.display = 'flex';
         }
         
+        // Max Speed (from waypoints)
+        if (flight.maxSpeed != null) {
+          document.getElementById('fc-max-speed-value').textContent = flight.maxSpeed + ' kts';
+          document.getElementById('fc-max-speed').style.display = 'flex';
+        }
+        
+        // Max Altitude (from waypoints)
+        if (flight.maxAltitude != null) {
+          document.getElementById('fc-max-altitude-value').textContent = flight.maxAltitude.toLocaleString() + ' ft';
+          document.getElementById('fc-max-altitude').style.display = 'flex';
+        }
+        
         // Footer
         document.getElementById('fc-username').textContent = flight.username || 'Unknown';
         document.getElementById('fc-aircraft').textContent = flight.aircraft || 'Unknown Aircraft';
@@ -1324,7 +1344,10 @@
           }
 
           const result = await response.json();
-          const waypoints = result.data;
+          const waypointsData = result.data;
+          const waypoints = waypointsData.waypoints || waypointsData; // Support both old and new format
+          const maxSpeed = waypointsData.max_speed;
+          const maxAltitude = waypointsData.max_altitude;
 
           if (!waypoints || !Array.isArray(waypoints) || waypoints.length < 2) {
             console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`);
@@ -1364,7 +1387,15 @@
           console.log(`Loaded route with ${routePoints.length} waypoints`);
           
           // Only show flight details card if waypoints are successfully loaded
+          // Include max speed and altitude from waypoints response
           if (flightData) {
+            // Add max speed and altitude to flight data if available
+            if (maxSpeed != null) {
+              flightData.maxSpeed = maxSpeed;
+            }
+            if (maxAltitude != null) {
+              flightData.maxAltitude = maxAltitude;
+            }
             showFlightCard(flightData);
           }
         } catch (error) {

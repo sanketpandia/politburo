@@ -301,8 +301,33 @@ func GetFlightWaypoints(redisCache *cache.RedisCacheService) http.HandlerFunc {
 			return
 		}
 
-		// Return just the waypoints array
-		common.RespondSuccess(w, initTime, "Waypoints fetched", flight.Waypoints)
+		// Calculate max speed and max altitude from waypoints
+		var maxSpeed, maxAltitude *int
+		if len(flight.Waypoints) > 0 {
+			maxSpeedVal := flight.Waypoints[0].Speed
+			maxAltitudeVal := flight.Waypoints[0].Altitude
+
+			for _, wp := range flight.Waypoints {
+				if wp.Speed > maxSpeedVal {
+					maxSpeedVal = wp.Speed
+				}
+				if wp.Altitude > maxAltitudeVal {
+					maxAltitudeVal = wp.Altitude
+				}
+			}
+
+			maxSpeed = &maxSpeedVal
+			maxAltitude = &maxAltitudeVal
+		}
+
+		// Return waypoints with calculated max values
+		response := map[string]interface{}{
+			"waypoints":    flight.Waypoints,
+			"max_speed":    maxSpeed,
+			"max_altitude": maxAltitude,
+		}
+
+		common.RespondSuccess(w, initTime, "Waypoints fetched", response)
 	}
 }
 
