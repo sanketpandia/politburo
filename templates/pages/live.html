@@ -11,22 +11,27 @@
     .live-flights-container {
         display: flex;
         flex-direction: column;
-        height: 100%;
+        flex: 1;
         min-height: 600px;
+        min-width: 0;
+        overflow: hidden;
+        padding: 0 !important; /* Override .card padding to allow full height */
     }
-
+    
     .live-flights-header {
         flex-shrink: 0;
-        padding-bottom: 1rem;
+        padding: 1.5rem 1.5rem 1rem 1.5rem; /* Add padding back to header */
     }
 
     /* Split layout: Flight list + Map */
     .live-flights-content {
         display: flex;
         gap: 1rem;
-        flex: 1;
+        flex: 1 1 0%; /* Use 0% basis to force flex to fill space */
         min-height: 0;
+        min-width: 0;
         align-items: stretch;
+        padding: 0 1.5rem 1.5rem 1.5rem; /* Add padding back to content */
     }
 
     /* Flight list panel (25% width) */
@@ -71,9 +76,14 @@
         cursor: pointer;
         border-radius: 0.375rem;
         transition: all 0.15s ease;
-        margin: 0.125rem 0;
+        margin: 0;
         border-left: 3px solid transparent;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         box-sizing: border-box;
+    }
+    
+    .flight-item:last-child {
+        border-bottom: none;
     }
 
     .flight-item:hover {
@@ -90,45 +100,33 @@
     .flight-item-content {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
+        align-items: center;
         gap: 0.75rem;
-    }
-
-    .flight-item-main {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .flight-item-route {
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.25rem;
-        word-break: break-word;
-        font-size: 0.875rem;
-    }
-
-    .flight-item-stats {
-        display: flex;
-        gap: 0.75rem;
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        flex-wrap: wrap;
-    }
-
-    .flight-item-right {
-        text-align: right;
-        flex-shrink: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 0.125rem;
+        width: 100%;
     }
 
     .flight-item-callsign {
         font-size: 0.875rem;
-        font-weight: 600;
+        font-weight: 400;
         color: var(--text-primary);
         white-space: nowrap;
+        text-align: left;
+        flex-shrink: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+        min-width: 0;
+        letter-spacing: -0.01em;
+    }
+
+    .flight-item-route {
+        font-weight: 500;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        text-align: right;
+        white-space: nowrap;
+        flex-shrink: 0;
+        margin-left: 1rem;
     }
 
     .flight-item-aircraft {
@@ -180,22 +178,24 @@
     }
 
     #leaflet-map-wrapper {
-        flex: 1;
+        flex: 1 1 0%; /* Use 0% basis to force flex to fill space */
         display: flex;
         flex-direction: column;
         border-radius: 0.5rem;
         overflow: hidden;
         min-height: 0; /* Important for flex children */
+        min-width: 0; /* Important for flex children */
         border: 1px solid var(--border-color);
         position: relative;
         z-index: 1;
+        height: 100%; /* Explicit height to fill parent */
     }
 
     #leaflet-map {
         width: 100%;
         height: 100%;
         min-height: 400px;
-        flex: 1;
+        flex: 1 1 0%; /* Use 0% basis to force flex to fill space */
         position: relative;
         box-sizing: border-box;
     }
@@ -484,6 +484,8 @@
         #leaflet-map-wrapper {
             flex: 1;
             min-height: 0;
+            min-width: 0;
+            height: 100%;
         }
         
         /* Mobile Button Container */
@@ -720,12 +722,23 @@
                     </div>
                     <div class="stat-item">
                         <span class="stat-label">V/S</span>
-                        <span class="stat-value" id="fc-vs">----<span style="font-size:0.7em; color:var(--text-muted);">fpm</span></span>
+                        <span class="stat-value" id="fc-vs">
+                            <span id="fc-vs-arrow" style="display: inline-block; margin-right: 4px;"></span>
+                            <span id="fc-vs-value">----</span><span style="font-size:0.7em; color:var(--text-muted);">fpm</span>
+                        </span>
                     </div>
                 </div>
 
                 <!-- Metadata Section -->
                 <div class="fc-metadata">
+                    <div class="metadata-item" id="fc-aircraft-item">
+                        <span class="metadata-label">Aircraft:</span>
+                        <span class="metadata-value" id="fc-aircraft"></span>
+                    </div>
+                    <div class="metadata-item" id="fc-livery-item" style="display: none;">
+                        <span class="metadata-label">Livery:</span>
+                        <span class="metadata-value" id="fc-livery"></span>
+                    </div>
                     <div class="metadata-item" id="fc-max-altitude" style="display: none;">
                         <span class="metadata-label">Max Altitude:</span>
                         <span class="metadata-value" id="fc-max-altitude-value"></span>
@@ -757,10 +770,6 @@
                     <div class="user-tag">
                         <i data-lucide="user" size="14"></i>
                         <span id="fc-username"></span>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="color: var(--text-primary); font-weight: 500;" id="fc-aircraft"></div>
-                        <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px;" id="fc-livery"></div>
                     </div>
                 </div>
             </div>
@@ -862,35 +871,23 @@
       const origin = flight.origin || '----';
       const destination = flight.destination || '----';
       const callsign = flight.callsign || 'N/A';
-      const aircraft = flight.aircraft_name || 'Unknown Aircraft';
-      const livery = flight.livery_name || '';
-      const altitude = flight.altitude || 0;
-      const speed = flight.speed || 0;
-      const phase = flight.phase || 'unknown';
+      
+      // Format callsign: if too long, show last 15 chars with "..." at start
+      const formatCallsign = (cs) => {
+        if (!cs || cs.length <= 15) return cs;
+        return '..' + cs.slice(-15);
+      };
+      
+      const formattedCallsign = formatCallsign(callsign);
+      const route = `${origin} → ${destination}`;
       
       return `
         <button class="flight-item" 
                 data-flight-id="${flight.flight_id}"
                 onclick="focusFlightOnMap('${flight.flight_id}')">
           <div class="flight-item-content">
-            <div class="flight-item-main">
-              <div class="flight-item-route">
-                ${origin} → ${destination}
-              </div>
-              <div class="flight-item-stats">
-                <span>${altitude.toLocaleString()} ft</span>
-                <span>${speed} kts</span>
-              </div>
-            </div>
-            <div class="flight-item-right">
-              <div class="flight-item-callsign">
-                ${callsign}
-              </div>
-              <div class="flight-item-aircraft">
-                ${aircraft}
-              </div>
-              ${livery ? `<div class="flight-item-livery">${livery}</div>` : ''}
-            </div>
+            <span class="flight-item-callsign">${formattedCallsign}</span>
+            <span class="flight-item-route">${route}</span>
           </div>
         </button>
       `;
@@ -959,8 +956,8 @@
     // Mobile: Only select flight, don't auto-show details
     if (isMobileView()) {
       selectFlight(flight);
-      // Focus on the flight
-      flightMap.focusFlight(flightId, { zoom: 10 });
+      // Focus on the flight (pass flight data as fallback)
+      flightMap.focusFlight(flightId, { zoom: 10, flightData: flight });
       return;
     }
     
@@ -981,7 +978,7 @@
       })
       .then(result => {
         if (!result || !result.data) return;
-        const waypoints = result.data;
+        const waypoints = result.data.waypoints; // Response structure: {data: {waypoints: [...], max_altitude, max_speed}}
         
         if (!waypoints || !Array.isArray(waypoints) || waypoints.length < 2) {
           console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`);
@@ -1005,8 +1002,8 @@
         console.error('Error fetching waypoints:', error);
       });
     
-    // Focus on the flight
-    flightMap.focusFlight(flightId, { zoom: 10 });
+    // Focus on the flight (pass flight data as fallback)
+    flightMap.focusFlight(flightId, { zoom: 10, flightData: flight });
   }
   
   // Mobile-only: Select flight (without showing details)
@@ -1017,9 +1014,9 @@
     selectedFlightData = flight;
     updateMobileButtons();
     
-    // Focus on the flight
+    // Focus on the flight (pass flight data as fallback)
     if (flightMap) {
-      flightMap.focusFlight(flight.flight_id, { zoom: 10 });
+      flightMap.focusFlight(flight.flight_id, { zoom: 10, flightData: flight });
     }
   }
   
@@ -1076,7 +1073,7 @@
       })
       .then(result => {
         if (!result || !result.data) return;
-        const waypoints = result.data;
+        const waypoints = result.data.waypoints; // Response structure: {data: {waypoints: [...], max_altitude, max_speed}}
         
         if (!waypoints || !Array.isArray(waypoints) || waypoints.length < 2) {
           console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`);
@@ -1179,8 +1176,24 @@
       (flight.altitude || 0).toLocaleString() + '<span style="font-size:0.7em; color:var(--text-muted);">ft</span>';
     document.getElementById('fc-speed').innerHTML = 
       (flight.speed || 0) + '<span style="font-size:0.7em; color:var(--text-muted);">kts</span>';
-    document.getElementById('fc-vs').innerHTML = 
-      (flight.vertical_speed || 0) + '<span style="font-size:0.7em; color:var(--text-muted);">fpm</span>';
+    
+    // Vertical speed with arrow
+    const vs = flight.vertical_speed || 0;
+    const vsArrowEl = document.getElementById('fc-vs-arrow');
+    const vsValueEl = document.getElementById('fc-vs-value');
+    
+    if (vs > 0) {
+      vsArrowEl.innerHTML = '<i data-lucide="arrow-up" size="14" style="color: #10b981;"></i>';
+      vsArrowEl.style.display = 'inline-block';
+    } else if (vs < 0) {
+      vsArrowEl.innerHTML = '<i data-lucide="arrow-down" size="14" style="color: #ef4444;"></i>';
+      vsArrowEl.style.display = 'inline-block';
+    } else {
+      vsArrowEl.innerHTML = '';
+      vsArrowEl.style.display = 'none';
+    }
+    
+    vsValueEl.textContent = Math.abs(vs).toLocaleString();
     
     // Metadata - format timestamps in UTC 24-hour format
     function formatTimestamp(isoString) {
@@ -1256,10 +1269,19 @@
       }
     }
     
+    // Aircraft and Livery in metadata
+    document.getElementById('fc-aircraft').textContent = flight.aircraft_name || 'Unknown Aircraft';
+    document.getElementById('fc-aircraft-item').style.display = 'flex';
+    
+    if (flight.livery_name) {
+      document.getElementById('fc-livery').textContent = flight.livery_name;
+      document.getElementById('fc-livery-item').style.display = 'flex';
+    } else {
+      document.getElementById('fc-livery-item').style.display = 'none';
+    }
+    
     // Footer
     document.getElementById('fc-username').textContent = flight.username || 'Unknown';
-    document.getElementById('fc-aircraft').textContent = flight.aircraft_name || 'Unknown Aircraft';
-    document.getElementById('fc-livery').textContent = flight.livery_name || '';
     
     // Show card
     card.classList.add('active');
@@ -1428,16 +1450,17 @@
             }
 
             const result = await response.json();
-            const waypoints = result.data; // common.RespondSuccess wraps data in {data: ...}
+            const waypoints = result.data?.waypoints; // Response structure: {data: {waypoints: [...], max_altitude, max_speed}}
 
             console.log('handleRouteData: Received waypoints', {
               waypointsCount: waypoints?.length,
               firstWaypoint: waypoints?.[0],
-              resultKeys: Object.keys(result)
+              resultKeys: Object.keys(result),
+              dataKeys: result.data ? Object.keys(result.data) : null
             });
 
             if (!waypoints || !Array.isArray(waypoints) || waypoints.length < 2) {
-              console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`, waypoints);
+              console.warn(`Flight has insufficient waypoints: ${waypoints?.length || 0}`, result.data);
               return;
             }
 
@@ -1509,7 +1532,7 @@
       // Initialize mobile button state
       updateMobileButtons();
       
-      // Handle window resize to update mobile button visibility
+      // Handle window resize to update mobile button visibility and map size
       let resizeTimeout;
       window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
@@ -1520,25 +1543,38 @@
             selectedFlightData = null;
           }
           updateMobileButtons();
+          
+          // Invalidate map size on resize
+          if (flightMap && flightMap.getMap) {
+            const map = flightMap.getMap();
+            if (map) {
+              map.invalidateSize();
+            }
+          }
         }, 100);
       });
 
       console.log('FlightMap initialized successfully');
       
-      // Test route rendering (remove this after debugging)
-      // Uncomment to test if route rendering works at all
-      /*
-      setTimeout(() => {
-        const testRoute = [
-          { latitude: 33.6405, longitude: -84.4279, altitude: 0 },
-          { latitude: 34.0522, longitude: -84.2744, altitude: 5000 },
-          { latitude: 40.7128, longitude: -74.0060, altitude: 35000 },
-          { latitude: 51.5074, longitude: -0.1278, altitude: 37000 }
-        ];
-        console.log('Testing route rendering with sample data');
-        flightMap.addRoute(testRoute, { colorBy: 'altitude' });
-      }, 2000);
-      */
+      // Invalidate map size to ensure it fills the container properly
+      // This is needed because Leaflet needs to recalculate after flex layout settles
+      if (flightMap && flightMap.getMap) {
+        const map = flightMap.getMap();
+        if (map) {
+          // Invalidate immediately
+          map.invalidateSize();
+          
+          // Also invalidate after a short delay to ensure layout has settled
+          setTimeout(() => {
+            map.invalidateSize();
+          }, 100);
+          
+          // And after a longer delay to catch any late layout changes
+          setTimeout(() => {
+            map.invalidateSize();
+          }, 500);
+        }
+      }
     } catch (error) {
       console.error("Error initializing flight map:", error);
       console.error("Stack trace:", error.stack);

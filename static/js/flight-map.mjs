@@ -263,11 +263,72 @@ export class FlightMap {
 
     console.log(`FlightMap.addRoute: Processing ${waypoints.length} waypoints`);
 
+    // Filter out duplicate consecutive waypoints (stationary points)
+    // This prevents zero-length segments that won't render
+    const filteredWaypoints = [];
+    for (let i = 0; i < waypoints.length; i++) {
+      const wp = waypoints[i];
+      const lat = Number(wp.latitude);
+      const lng = Number(wp.longitude);
+      
+      // Skip invalid coordinates
+      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        continue;
+      }
+      
+      // Include first waypoint always
+      if (filteredWaypoints.length === 0) {
+        filteredWaypoints.push(wp);
+        continue;
+      }
+      
+      // Only include waypoint if coordinates changed from previous
+      const prevWp = filteredWaypoints[filteredWaypoints.length - 1];
+      const prevLat = Number(prevWp.latitude);
+      const prevLng = Number(prevWp.longitude);
+      
+      // Use small epsilon to handle floating point precision
+      const epsilon = 0.0001;
+      if (Math.abs(lat - prevLat) > epsilon || Math.abs(lng - prevLng) > epsilon) {
+        filteredWaypoints.push(wp);
+      }
+    }
+    
+    // Always include the last waypoint if it's different from the last filtered point
+    if (waypoints.length > 0) {
+      const lastWp = waypoints[waypoints.length - 1];
+      const lastLat = Number(lastWp.latitude);
+      const lastLng = Number(lastWp.longitude);
+      
+      if (filteredWaypoints.length > 0) {
+        const lastFiltered = filteredWaypoints[filteredWaypoints.length - 1];
+        const lastFilteredLat = Number(lastFiltered.latitude);
+        const lastFilteredLng = Number(lastFiltered.longitude);
+        const epsilon = 0.0001;
+        
+        if (Math.abs(lastLat - lastFilteredLat) > epsilon || Math.abs(lastLng - lastFilteredLng) > epsilon) {
+          filteredWaypoints.push(lastWp);
+        }
+      } else if (!isNaN(lastLat) && !isNaN(lastLng)) {
+        filteredWaypoints.push(lastWp);
+      }
+    }
+    
+    console.log(`FlightMap.addRoute: Filtered to ${filteredWaypoints.length} unique waypoints (removed ${waypoints.length - filteredWaypoints.length} duplicates)`);
+    
+    if (filteredWaypoints.length < 2) {
+      console.warn('FlightMap.addRoute: Not enough unique waypoints after filtering', {
+        original: waypoints.length,
+        filtered: filteredWaypoints.length
+      });
+      return;
+    }
+
     // Create polylines for each segment with color based on altitude
     let validSegments = 0;
-    for (let i = 0; i < waypoints.length - 1; i++) {
-      const point1 = waypoints[i];
-      const point2 = waypoints[i + 1];
+    for (let i = 0; i < filteredWaypoints.length - 1; i++) {
+      const point1 = filteredWaypoints[i];
+      const point2 = filteredWaypoints[i + 1];
 
       // Validate coordinates
       if (point1.latitude == null || point1.longitude == null ||
@@ -338,7 +399,7 @@ export class FlightMap {
           polyline: polyline
         });
       }
-      if (i === waypoints.length - 2) {
+      if (i === filteredWaypoints.length - 2) {
         console.log('FlightMap: Last segment', {
           from: segment[0],
           to: segment[1],
@@ -347,7 +408,7 @@ export class FlightMap {
       }
     }
 
-    console.log(`FlightMap: Added route with ${validSegments} valid segments out of ${waypoints.length - 1} possible`);
+    console.log(`FlightMap: Added route with ${validSegments} valid segments out of ${filteredWaypoints.length - 1} possible`);
 
     // Ensure route layer is visible and on top
     if (!this.map.hasLayer(this.routeLayerGroup)) {
@@ -392,13 +453,14 @@ export class FlightMap {
       }, 100);
     } else {
       console.warn('FlightMap: No valid segments created!', {
-        waypointsLength: waypoints.length,
+        originalWaypointsLength: waypoints.length,
+        filteredWaypointsLength: filteredWaypoints.length,
         waypointsSample: waypoints.slice(0, 3)
       });
     }
 
-    // Fit map bounds to show the route
-    const routeBounds = waypoints
+    // Fit map bounds to show the route (use filtered waypoints)
+    const routeBounds = filteredWaypoints
       .filter(wp => {
         const lat = Number(wp.latitude);
         const lng = Number(wp.longitude);
@@ -448,18 +510,29 @@ export class FlightMap {
    * @param {Object} options - Focus options
    * @param {number} options.zoom - Zoom level (default: 10)
    * @param {number} options.padding - Padding in pixels (default: 50)
+   * @param {Object} options.flightData - Optional flight data object (used if marker not found)
    */
   focusFlight(flightId, options = {}) {
-    const { zoom = 10, padding = 50 } = options;
+    const { zoom = 10, padding = 50, flightData = null } = options;
     
     const marker = this.flightMarkers.get(flightId);
-    if (!marker) {
-      console.warn(`FlightMap.focusFlight: Flight ${flightId} not found`);
+    let position = null;
+    let data = null;
+    
+    if (marker) {
+      // Use marker if it exists
+      position = marker.getLatLng();
+      data = marker._flightData;
+    } else if (flightData && flightData.latitude != null && flightData.longitude != null) {
+      // Fallback to flight data if marker doesn't exist
+      position = [flightData.latitude, flightData.longitude];
+      data = flightData;
+      console.log(`FlightMap.focusFlight: Using flight data for ${flightId} (marker not found)`);
+    } else {
+      console.warn(`FlightMap.focusFlight: Flight ${flightId} not found and no flight data provided`);
       return;
     }
 
-    const position = marker.getLatLng();
-    
     // Fly to the flight position with smooth animation
     this.map.flyTo(position, zoom, {
       animate: true,
@@ -467,11 +540,8 @@ export class FlightMap {
     });
 
     // Also trigger the click handler to show flight details
-    if (this.onFlightClickCallback) {
-      const flightData = marker._flightData;
-      if (flightData) {
-        this.onFlightClickCallback(flightData);
-      }
+    if (this.onFlightClickCallback && data) {
+      this.onFlightClickCallback(data);
     }
   }
 
