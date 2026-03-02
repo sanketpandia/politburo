@@ -21,6 +21,7 @@ import (
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/events"
 	"infinite-experiment/politburo/internal/flights"
+	"infinite-experiment/politburo/internal/liverymappings"
 	membershipsFeature "infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/aircraft"
@@ -92,12 +93,13 @@ type FeatureDeps struct {
 	ServersRegSvc         *servers.RegistrationService
 
 	// Handlers
-	MembershipsHandler *membershipsFeature.Handler
-	PilotsHandler      *pilots.Handler
-	ServersHandler     *servers.Handler
-	VAAdminHandler     *vaadmin.Handler
-	EventsHandler      *events.Handler
-	DatasourceHandler  *datasource.Handler
+	MembershipsHandler    *membershipsFeature.Handler
+	PilotsHandler         *pilots.Handler
+	ServersHandler        *servers.Handler
+	VAAdminHandler        *vaadmin.Handler
+	EventsHandler         *events.Handler
+	DatasourceHandler     *datasource.Handler
+	LiveryMappingsHandler *liverymappings.Handler
 
 	// Providers
 	LiveAPIProvider *providers.LiveAPIProvider
@@ -382,6 +384,9 @@ func (a *App) initFeatures() error {
 	airtableProvider := providers.NewAirtableProvider(a.Infra.RedisCache)
 	datasourceHandler := datasource.NewHandler(a.Platform.VASvc, a.Infra.TemplateRenderer, airtableProvider)
 
+	// Initialize livery mappings handler
+	liveryMappingsHandler := liverymappings.NewHandler(a.Platform.AircraftRepo, a.Infra.TemplateRenderer)
+
 	logging.Debug("Feature handlers initialized")
 
 	a.Features = FeatureDeps{
@@ -394,6 +399,7 @@ func (a *App) initFeatures() error {
 		VAAdminHandler:        vaAdminHandler,
 		EventsHandler:         eventsHandler,
 		DatasourceHandler:     datasourceHandler,
+		LiveryMappingsHandler: liveryMappingsHandler,
 		LiveAPIProvider:       liveAPIProvider,
 		PilotSyncJob:          pilotSyncJob,
 		PilotSyncWorker:       pilotSyncWorker,

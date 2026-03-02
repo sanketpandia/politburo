@@ -443,6 +443,39 @@ export class FlightMap {
   }
 
   /**
+   * Focus on a specific flight by flight_id
+   * @param {string} flightId - Flight ID to focus on
+   * @param {Object} options - Focus options
+   * @param {number} options.zoom - Zoom level (default: 10)
+   * @param {number} options.padding - Padding in pixels (default: 50)
+   */
+  focusFlight(flightId, options = {}) {
+    const { zoom = 10, padding = 50 } = options;
+    
+    const marker = this.flightMarkers.get(flightId);
+    if (!marker) {
+      console.warn(`FlightMap.focusFlight: Flight ${flightId} not found`);
+      return;
+    }
+
+    const position = marker.getLatLng();
+    
+    // Fly to the flight position with smooth animation
+    this.map.flyTo(position, zoom, {
+      animate: true,
+      duration: 0.75
+    });
+
+    // Also trigger the click handler to show flight details
+    if (this.onFlightClickCallback) {
+      const flightData = marker._flightData;
+      if (flightData) {
+        this.onFlightClickCallback(flightData);
+      }
+    }
+  }
+
+  /**
    * Get the underlying Leaflet map instance
    * @returns {L.Map} Leaflet map instance
    */

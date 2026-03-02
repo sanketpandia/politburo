@@ -200,6 +200,14 @@ func NewRouter(application *app.App) http.Handler {
 			adminAPI.Route("/sessions", func(sessions chi.Router) {
 				sessions.Post("/destroy/{ifc_id}", authHandler.DestroySessionsByIFCId())
 			})
+
+			// Livery mappings API
+			adminAPI.Route("/livery-mappings", func(liveryMappings chi.Router) {
+				liveryMappings.Get("/", application.Features.LiveryMappingsHandler.ListMappingsHandler())
+				liveryMappings.Post("/", application.Features.LiveryMappingsHandler.CreateMappingHandler())
+				liveryMappings.Delete("/{id}", application.Features.LiveryMappingsHandler.DeleteMappingHandler())
+				liveryMappings.Get("/liveries", application.Features.LiveryMappingsHandler.GetAvailableLiveriesHandler())
+			})
 		})
 
 		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, GET /api/v1/admin/airtable/credentials, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
@@ -280,6 +288,9 @@ func NewRouter(application *app.App) http.Handler {
 				datasource.Post("/schema/{schemaType}", application.Features.DatasourceHandler.SaveSchemaHandler())
 				datasource.Post("/schema/{schemaType}/sync", application.Features.DatasourceHandler.SyncTableSchemaHandler())
 			})
+
+			// Livery Mappings
+			admin.Get("/settings/livery-mappings", application.Features.LiveryMappingsHandler.ListMappingsPageHandler())
 		})
 	})
 
