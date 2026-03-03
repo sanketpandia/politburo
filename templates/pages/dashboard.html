@@ -155,8 +155,8 @@
 <!-- Dashboard Cards -->
 <div class="dashboard-container">
     <div class="dashboard-cards">
-        {{if .IsStaff}}
-        <!-- Live Flights Card (Staff + Admin) -->
+        {{if or .IsPilot .IsStaff}}
+        <!-- Live Flights Card (All Members) -->
         <a href="/dashboard/live" class="dashboard-card">
             <div class="dashboard-card-header">
                 <div class="dashboard-card-icon">✈️</div>
@@ -165,10 +165,10 @@
             <p class="dashboard-card-description">
                 View real-time flights on the map. Track active pilots and monitor flight progress.
             </p>
-            <div class="dashboard-card-footer">Staff & Admin</div>
+            <div class="dashboard-card-footer">All Members</div>
         </a>
 
-        <!-- Logbook Card (Staff + Admin) -->
+        <!-- Logbook Card (All Members) -->
         <a href="/dashboard/logbook" class="dashboard-card">
             <div class="dashboard-card-header">
                 <div class="dashboard-card-icon">📋</div>
@@ -177,7 +177,7 @@
             <p class="dashboard-card-description">
                 Access pilot flight history and logbook data. Search and filter flights by pilot or date.
             </p>
-            <div class="dashboard-card-footer">Staff & Admin</div>
+            <div class="dashboard-card-footer">All Members</div>
         </a>
         {{end}}
 

@@ -332,7 +332,7 @@ func GetFlightWaypoints(redisCache *cache.RedisCacheService) http.HandlerFunc {
 }
 
 // LiveFlightsPageHandler handles GET /dashboard/live
-// Serves the live flights page with flights rendered on Gleo map (staff+ only)
+// Serves the live flights page with flights rendered on Gleo map (all members)
 func LiveFlightsPageHandler(redisCache *cache.RedisCacheService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get user claims from context (injected by auth middleware)

@@ -238,13 +238,13 @@ func NewRouter(application *app.App) http.Handler {
 			// Test click handler endpoint
 			member.Get("/test-click", application.Features.DashboardHandler.TestClickHandler())
 
-			// Live Flights page (staff + admin)
+			// Live Flights page (all members)
 			member.Get("/live", flights.LiveFlightsPageHandler(application.Infra.RedisCache))
 
-			// Get flight waypoints for route mapping (staff + admin)
+			// Get flight waypoints for route mapping (all members)
 			member.Get("/flights/{flight_id}/waypoints", flights.GetFlightWaypoints(application.Infra.RedisCache))
 
-			// Logbook page and endpoints (staff + admin)
+			// Logbook page and endpoints (all members)
 			member.Get("/logbook", application.Features.PilotsHandler.LogbookPageHandler())
 			member.Get("/logbook/flights", application.Features.PilotsHandler.LogbookFlightsHandler())
 		})
