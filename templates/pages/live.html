@@ -16,6 +16,19 @@
         min-width: 0;
         overflow: hidden;
         padding: 0 !important; /* Override .card padding to allow full height */
+        /* Ensure container fills available height - use both flex and explicit height */
+        height: 100%;
+        /* Fallback: use viewport height calculation if flex doesn't work */
+        max-height: calc(100vh - 180px);
+    }
+    
+    /* Ensure parent containers participate in flex layout */
+    #dashboard-content {
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 1 !important;
+        min-height: 0 !important;
+        height: 100% !important;
     }
     
     .live-flights-header {
@@ -189,6 +202,8 @@
         position: relative;
         z-index: 1;
         height: 100%; /* Explicit height to fill parent */
+        /* Ensure wrapper expands to fill available space */
+        flex-grow: 1;
     }
 
     #leaflet-map {
@@ -198,6 +213,9 @@
         flex: 1 1 0%; /* Use 0% basis to force flex to fill space */
         position: relative;
         box-sizing: border-box;
+        /* Critical: Ensure map fills its container */
+        flex-grow: 1;
+        overflow: hidden;
     }
 
     /* Leaflet marker styling */
@@ -1561,6 +1579,18 @@
       if (flightMap && flightMap.getMap) {
         const map = flightMap.getMap();
         if (map) {
+          // Force container to have explicit dimensions before invalidating
+          const mapContainer = document.getElementById('leaflet-map');
+          const mapWrapper = document.getElementById('leaflet-map-wrapper');
+          
+          if (mapContainer && mapWrapper) {
+            // Ensure containers have explicit heights
+            const wrapperHeight = mapWrapper.offsetHeight;
+            if (wrapperHeight > 0) {
+              mapContainer.style.height = wrapperHeight + 'px';
+            }
+          }
+          
           // Invalidate immediately
           map.invalidateSize();
           
@@ -1573,6 +1603,11 @@
           setTimeout(() => {
             map.invalidateSize();
           }, 500);
+          
+          // One more after a longer delay for any async layout changes
+          setTimeout(() => {
+            map.invalidateSize();
+          }, 1000);
         }
       }
     } catch (error) {
