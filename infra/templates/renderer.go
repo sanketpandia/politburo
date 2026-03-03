@@ -1,11 +1,13 @@
 package templates
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"infinite-experiment/politburo/infra/logging"
 )
@@ -212,6 +214,24 @@ func (r *Renderer) getFuncMap() template.FuncMap {
 				return defaultValue
 			}
 			return value
+		},
+		"formatTime": func(timeStr string) string {
+			if timeStr == "" {
+				return ""
+			}
+			t, err := time.Parse(time.RFC3339, timeStr)
+			if err != nil {
+				return timeStr
+			}
+			return t.Format("2006-01-02 15:04:05")
+		},
+		"formatFlightTime": func(seconds *float64) string {
+			if seconds == nil {
+				return ""
+			}
+			hours := int(*seconds / 3600)
+			minutes := int((*seconds - float64(hours*3600)) / 60)
+			return fmt.Sprintf("%d:%02d", hours, minutes)
 		},
 	}
 }

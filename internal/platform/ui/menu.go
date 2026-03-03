@@ -19,6 +19,15 @@ type MenuItem struct {
 func GetMenuItems(activeVA *session.VAMembership) []MenuItem {
 	baseItems := []MenuItem{}
 
+	// Dashboard is available to all roles (pilot, staff, admin)
+	baseItems = append(baseItems, MenuItem{
+		Label:        "Dashboard",
+		Path:         "/dashboard",
+		PageID:       "dashboard",
+		RequiredRole: roles.RolePilot,
+		Icon:         "dashboard",
+	})
+
 	// Staff and admin get additional items
 	if activeVA.Role == string(roles.RoleAirlineManager) || activeVA.Role == string(roles.RoleAdmin) {
 		baseItems = append(baseItems, []MenuItem{

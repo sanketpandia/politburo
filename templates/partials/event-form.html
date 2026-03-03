@@ -183,6 +183,18 @@
         </div>
 
         <div class="form-group">
+            <label class="form-label" for="flight_mode">Flight Mode</label>
+            <input type="text"
+                   id="flight_mode"
+                   name="flight_mode"
+                   class="form-input"
+                   value="{{if and .IsEdit .FlightMode}}{{.FlightMode}}{{end}}"
+                   placeholder="e.g., World Tour 10"
+                   maxlength="100">
+            <div class="form-help-text">Optional: Flight mode identifier for tour PIREPs (e.g., "World Tour 10"). Used when submitting tour PIREPs to Airtable.</div>
+        </div>
+
+        <div class="form-group">
             <label class="form-label" for="start_date">Start Date</label>
             <input type="datetime-local"
                    id="start_date"

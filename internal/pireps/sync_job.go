@@ -12,36 +12,34 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/infra/queue"
-	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/models/dtos"
-	"infinite-experiment/politburo/internal/sync"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 )
 
 // PirepSyncJob handles syncing PIREP data from Airtable to local database
 type PirepSyncJob struct {
 	db               *gorm.DB
 	cache            cache.CacheInterface
-	configRepo       *repositories.DataProviderConfigRepo
-	pirepRepo        *Repository      // PIREP repository for upserts
-	syncRepo         *sync.Repository // Sync repository for sync history
+	vaRepo           *platformVA.Repository     // VA repository for fetching configs
+	pirepRepo        *Repository                // PIREP repository for upserts
+	syncRepo         *platformVA.SyncRepository // Sync repository for sync history
 	airtableProvider *providers.AirtableProvider
 	redisQueue       *queue.RedisQueueService // Redis queue for async processing
-	useQueue         bool                      // Whether to use queue-based processing
+	useQueue         bool                     // Whether to use queue-based processing
 }
 
 // NewPirepSyncJob creates a new PIREP sync job instance
 func NewPirepSyncJob(
 	db *gorm.DB,
 	cache cache.CacheInterface,
-	configRepo *repositories.DataProviderConfigRepo,
+	vaRepo *platformVA.Repository,
 	pirepRepo *Repository,
-	syncRepo *sync.Repository,
+	syncRepo *platformVA.SyncRepository,
 	redisQueue *queue.RedisQueueService,
 ) *PirepSyncJob {
 	return &PirepSyncJob{
 		db:               db,
 		cache:            cache,
-		configRepo:       configRepo,
+		vaRepo:           vaRepo,
 		pirepRepo:        pirepRepo,
 		syncRepo:         syncRepo,
 		airtableProvider: providers.NewAirtableProvider(cache),
@@ -59,7 +57,7 @@ func (j *PirepSyncJob) Run(ctx context.Context) error {
 	var vaIDs []string
 	err := j.db.WithContext(ctx).
 		Table("va_data_provider_configs").
-		Where("provider_type = ? AND is_active = ?", "airtable", true).
+		Where("provider_type = ? AND config_type = ? AND is_active = ?", "airtable", "pirep", true).
 		Pluck("va_id", &vaIDs).Error
 
 	if err != nil {
@@ -68,11 +66,11 @@ func (j *PirepSyncJob) Run(ctx context.Context) error {
 	}
 
 	if len(vaIDs) == 0 {
-		log.Printf("[PirepSyncJob] No VAs with active Airtable configs found")
+		log.Printf("[PirepSyncJob] No VAs with active Airtable PIREP configs found")
 		return nil
 	}
 
-	log.Printf("[PirepSyncJob] Found %d VAs with active Airtable configs", len(vaIDs))
+	log.Printf("[PirepSyncJob] Found %d VAs with active Airtable PIREP configs", len(vaIDs))
 
 	// Sync PIREPs for each VA
 	totalSynced := 0
@@ -83,7 +81,7 @@ func (j *PirepSyncJob) Run(ctx context.Context) error {
 			// Continue with other VAs even if one fails
 			continue
 		}
-		j.syncRepo.RecordSync(ctx, vaID, sync.SyncEventPirepsAT)
+		j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventPirepsAT)
 		totalSynced += synced
 	}
 
@@ -98,32 +96,33 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 	start := time.Now()
 	log.Printf("[PirepSyncJob] Syncing PIREPs for VA %s", vaID)
 
-	// Get active config for this VA
-	config, err := j.configRepo.GetActiveConfig(ctx, vaID, "airtable")
+	// Get PIREP schema using new platform/va config structure
+	schemaConfig, err := j.vaRepo.GetAirtableSchema(ctx, vaID, "pirep")
 	if err != nil {
-		return 0, fmt.Errorf("failed to get active config: %w", err)
+		return 0, fmt.Errorf("failed to get PIREP schema: %w", err)
 	}
 
-	if config == nil {
-		log.Printf("[PirepSyncJob] No active config found for VA %s", vaID)
-		return 0, nil
-	}
-
-	// Parse config data
-	configData, err := repositories.ParseConfigData(config.ConfigData)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse config data: %w", err)
-	}
-
-	// Get PIREP schema
-	pirepSchema := configData.GetSchemaByType("pirep")
-	if pirepSchema == nil {
+	if schemaConfig == nil {
 		log.Printf("[PirepSyncJob] No pirep schema configured for VA %s", vaID)
 		return 0, nil
 	}
 
-	if !pirepSchema.Enabled {
+	if !schemaConfig.Enabled {
 		log.Printf("[PirepSyncJob] PIREP schema is disabled for VA %s", vaID)
+		return 0, nil
+	}
+
+	// Convert SchemaConfig to EntitySchema for provider
+	pirepSchema := schemaConfig.ToEntitySchema("pirep")
+
+	// Get Airtable credentials for provider
+	creds, err := j.vaRepo.GetAirtableCredentials(ctx, vaID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get Airtable credentials: %w", err)
+	}
+
+	if creds == nil {
+		log.Printf("[PirepSyncJob] No Airtable credentials found for VA %s", vaID)
 		return 0, nil
 	}
 
@@ -134,13 +133,19 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 		Where("id = ?", vaID).
 		Pluck("name", &vaName)
 
-	log.Printf("[PirepSyncJob] VA: %s (%s), Table: %s", vaName, vaID, pirepSchema.TableName)
+	log.Printf("[PirepSyncJob] VA: %s (%s), Table: %s, LastModifiedField: %s", vaName, vaID, pirepSchema.TableName, pirepSchema.LastModifiedField)
+
+	// Check if schema has last_modified_field configured - REQUIRED for incremental sync
+	if pirepSchema.LastModifiedField == "" {
+		log.Printf("[PirepSyncJob] VA %s: Skipping sync - no last_modified_field configured in schema. Incremental sync requires this field.", vaName)
+		return 0, nil
+	}
 
 	// Get last sync timestamp for incremental sync
 	lastModified, err := j.getLastSyncTimestamp(ctx, vaID)
 	if err != nil {
-		log.Printf("[PirepSyncJob] VA %s: Error getting last sync timestamp: %v. Doing full sync.", vaName, err)
-		lastModified = nil
+		log.Printf("[PirepSyncJob] VA %s: Error getting last sync timestamp: %v. Skipping sync.", vaName, err)
+		return 0, nil
 	}
 
 	if lastModified != nil {
@@ -149,14 +154,8 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 		log.Printf("[PirepSyncJob] VA %s: Full sync (no previous sync timestamp)", vaName)
 	}
 
-	// Check if schema has last_modified_field configured
-	if lastModified != nil && pirepSchema.LastModifiedField == "" {
-		log.Printf("[PirepSyncJob] VA %s: Warning - no last_modified_field configured in schema, cannot filter by date. Doing full sync.", vaName)
-		lastModified = nil
-	}
-
-	// Set config in context for provider
-	ctx = context.WithValue(ctx, "provider_config", configData)
+	// Set credentials in context for provider
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
 
 	// Fetch PIREPs with pagination and enqueue to Redis (if enabled) or process directly
 	offset := ""
@@ -227,9 +226,21 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 	}
 
 	if j.useQueue {
+		// Check queue status
+		queueLength, _ := j.redisQueue.GetQueueLength(ctx, streamName)
+		pendingCount, _ := j.redisQueue.GetPendingCount(ctx, streamName, "pirep-workers")
+
+		// Get max at_created_time from database to see latest synced record
+		maxTime, _ := j.pirepRepo.GetMaxATCreatedTime(ctx, vaID)
+		maxTimeStr := "none"
+		if maxTime != nil {
+			maxTimeStr = maxTime.Format(time.RFC3339)
+		}
+
 		log.Printf("[PirepSyncJob] VA %s: Completed in %s. Enqueued: %d, Errors: %d",
 			vaName, time.Since(start).Truncate(time.Millisecond), enqueuedCount, errorCount)
-		log.Printf("[PirepSyncJob] VA %s: Queue: %s - Workers will process items asynchronously", vaName, streamName)
+		log.Printf("[PirepSyncJob] VA %s: Queue: %s - Queue Length: %d, Pending: %d, Max AT Created Time: %s",
+			vaName, streamName, queueLength, pendingCount, maxTimeStr)
 	} else {
 		log.Printf("[PirepSyncJob] VA %s: Completed in %s. Synced: %d, Errors: %d",
 			vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
@@ -237,7 +248,7 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 
 	// Record successful sync in sync history (only if not using queue or if direct processing)
 	if !j.useQueue {
-		if err := j.syncRepo.RecordSync(ctx, vaID, SyncEventPirepsAT); err != nil {
+		if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventPirepsAT); err != nil {
 			log.Printf("[PirepSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
 		}
 	}
@@ -250,22 +261,45 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 }
 
 // upsertPirep updates or creates a PIREP record in pirep_at_synced
-func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, createdTime string, schema *dtos.EntitySchema) error {
-	// Extract field mappings
+func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, createdTime string, schema *platformVA.EntitySchema) error {
+	// Extract field mappings - support both old and new field names
+	// Map "callsign" (new config) to "pilot_callsign" (database field)
+	callsignField := schema.GetFieldMapping("callsign")
+	pilotCallsignField := schema.GetFieldMapping("pilot_callsign")
+	if callsignField != nil && pilotCallsignField == nil {
+		// Use callsign field if pilot_callsign not found
+		pilotCallsignField = callsignField
+	}
+
+	// Map "airline" (new config) to "livery" (database field)
+	airlineField := schema.GetFieldMapping("airline")
+	liveryField := schema.GetFieldMapping("livery")
+	if airlineField != nil && liveryField == nil {
+		// Use airline field if livery not found
+		liveryField = airlineField
+	}
+
 	routeField := schema.GetFieldMapping("route")
 	flightModeField := schema.GetFieldMapping("flight_mode")
 	flightTimeField := schema.GetFieldMapping("flight_time")
-	pilotCallsignField := schema.GetFieldMapping("pilot_callsign")
 	aircraftField := schema.GetFieldMapping("aircraft")
-	liveryField := schema.GetFieldMapping("livery")
 	routeATIDField := schema.GetFieldMapping("route_at_id")
 	pilotATIDField := schema.GetFieldMapping("pilot_at_id")
 
 	// Extract route (optional but recommended)
+	// Note: Route field can be either a string or a linked record array
 	var route string
+	var routeATIDFromRoute *string
 	if routeField != nil {
 		if rawRoute, ok := record[routeField.AirtableName]; ok {
-			if routeStr, ok := rawRoute.(string); ok {
+			// Check if it's a linked record array (most common case)
+			if idArray, ok := rawRoute.([]interface{}); ok && len(idArray) > 0 {
+				// Extract the first ID from the linked record array
+				if idStr, ok := idArray[0].(string); ok {
+					routeATIDFromRoute = &idStr
+				}
+			} else if routeStr, ok := rawRoute.(string); ok {
+				// Fallback: treat as string
 				route = strings.TrimSpace(routeStr)
 			}
 		}
@@ -296,12 +330,20 @@ func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRec
 	}
 
 	// Extract pilot callsign (optional but recommended)
-	var pilotCallsign string
+	// Note: Callsign field can be either a string or a linked record array
+	// We extract the Airtable ID from linked records, but don't store the callsign string
+	// Instead, we'll look it up from pilot_at_synced and get IFC ID
+	var pilotATIDFromCallsign *string
 	if pilotCallsignField != nil {
 		if rawCallsign, ok := record[pilotCallsignField.AirtableName]; ok {
-			if callsignStr, ok := rawCallsign.(string); ok {
-				pilotCallsign = strings.TrimSpace(callsignStr)
+			// Check if it's a linked record array (most common case)
+			if idArray, ok := rawCallsign.([]interface{}); ok && len(idArray) > 0 {
+				// Extract the first ID from the linked record array
+				if idStr, ok := idArray[0].(string); ok {
+					pilotATIDFromCallsign = &idStr
+				}
 			}
+			// Note: We don't store the callsign string here - we'll look it up from pilot_at_synced
 		}
 	}
 
@@ -326,6 +368,7 @@ func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRec
 	}
 
 	// Extract route_at_id (optional reference)
+	// Priority: 1) Explicit route_at_id field mapping, 2) From Route linked record array
 	var routeATID *string
 	if routeATIDField != nil {
 		if rawRouteID, ok := record[routeATIDField.AirtableName]; ok {
@@ -337,8 +380,13 @@ func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRec
 			}
 		}
 	}
+	// Fallback: use ID extracted from Route field if no explicit route_at_id field
+	if routeATID == nil && routeATIDFromRoute != nil {
+		routeATID = routeATIDFromRoute
+	}
 
 	// Extract pilot_at_id (optional reference)
+	// Priority: 1) Explicit pilot_at_id field mapping, 2) From Callsign linked record array
 	var pilotATID *string
 	if pilotATIDField != nil {
 		if rawPilotID, ok := record[pilotATIDField.AirtableName]; ok {
@@ -348,6 +396,44 @@ func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRec
 					pilotATID = &idStr
 				}
 			}
+		}
+	}
+	// Fallback: use ID extracted from Callsign field if no explicit pilot_at_id field
+	if pilotATID == nil && pilotATIDFromCallsign != nil {
+		pilotATID = pilotATIDFromCallsign
+	}
+
+	// Look up pilot from pilot_at_synced to get callsign
+	var pilotCallsignFromSync string
+	if pilotATID != nil && *pilotATID != "" {
+		// Query pilot_at_synced to get callsign
+		type PilotSynced struct {
+			Callsign string `gorm:"column:callsign"`
+		}
+		var pilotSynced PilotSynced
+		err := j.db.WithContext(ctx).
+			Table("pilot_at_synced").
+			Where("at_id = ? AND server_id = ?", *pilotATID, vaID).
+			First(&pilotSynced).Error
+		
+		if err == nil && pilotSynced.Callsign != "" {
+			pilotCallsignFromSync = pilotSynced.Callsign
+		}
+	}
+
+	// Look up route from route_at_synced to populate route field if missing
+	if routeATID != nil && *routeATID != "" && route == "" {
+		type RouteSynced struct {
+			Route string `gorm:"column:route"`
+		}
+		var routeSynced RouteSynced
+		err := j.db.WithContext(ctx).
+			Table("route_at_synced").
+			Where("at_id = ? AND server_id = ?", *routeATID, vaID).
+			First(&routeSynced).Error
+		
+		if err == nil && routeSynced.Route != "" {
+			route = routeSynced.Route
 		}
 	}
 
@@ -360,13 +446,20 @@ func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRec
 	}
 
 	// Create PIREP entity
+	// Use callsign from pilot_at_synced if available, otherwise keep empty
+	finalPilotCallsign := pilotCallsignFromSync
+	if finalPilotCallsign == "" {
+		// Fallback: keep empty
+		finalPilotCallsign = ""
+	}
+	
 	pirepATSynced := &PirepATSynced{
 		ATID:          airtableRecordID,
 		ServerID:      vaID,
 		Route:         route,
 		FlightMode:    flightMode,
 		FlightTime:    flightTime,
-		PilotCallsign: pilotCallsign,
+		PilotCallsign: finalPilotCallsign, // Store callsign from pilot_at_synced
 		Aircraft:      aircraft,
 		Livery:        livery,
 		RouteATID:     routeATID,
@@ -381,7 +474,7 @@ func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRec
 
 	// Log with relevant info
 	log.Printf("[PirepSyncJob] Upserted PIREP: pilot=%s, route=%s, aircraft=%s, livery=%s, mode=%s, time=%.2fh (record: %s)",
-		pilotCallsign, route, aircraft, livery, flightMode, getFlightTimeValue(flightTime), airtableRecordID)
+		finalPilotCallsign, route, aircraft, livery, flightMode, getFlightTimeValue(flightTime), airtableRecordID)
 
 	return nil
 }
@@ -396,7 +489,7 @@ func getFlightTimeValue(ft *float64) float64 {
 
 // getLastSyncTimestamp gets the most recent sync timestamp for this VA from sync history
 func (j *PirepSyncJob) getLastSyncTimestamp(ctx context.Context, vaID string) (*string, error) {
-	lastSyncTime, err := j.syncRepo.GetLastSyncTimeForEvent(ctx, sync.SyncEventPirepsAT)
+	lastSyncTime, err := j.syncRepo.GetLastSyncTimeForVAAndEvent(ctx, vaID, platformVA.SyncEventPirepsAT)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last sync timestamp: %w", err)
@@ -410,6 +503,11 @@ func (j *PirepSyncJob) getLastSyncTimestamp(ctx context.Context, vaID string) (*
 	// Format as ISO 8601 string for Airtable filtering
 	timestamp := lastSyncTime.Format(time.RFC3339)
 	return &timestamp, nil
+}
+
+// Name returns the job name for the scheduler
+func (j *PirepSyncJob) Name() string {
+	return "pirep-sync"
 }
 
 // RunScheduled runs the PIREP sync job on a schedule

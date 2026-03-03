@@ -177,14 +177,15 @@ func (h *Handler) EventFormHandler() http.HandlerFunc {
 			}
 
 			eventData = map[string]interface{}{
-				"IsEdit":      true,
-				"ID":          event.ID,
-				"Name":        event.Name,
+				"IsEdit":     true,
+				"ID":         event.ID,
+				"Name":       event.Name,
 				"Description": event.Description,
-				"Status":      event.Status,
-				"StartDate":   startDateStr,
-				"EndDate":     endDateStr,
-				"IsActive":    event.IsActive(),
+				"Status":     event.Status,
+				"FlightMode": event.FlightMode,
+				"StartDate":  startDateStr,
+				"EndDate":    endDateStr,
+				"IsActive":   event.IsActive(),
 			}
 		} else {
 			// New event
@@ -248,6 +249,7 @@ func (h *Handler) CreateEventHandler() http.HandlerFunc {
 		name := r.FormValue("name")
 		description := r.FormValue("description")
 		status := r.FormValue("status")
+		flightMode := r.FormValue("flight_mode")
 		startDateStr := r.FormValue("start_date")
 		endDateStr := r.FormValue("end_date")
 
@@ -282,10 +284,16 @@ func (h *Handler) CreateEventHandler() http.HandlerFunc {
 			descPtr = &description
 		}
 
+		var flightModePtr *string
+		if flightMode != "" {
+			flightModePtr = &flightMode
+		}
+
 		req := CreateEventRequest{
 			Name:        name,
 			Description: descPtr,
 			Status:      status,
+			FlightMode:  flightModePtr,
 			StartDate:   startDate,
 			EndDate:     endDate,
 		}
@@ -377,6 +385,9 @@ func (h *Handler) UpdateEventHandler() http.HandlerFunc {
 		}
 		if status := r.FormValue("status"); status != "" {
 			req.Status = &status
+		}
+		if flightMode := r.FormValue("flight_mode"); flightMode != "" {
+			req.FlightMode = &flightMode
 		}
 
 		if startDateStr := r.FormValue("start_date"); startDateStr != "" {

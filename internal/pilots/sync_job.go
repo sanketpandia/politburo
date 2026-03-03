@@ -8,7 +8,6 @@ import (
 	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/infra/queue"
-	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
@@ -24,7 +23,7 @@ type SyncJob struct {
 	db               *gorm.DB
 	cache            cache.CacheInterface
 	configRepo       *repositories.DataProviderConfigRepo
-	syncHistoryRepo  *repositories.VASyncHistoryRepo
+	syncRepo         *platformVA.SyncRepository
 	pilotRepo        *Repository
 	airtableProvider *providers.AirtableProvider
 	redisQueue       *queue.RedisQueueService // Redis queue for async processing
@@ -37,7 +36,7 @@ func NewSyncJob(
 	db *gorm.DB,
 	cache cache.CacheInterface,
 	configRepo *repositories.DataProviderConfigRepo,
-	syncHistoryRepo *repositories.VASyncHistoryRepo,
+	syncRepo *platformVA.SyncRepository,
 	pilotRepo *Repository,
 	redisQueue *queue.RedisQueueService,
 	metricsReg *metrics.MetricsRegistry,
@@ -46,7 +45,7 @@ func NewSyncJob(
 		db:               db,
 		cache:            cache,
 		configRepo:       configRepo,
-		syncHistoryRepo:  syncHistoryRepo,
+		syncRepo:         syncRepo,
 		pilotRepo:        pilotRepo,
 		airtableProvider: providers.NewAirtableProvider(cache),
 		redisQueue:       redisQueue,
@@ -357,7 +356,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 		log.Printf("[PilotSyncJob] VA %s: Queue: %s - Workers will process items asynchronously", vaName, streamName)
 		// Record sync history after successful enqueue
 		if enqueuedCount > 0 {
-			if err := j.syncHistoryRepo.RecordSync(ctx, vaID, constants.SyncEventPilotsAT); err != nil {
+			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventPilotsAT); err != nil {
 				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
 			}
 		}
@@ -366,7 +365,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 			vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
 		// Record sync history after direct processing
 		if syncedCount > 0 {
-			if err := j.syncHistoryRepo.RecordSync(ctx, vaID, constants.SyncEventPilotsAT); err != nil {
+			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventPilotsAT); err != nil {
 				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
 			}
 		}
@@ -478,7 +477,7 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 // getLastSyncTimestamp gets the most recent sync timestamp for this VA from sync history
 // This is used for incremental syncing - only fetch records modified after this time
 func (j *SyncJob) getLastSyncTimestamp(ctx context.Context, vaID string) (*string, error) {
-	lastSyncTime, err := j.syncHistoryRepo.GetLastSyncTimeForEvent(ctx, constants.SyncEventPilotsAT)
+	lastSyncTime, err := j.syncRepo.GetLastSyncTimeForVAAndEvent(ctx, vaID, platformVA.SyncEventPilotsAT)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last sync timestamp: %w", err)

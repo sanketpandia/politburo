@@ -229,6 +229,15 @@ func NewRouter(application *app.App) http.Handler {
 		dashboard.Group(func(member chi.Router) {
 			member.Use(middleware.IsMemberMiddleware())
 
+			// Dashboard page (all members)
+			member.Get("/", application.Features.DashboardHandler.DashboardPageHandler())
+
+			// Leaderboard pilot logs endpoint
+			member.Get("/leaderboard/pilot/logs", application.Features.DashboardHandler.GetPilotPirepLogsHandler())
+
+			// Test click handler endpoint
+			member.Get("/test-click", application.Features.DashboardHandler.TestClickHandler())
+
 			// Live Flights page (staff + admin)
 			member.Get("/live", flights.LiveFlightsPageHandler(application.Infra.RedisCache))
 
@@ -881,9 +890,13 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 			mappedFields[airlineField] = liveryName
 		}
 
-		// Flight Mode
+		// Flight Mode - use event's flight_mode if set, otherwise fallback to hardcoded value
 		if flightModeField := getFieldName("flight_mode"); flightModeField != "" {
-			mappedFields[flightModeField] = "World Tour 10"
+			flightModeValue := "World Tour 10" // Default fallback
+			if activeTour.FlightMode != nil && *activeTour.FlightMode != "" {
+				flightModeValue = *activeTour.FlightMode
+			}
+			mappedFields[flightModeField] = flightModeValue
 		}
 
 		// Route - use Airtable ID if available

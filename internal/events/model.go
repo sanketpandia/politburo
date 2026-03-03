@@ -18,6 +18,7 @@ type Event struct {
 	Name        string       `gorm:"column:name;type:varchar(255);not null"`
 	Description *string      `gorm:"column:description;type:text"`
 	Status      string       `gorm:"column:status;type:varchar(20);default:'draft'"`
+	FlightMode  *string      `gorm:"column:flight_mode;type:varchar(100)"`
 	StartDate   sql.NullTime `gorm:"column:start_date;type:timestamptz;index:idx_events_date_range"`
 	EndDate     sql.NullTime `gorm:"column:end_date;type:timestamptz;index:idx_events_date_range"`
 	CreatedAt   time.Time    `gorm:"column:created_at;type:timestamptz;autoCreateTime:milli"`

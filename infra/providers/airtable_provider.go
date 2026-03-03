@@ -10,7 +10,9 @@ import (
 	"infinite-experiment/politburo/internal/models/dtos"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -43,15 +45,16 @@ func (p *AirtableProvider) FetchPilotRecord(ctx context.Context, pilotID string,
 		return nil, fmt.Errorf("provider credentials not found in context")
 	}
 
-	// Build Airtable API URL
-	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s/%s",
+	// Build Airtable API URL with proper encoding for table name
+	encodedTableName := url.PathEscape(schema.TableName)
+	apiURL := fmt.Sprintf("https://api.airtable.com/v0/%s/%s/%s",
 		creds.BaseID,
-		schema.TableName,
+		encodedTableName,
 		pilotID,
 	)
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -106,14 +109,22 @@ func (p *AirtableProvider) FetchRecords(ctx context.Context, schema *platformVA.
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	// Build URL
-	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s/listRecords",
+	// Log payload for debugging
+	if filters != nil && filters.ModifiedSince != nil {
+		log.Printf("[AirtableProvider] FetchRecords - Table: %s, LastModifiedField: %s, ModifiedSince: %s, FilterFormula: %v",
+			schema.TableName, schema.LastModifiedField, *filters.ModifiedSince, payload["filterByFormula"])
+		log.Printf("[AirtableProvider] Full payload: %s", string(payloadBytes))
+	}
+
+	// Build URL with proper encoding for table name (spaces, special chars)
+	encodedTableName := url.PathEscape(schema.TableName)
+	apiURL := fmt.Sprintf("https://api.airtable.com/v0/%s/%s/listRecords",
 		creds.BaseID,
-		schema.TableName,
+		encodedTableName,
 	)
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -185,14 +196,15 @@ func (p *AirtableProvider) SubmitRecord(ctx context.Context, schema *platformVA.
 		return "", fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	// Build Airtable API URL
-	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s",
+	// Build Airtable API URL with proper encoding for table name
+	encodedTableName := url.PathEscape(schema.TableName)
+	apiURL := fmt.Sprintf("https://api.airtable.com/v0/%s/%s",
 		creds.BaseID,
-		schema.TableName,
+		encodedTableName,
 	)
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -367,7 +379,8 @@ func (p *AirtableProvider) buildFetchPayload(schema *platformVA.EntitySchema, fi
 			payload["filterByFormula"] = filters.FilterFormula
 		} else if filters.ModifiedSince != nil && schema.LastModifiedField != "" {
 			// Fall back to modified since filter
-			formula := fmt.Sprintf("IS_AFTER({%s}, '%s')", schema.LastModifiedField, *filters.ModifiedSince)
+			// Airtable requires double quotes for date strings in formulas
+			formula := fmt.Sprintf("IS_AFTER({%s}, \"%s\")", schema.LastModifiedField, *filters.ModifiedSince)
 			payload["filterByFormula"] = formula
 		}
 	}
@@ -462,12 +475,13 @@ func (p *AirtableProvider) FetchTableFields(ctx context.Context, creds *platform
 
 // FetchSampleRecord fetches the first record from a table to show sample data
 func (p *AirtableProvider) FetchSampleRecord(ctx context.Context, config *dtos.ProviderConfigData, tableName string) (map[string]interface{}, error) {
-	url := fmt.Sprintf("https://api.airtable.com/v0/%s/%s?pageSize=1",
+	encodedTableName := url.PathEscape(tableName)
+	apiURL := fmt.Sprintf("https://api.airtable.com/v0/%s/%s?pageSize=1",
 		config.Credentials.BaseID,
-		tableName,
+		encodedTableName,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

@@ -2,6 +2,7 @@ package pireps
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -138,4 +139,23 @@ func (r *Repository) FindByATIDs(ctx context.Context, vaID string, atIDs []strin
 	}
 
 	return pireps, nil
+}
+
+// GetMaxATCreatedTime returns the maximum at_created_time for a specific VA
+// This is useful for checking the latest record that was synced
+// Note: at_created_time is the Airtable record creation time, NOT the "Last Modified" field
+func (r *Repository) GetMaxATCreatedTime(ctx context.Context, vaID string) (*time.Time, error) {
+	var maxTime *time.Time
+
+	err := r.db.WithContext(ctx).
+		Model(&PirepATSynced{}).
+		Where("server_id = ? AND at_created_time IS NOT NULL", vaID).
+		Select("MAX(at_created_time)").
+		Scan(&maxTime).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return maxTime, nil
 }

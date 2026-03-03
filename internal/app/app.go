@@ -17,6 +17,7 @@ import (
 	"infinite-experiment/politburo/infra/security"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
+	"infinite-experiment/politburo/internal/dashboard"
 	"infinite-experiment/politburo/internal/datasource"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/events"
@@ -24,6 +25,7 @@ import (
 	"infinite-experiment/politburo/internal/liverymappings"
 	membershipsFeature "infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
+	"infinite-experiment/politburo/internal/pireps"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/platform/apikeys"
 	"infinite-experiment/politburo/internal/platform/claims"
@@ -93,12 +95,13 @@ type FeatureDeps struct {
 	ServersRegSvc         *servers.RegistrationService
 
 	// Handlers
-	MembershipsHandler    *membershipsFeature.Handler
-	PilotsHandler         *pilots.Handler
-	ServersHandler        *servers.Handler
-	VAAdminHandler        *vaadmin.Handler
-	EventsHandler         *events.Handler
-	DatasourceHandler     *datasource.Handler
+	DashboardHandler      *dashboard.Handler
+	MembershipsHandler   *membershipsFeature.Handler
+	PilotsHandler        *pilots.Handler
+	ServersHandler       *servers.Handler
+	VAAdminHandler       *vaadmin.Handler
+	EventsHandler        *events.Handler
+	DatasourceHandler    *datasource.Handler
 	LiveryMappingsHandler *liverymappings.Handler
 
 	// Providers
@@ -106,9 +109,11 @@ type FeatureDeps struct {
 
 	// Jobs
 	PilotSyncJob *pilots.SyncJob
+	PirepSyncJob *pireps.PirepSyncJob
 
 	// Workers
-	PilotSyncWorker *pilots.SyncWorker
+	PilotSyncWorker  *pilots.SyncWorker
+	PirepQueueWorker *pireps.QueueWorker
 }
 
 // New initializes the entire application with all dependencies
@@ -348,14 +353,16 @@ func (a *App) initFeatures() error {
 	a.Infra.SyncContainer = syncContainer
 	logging.Debug("Sync jobs initialized")
 
+	// Initialize platform VA sync repository for sync history
+	vaSyncRepo := va.NewSyncRepository(a.Infra.DB)
+
 	// Initialize pilot sync job
 	configRepo := repositories.NewDataProviderConfigRepo(a.Infra.DB)
-	syncHistoryRepo := repositories.NewVASyncHistoryRepo(a.Infra.DB)
 	pilotSyncJob := pilots.NewSyncJob(
 		a.Infra.DB,
 		a.Infra.RedisCache,
 		configRepo,
-		syncHistoryRepo,
+		vaSyncRepo,
 		pilotRepo,
 		a.Infra.RedisQueue, // Add queue parameter
 		a.Infra.MetricsReg, // Add metrics registry
@@ -373,6 +380,34 @@ func (a *App) initFeatures() error {
 		)
 		logging.Debug("Pilot sync worker initialized")
 	}
+
+	// Initialize PIREP sync job
+	pirepRepo := pireps.NewRepository(a.Infra.DB)
+	pirepSyncJob := pireps.NewPirepSyncJob(
+		a.Infra.DB,
+		a.Infra.RedisCache,
+		a.Platform.VARepo,
+		pirepRepo,
+		vaSyncRepo,
+		a.Infra.RedisQueue,
+	)
+	logging.Debug("PIREP sync job initialized")
+
+	// Initialize PIREP queue worker (if queue enabled)
+	var pirepQueueWorker *pireps.QueueWorker
+	if a.Infra.RedisQueue != nil {
+		pirepQueueWorker = pireps.NewQueueWorker(
+			a.Infra.DB,
+			a.Platform.VARepo,
+			pirepRepo,
+			a.Infra.RedisQueue,
+		)
+		logging.Debug("PIREP queue worker initialized")
+	}
+
+	// Initialize dashboard service and handler
+	dashboardSvc := dashboard.NewService(eventSvc, pirepRepo, a.Infra.DB)
+	dashboardHandler := dashboard.NewHandler(a.Infra.TemplateRenderer, dashboardSvc)
 
 	// Initialize handlers
 	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc, pilotRepo, a.Platform.VAConfigSvc)
@@ -393,6 +428,7 @@ func (a *App) initFeatures() error {
 		MembershipsFeatureSvc: membershipsFeatureSvc,
 		PilotsRegSvc:          pilotsRegSvc,
 		ServersRegSvc:         serversRegSvc,
+		DashboardHandler:      dashboardHandler,
 		MembershipsHandler:    membershipsHandler,
 		PilotsHandler:         pilotsHandler,
 		ServersHandler:        serversHandler,
@@ -402,7 +438,9 @@ func (a *App) initFeatures() error {
 		LiveryMappingsHandler: liveryMappingsHandler,
 		LiveAPIProvider:       liveAPIProvider,
 		PilotSyncJob:          pilotSyncJob,
+		PirepSyncJob:          pirepSyncJob,
 		PilotSyncWorker:       pilotSyncWorker,
+		PirepQueueWorker:      pirepQueueWorker,
 	}
 
 	logging.Info("Features layer initialized")

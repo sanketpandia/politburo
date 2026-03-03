@@ -27,6 +27,7 @@ type CreateEventRequest struct {
 	Name        string                  `json:"name"`
 	Description *string                 `json:"description,omitempty"`
 	Status      string                  `json:"status,omitempty"`
+	FlightMode  *string                 `json:"flight_mode,omitempty"`
 	StartDate   *time.Time              `json:"start_date,omitempty"`
 	EndDate     *time.Time              `json:"end_date,omitempty"`
 	Legs        []CreateEventLegRequest `json:"legs,omitempty"`
@@ -37,6 +38,7 @@ type UpdateEventRequest struct {
 	Name        *string    `json:"name,omitempty"`
 	Description *string    `json:"description,omitempty"`
 	Status      *string    `json:"status,omitempty"`
+	FlightMode  *string    `json:"flight_mode,omitempty"`
 	StartDate   *time.Time `json:"start_date,omitempty"`
 	EndDate     *time.Time `json:"end_date,omitempty"`
 }
@@ -65,6 +67,7 @@ type EventResponse struct {
 	Name        string             `json:"name"`
 	Description *string            `json:"description,omitempty"`
 	Status      string             `json:"status"`
+	FlightMode  *string            `json:"flight_mode,omitempty"`
 	StartDate   *time.Time         `json:"start_date,omitempty"`
 	EndDate     *time.Time         `json:"end_date,omitempty"`
 	IsActive    bool               `json:"is_active"`
@@ -125,6 +128,7 @@ func (s *Service) CreateEvent(ctx context.Context, vaID, createdByID string, req
 		Name:        strings.TrimSpace(req.Name),
 		Description: req.Description,
 		Status:      status,
+		FlightMode:  req.FlightMode,
 		CreatedByID: &createdByID,
 	}
 
@@ -189,6 +193,9 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, updatedByID string, 
 	}
 	if req.Status != nil {
 		event.Status = *req.Status
+	}
+	if req.FlightMode != nil {
+		event.FlightMode = req.FlightMode
 	}
 	if req.StartDate != nil {
 		event.StartDate = sql.NullTime{Time: *req.StartDate, Valid: true}
@@ -578,6 +585,7 @@ func (s *Service) ToResponse(event *Event) EventResponse {
 		Name:        event.Name,
 		Description: event.Description,
 		Status:      event.Status,
+		FlightMode:  event.FlightMode,
 		StartDate:   startDate,
 		EndDate:     endDate,
 		IsActive:    event.IsActive(),

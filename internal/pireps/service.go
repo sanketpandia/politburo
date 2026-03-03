@@ -18,6 +18,7 @@ import (
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/aircraft"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/sync"
 	"log"
 )
@@ -700,12 +701,46 @@ func (s *Service) submitToAirtable(
 	log.Printf("[PirepService] Submitting PIREP to Airtable via provider")
 	log.Printf("[PirepService] Table: %s, Fields: %v", pirepSchema.TableName, pirepObj)
 
+	// Convert dtos.EntitySchema to platformVA.EntitySchema for provider
+	vaPirepSchema := convertDTOsEntitySchema(pirepSchema)
+
 	// Use the DataProvider to submit the record
-	recordID, err := s.airtableProvider.SubmitRecord(ctx, pirepSchema, pirepObj)
+	recordID, err := s.airtableProvider.SubmitRecord(ctx, vaPirepSchema, pirepObj)
 	if err != nil {
 		return "", fmt.Errorf("failed to submit record via provider: %w", err)
 	}
 
 	log.Printf("[PirepService] Record submitted successfully: %s", recordID)
 	return recordID, nil
+}
+
+// convertDTOsEntitySchema converts dtos.EntitySchema to platformVA.EntitySchema
+func convertDTOsEntitySchema(dtoSchema *dtos.EntitySchema) *platformVA.EntitySchema {
+	if dtoSchema == nil {
+		return nil
+	}
+
+	// Convert field mappings
+	fields := make([]platformVA.FieldMapping, len(dtoSchema.Fields))
+	for i, field := range dtoSchema.Fields {
+		fields[i] = platformVA.FieldMapping{
+			InternalName:  field.InternalName,
+			AirtableName:  field.AirtableName,
+			DataType:      field.DataType,
+			Required:      field.Required,
+			DefaultValue:  field.DefaultValue,
+			DisplayName:   field.DisplayName,
+			IsUserVisible: field.IsUserVisible,
+			DisplayFormat: field.DisplayFormat,
+			BotMetadata:   field.BotMetadata,
+		}
+	}
+
+	return &platformVA.EntitySchema{
+		EntityType:        dtoSchema.EntityType,
+		TableName:         dtoSchema.TableName,
+		Enabled:           dtoSchema.Enabled,
+		Fields:            fields,
+		LastModifiedField: dtoSchema.LastModifiedField,
+	}
 }

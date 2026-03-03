@@ -198,6 +198,7 @@
         <tr>
             <th>Name</th>
             <th>Status</th>
+            <th>Flight Mode</th>
             <th>Legs</th>
             <th>Start Date</th>
             <th>End Date</th>
@@ -216,6 +217,13 @@
             </td>
             <td>
                 <span class="status-badge status-{{.Status}}">{{.Status}}</span>
+            </td>
+            <td>
+                {{if .FlightMode}}
+                <span style="font-family: monospace; font-size: 0.8rem;">{{.FlightMode}}</span>
+                {{else}}
+                <span style="color: var(--text-muted);">—</span>
+                {{end}}
             </td>
             <td>{{len .Legs}}</td>
             <td>
@@ -258,7 +266,7 @@
             </td>
         </tr>
         <tr class="legs-row" id="legs-{{.ID}}" style="display: none;">
-            <td colspan="6">
+            <td colspan="7">
                 {{$eventID := .ID}}
                 {{if .Legs}}
                 <table class="legs-nested-table">

@@ -67,6 +67,13 @@ func RegisterScheduledJobs(application *app.App) error {
 	registry.Add(routeSyncJob, "0 */10 * * * *")
 	logging.Info("Route sync job registered (every 10 minutes)")
 
+	// PIREP sync job - runs every 5 minutes
+	// Syncs PIREPs from Airtable to local database (incremental sync only)
+	if application.Features.PirepSyncJob != nil {
+		registry.Add(application.Features.PirepSyncJob, "0 */5 * * * *") // Every 5 minutes
+		logging.Info("PIREP sync job registered (every 5 minutes)")
+	}
+
 	return nil
 }
 
@@ -115,6 +122,18 @@ func RegisterWorkers(application *app.App) error {
 			}
 		}()
 		logging.Info("Pilot sync worker started")
+	}
+
+	// Start PIREP queue worker
+	// Processes PIREPs from Redis queue (enqueued by PIREP sync job)
+	if application.Features.PirepQueueWorker != nil {
+		go func() {
+			// Start with 5 workers per VA
+			if err := application.Features.PirepQueueWorker.Start(ctx, 5); err != nil {
+				logging.Error("PIREP queue worker stopped with error", "error", err)
+			}
+		}()
+		logging.Info("PIREP queue worker started (5 workers per VA)")
 	}
 
 	// Start aircraft livery sync worker

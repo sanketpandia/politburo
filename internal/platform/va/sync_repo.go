@@ -59,3 +59,23 @@ func (r *SyncRepository) GetLastSyncTimeForEvent(ctx context.Context, event stri
 
 	return syncHistory.LastSyncAt, nil
 }
+
+// GetLastSyncTimeForVAAndEvent retrieves the most recent sync timestamp for a specific VA and event
+// Used for incremental syncs - only sync records modified since the last sync for this VA
+func (r *SyncRepository) GetLastSyncTimeForVAAndEvent(ctx context.Context, vaID string, event string) (*time.Time, error) {
+	var syncHistory gorm.VASyncHistory
+
+	err := r.db.WithContext(ctx).
+		Where("va_id = ? AND event = ?", vaID, event).
+		Order("last_sync_at DESC").
+		First(&syncHistory).Error
+
+	if err != nil {
+		if err == gormlib.ErrRecordNotFound {
+			return nil, nil // No sync history found for this VA
+		}
+		return nil, err
+	}
+
+	return syncHistory.LastSyncAt, nil
+}

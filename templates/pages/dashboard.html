@@ -1,0 +1,308 @@
+{{define "content"}}
+<style>
+    .dashboard-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .dashboard-header {
+        margin-bottom: 0.5rem;
+    }
+
+    .dashboard-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .dashboard-card {
+        display: flex;
+        flex-direction: column;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--border-color);
+        background-color: var(--bg-surface);
+        transition: all 0.2s ease;
+        text-decoration: none;
+        color: inherit;
+        min-height: 160px;
+    }
+
+    .dashboard-card:hover {
+        border-color: var(--accent-primary);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .dashboard-card-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .dashboard-card-icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--accent-primary);
+        color: white;
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+
+    .dashboard-card-title {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .dashboard-card-description {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+        margin: 0;
+        flex: 1;
+    }
+
+    .dashboard-card-footer {
+        margin-top: auto;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+</style>
+
+<!-- Secondary Navigation -->
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" .CurrentPage "MenuItems" .MenuItems}}
+
+<!-- Page Header -->
+<div class="page-header">
+    <h2 class="page-title">Dashboard</h2>
+    <p class="page-subtitle">Welcome to {{.ActiveVA.VAName}} - Quick access to all features</p>
+</div>
+
+<!-- Leaderboard Section -->
+{{if .ActiveEvent}}
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div style="margin-bottom: 1rem;">
+        <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;">{{.ActiveEvent.Name}} Leaderboard</h3>
+        <p class="page-subtitle" style="font-size: 0.875rem;">Current standings for the active event</p>
+    </div>
+    {{if .Leaderboard}}
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: var(--text-primary); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Rank</th>
+                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: var(--text-primary); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Pilot</th>
+                    <th style="padding: 0.75rem; text-align: right; font-weight: 600; color: var(--text-primary); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Routes</th>
+                </tr>
+            </thead>
+            <tbody id="leaderboard-tbody">
+                {{range .Leaderboard}}
+                <tr class="pilot-row" 
+                    style="border-bottom: 1px solid var(--border-color); transition: background-color 0.2s ease; cursor: pointer;"
+                    data-pilot-at-id="{{.PilotATID}}"
+                    data-pilot-name="{{.PilotCallsign}}{{if .IFCommunityID}} ({{.IFCommunityID}}){{end}}"
+                    hx-get="/dashboard/leaderboard/pilot/logs?pilot_at_id={{.PilotATID}}"
+                    hx-target="#pilot-logs-modal-content"
+                    hx-swap="innerHTML"
+                    hx-trigger="click"
+                    hx-on::before-request="const row = event.target.closest('.pilot-row'); const modal = document.getElementById('pilot-logs-modal'); const nameEl = document.getElementById('modal-pilot-name'); if (modal) modal.style.display = 'flex'; if (nameEl && row) nameEl.textContent = row.dataset.pilotName + ' - Logs';">
+                    <td style="padding: 0.75rem; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">
+                        {{if eq .Rank 1}}
+                        <span style="color: #FFD700;">🥇</span>
+                        {{else if eq .Rank 2}}
+                        <span style="color: #C0C0C0;">🥈</span>
+                        {{else if eq .Rank 3}}
+                        <span style="color: #CD7F32;">🥉</span>
+                        {{else}}
+                        #{{.Rank}}
+                        {{end}}
+                    </td>
+                    <td style="padding: 0.75rem; color: var(--text-primary); font-size: 0.875rem; font-weight: 500;">
+                        {{if .PilotCallsign}}
+                            {{.PilotCallsign}}{{if .IFCommunityID}} ({{.IFCommunityID}}){{end}}
+                        {{else}}
+                            Unknown
+                        {{end}}
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right; color: var(--text-secondary); font-size: 0.875rem;">
+                        {{.PirepCount}}
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{else}}
+    <div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+        <p>No leaderboard data available yet. Start filing PIREPs to see rankings!</p>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+<!-- Dashboard Cards -->
+<div class="dashboard-container">
+    <div class="dashboard-cards">
+        {{if .IsStaff}}
+        <!-- Live Flights Card (Staff + Admin) -->
+        <a href="/dashboard/live" class="dashboard-card">
+            <div class="dashboard-card-header">
+                <div class="dashboard-card-icon">✈️</div>
+                <h3 class="dashboard-card-title">Live Flights</h3>
+            </div>
+            <p class="dashboard-card-description">
+                View real-time flights on the map. Track active pilots and monitor flight progress.
+            </p>
+            <div class="dashboard-card-footer">Staff & Admin</div>
+        </a>
+
+        <!-- Logbook Card (Staff + Admin) -->
+        <a href="/dashboard/logbook" class="dashboard-card">
+            <div class="dashboard-card-header">
+                <div class="dashboard-card-icon">📋</div>
+                <h3 class="dashboard-card-title">Logbook</h3>
+            </div>
+            <p class="dashboard-card-description">
+                Access pilot flight history and logbook data. Search and filter flights by pilot or date.
+            </p>
+            <div class="dashboard-card-footer">Staff & Admin</div>
+        </a>
+        {{end}}
+
+        {{if .IsAdmin}}
+        <!-- VA Admin Card (Admin only) -->
+        <a href="/dashboard/vaadmin/pilots" class="dashboard-card">
+            <div class="dashboard-card-header">
+                <div class="dashboard-card-icon">👥</div>
+                <h3 class="dashboard-card-title">VA Admin</h3>
+            </div>
+            <p class="dashboard-card-description">
+                Manage pilots, roles, callsigns, and flight modes. Configure VA settings and permissions.
+            </p>
+            <div class="dashboard-card-footer">Admin Only</div>
+        </a>
+
+        <!-- Datasource Card (Admin only) -->
+        <a href="/dashboard/settings/datasource" class="dashboard-card">
+            <div class="dashboard-card-header">
+                <div class="dashboard-card-icon">🔌</div>
+                <h3 class="dashboard-card-title">Datasource</h3>
+            </div>
+            <p class="dashboard-card-description">
+                Configure data provider connections and schema mappings. Set up Airtable integration.
+            </p>
+            <div class="dashboard-card-footer">Admin Only</div>
+        </a>
+
+        <!-- Events Card (Admin only) -->
+        <a href="/dashboard/events" class="dashboard-card">
+            <div class="dashboard-card-header">
+                <div class="dashboard-card-icon">📅</div>
+                <h3 class="dashboard-card-title">Events</h3>
+            </div>
+            <p class="dashboard-card-description">
+                Create and manage events with multiple legs. Configure tour routes and multipliers.
+            </p>
+            <div class="dashboard-card-footer">Admin Only</div>
+        </a>
+
+        <!-- Livery Mappings Card (Admin only) -->
+        <a href="/dashboard/settings/livery-mappings" class="dashboard-card">
+            <div class="dashboard-card-header">
+                <div class="dashboard-card-icon">🎨</div>
+                <h3 class="dashboard-card-title">Livery Mappings</h3>
+            </div>
+            <p class="dashboard-card-description">
+                Map aircraft liveries to airline names. Configure default mappings for PIREP submissions.
+            </p>
+            <div class="dashboard-card-footer">Admin Only</div>
+        </a>
+        {{end}}
+    </div>
+</div>
+
+<!-- Pilot Logs Modal -->
+<div id="pilot-logs-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center; flex-direction: column;">
+    <div class="card" style="max-width: 800px; max-height: 80vh; overflow-y: auto; margin: 2rem; position: relative; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+            <div>
+                <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;" id="modal-pilot-name">Pilot Logs</h3>
+                <p class="page-subtitle" style="font-size: 0.875rem;" id="modal-pilot-info">PIREP logs sorted by completion time</p>
+            </div>
+            <button onclick="document.getElementById('pilot-logs-modal').style.display='none';" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; padding: 0.5rem; line-height: 1;">×</button>
+        </div>
+        <div id="pilot-logs-modal-content">
+            <div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+                <p>Loading logs...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .pilot-row:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .pilot-log-item {
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 1rem;
+        align-items: center;
+        cursor: pointer;
+    }
+
+    .pilot-log-item:last-child {
+        border-bottom: none;
+    }
+
+    .pilot-log-item:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .pilot-log-leg {
+        font-weight: 600;
+        color: var(--accent-primary);
+        font-size: 0.875rem;
+    }
+
+    .pilot-log-details {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .pilot-log-route {
+        font-weight: 500;
+        color: var(--text-primary);
+        font-size: 0.875rem;
+    }
+
+    .pilot-log-meta {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .pilot-log-time {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-align: right;
+        font-family: monospace;
+    }
+</style>
+{{end}}
+

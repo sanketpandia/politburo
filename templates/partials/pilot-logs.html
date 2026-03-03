@@ -1,0 +1,28 @@
+{{define "pilot-logs"}}
+{{if .logs}}
+<div style="display: flex; flex-direction: column; gap: 0;">
+    {{range .logs}}
+    <div class="pilot-log-item" 
+         hx-get="/dashboard/test-click" 
+         hx-trigger="click" 
+         hx-target="this"
+         hx-swap="none"
+         hx-on:click="console.log('Click handler triggered!', event)"
+         hx-on::after-request="console.log('API call completed', event.detail.xhr)">
+        <div class="pilot-log-leg">Leg #{{if .LegNumber}}{{.LegNumber}}{{else}}?{{end}}</div>
+        <div class="pilot-log-details">
+            <div class="pilot-log-route">{{if .Route}}{{.Route}}{{else}}N/A{{end}}</div>
+            <div class="pilot-log-meta">
+                {{if .Aircraft}}{{.Aircraft}}{{end}}{{if and .Aircraft .Livery}} • {{end}}{{if .Livery}}{{.Livery}}{{end}}{{if .FlightTime}}{{if or .Aircraft .Livery}} • {{end}}{{formatFlightTime .FlightTime}}{{end}}
+            </div>
+        </div>
+        <div class="pilot-log-time">{{.ATCreatedTime}}</div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+    <p>No logs found for this pilot.</p>
+</div>
+{{end}}
+{{end}}
