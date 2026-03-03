@@ -207,6 +207,8 @@ func NewRouter(application *app.App) http.Handler {
 				liveryMappings.Post("/", application.Features.LiveryMappingsHandler.CreateMappingHandler())
 				liveryMappings.Delete("/{id}", application.Features.LiveryMappingsHandler.DeleteMappingHandler())
 				liveryMappings.Get("/liveries", application.Features.LiveryMappingsHandler.GetAvailableLiveriesHandler())
+				liveryMappings.Get("/defaults", application.Features.LiveryMappingsHandler.GetDefaultsHandler())
+				liveryMappings.Post("/defaults", application.Features.LiveryMappingsHandler.SetDefaultsHandler())
 			})
 		})
 
@@ -624,6 +626,21 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 			maxAltitude = &maxAltitudeVal
 		}
 
+		// Resolve aircraft and livery names using mappings (with metadata to track defaults)
+		aircraftResolved := application.Platform.VAConfigSvc.ResolveAircraftNameWithMetadata(r.Context(), va.ID, matchedFlight.LiveryID)
+		aircraftName := aircraftResolved.Value
+		if aircraftName == "" {
+			// Fallback to original if mapping fails
+			aircraftName = matchedFlight.AircraftName
+		}
+
+		liveryResolved := application.Platform.VAConfigSvc.ResolveLiveryNameWithMetadata(r.Context(), va.ID, matchedFlight.LiveryID)
+		liveryName := liveryResolved.Value
+		if liveryName == "" {
+			// Fallback to original if mapping fails
+			liveryName = matchedFlight.LiveryName
+		}
+
 		// Generate flight comments with required format
 		commentsParts := []string{}
 		if submitRequest.FlightTime != "" {
@@ -640,6 +657,14 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 			commentsParts = append(commentsParts, fmt.Sprintf("Max Altitude: %d ft", *maxAltitude))
 		}
 
+		// Add remarks for defaults used
+		if aircraftResolved.UsedDefault && aircraftResolved.OriginalValue != "" {
+			commentsParts = append(commentsParts, fmt.Sprintf("Aircraft Flown: %s", aircraftResolved.OriginalValue))
+		}
+		if liveryResolved.UsedDefault && liveryResolved.OriginalValue != "" {
+			commentsParts = append(commentsParts, fmt.Sprintf("Livery Flown: %s", liveryResolved.OriginalValue))
+		}
+
 		// Append to existing remarks if present, otherwise set as new
 		if len(commentsParts) > 0 {
 			commentsText := strings.Join(commentsParts, "\n")
@@ -648,19 +673,6 @@ func handleTourPirepSubmit(application *app.App) http.HandlerFunc {
 			} else {
 				enrichedRequest.PilotRemarks = commentsText
 			}
-		}
-
-		// Resolve aircraft and livery names using mappings
-		aircraftName := application.Platform.VAConfigSvc.ResolveAircraftName(r.Context(), va.ID, matchedFlight.LiveryID)
-		if aircraftName == "" {
-			// Fallback to original if mapping fails
-			aircraftName = matchedFlight.AircraftName
-		}
-
-		liveryName := application.Platform.VAConfigSvc.ResolveLiveryName(r.Context(), va.ID, matchedFlight.LiveryID)
-		if liveryName == "" {
-			// Fallback to original if mapping fails
-			liveryName = matchedFlight.LiveryName
 		}
 
 		// Get provider configs (following the pattern from pilot sync job)

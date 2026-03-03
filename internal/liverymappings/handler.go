@@ -11,6 +11,7 @@ import (
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -18,13 +19,15 @@ import (
 // Handler handles livery mapping UI and API endpoints
 type Handler struct {
 	aircraftRepo     *aircraft.Repository
+	vaConfigSvc      *platformVA.ConfigService
 	templateRenderer *templates.Renderer
 }
 
 // NewHandler creates a new livery mappings handler
-func NewHandler(aircraftRepo *aircraft.Repository, templateRenderer *templates.Renderer) *Handler {
+func NewHandler(aircraftRepo *aircraft.Repository, vaConfigSvc *platformVA.ConfigService, templateRenderer *templates.Renderer) *Handler {
 	return &Handler{
 		aircraftRepo:     aircraftRepo,
+		vaConfigSvc:      vaConfigSvc,
 		templateRenderer: templateRenderer,
 	}
 }
@@ -336,6 +339,104 @@ func (h *Handler) GetAvailableLiveriesHandler() http.HandlerFunc {
 				AircraftName: livery.AircraftName,
 				LiveryName:   livery.LiveryName,
 			})
+		}
+
+		httpdto.WriteSuccess(w, start, response, http.StatusOK)
+	}
+}
+
+// GetDefaultsHandler handles GET /api/v1/admin/livery-mappings/defaults
+// Returns the default aircraft and airline values for the active VA
+func (h *Handler) GetDefaultsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Get VA ID from claims
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, start, "unauthorized", "Missing authentication", http.StatusUnauthorized)
+			return
+		}
+
+		vaID := claims.ServerID()
+		if vaID == "" {
+			httpdto.WriteError(w, start, "invalid_request", "VA ID not found", http.StatusBadRequest)
+			return
+		}
+
+		// Get default values
+		defaultAircraft, _ := h.vaConfigSvc.GetConfigVal(r.Context(), vaID, platformVA.ConfigKeyDefaultAircraft)
+		defaultAirline, _ := h.vaConfigSvc.GetConfigVal(r.Context(), vaID, platformVA.ConfigKeyDefaultAirline)
+
+		response := map[string]string{
+			"defaultAircraft": defaultAircraft,
+			"defaultAirline":  defaultAirline,
+		}
+
+		httpdto.WriteSuccess(w, start, response, http.StatusOK)
+	}
+}
+
+// SetDefaultsHandler handles POST /api/v1/admin/livery-mappings/defaults
+// Sets the default aircraft and airline values for the active VA
+func (h *Handler) SetDefaultsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Get VA ID from claims
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, start, "unauthorized", "Missing authentication", http.StatusUnauthorized)
+			return
+		}
+
+		vaID := claims.ServerID()
+		if vaID == "" {
+			httpdto.WriteError(w, start, "invalid_request", "VA ID not found", http.StatusBadRequest)
+			return
+		}
+
+		// Parse request body
+		var req struct {
+			DefaultAircraft string `json:"defaultAircraft"`
+			DefaultAirline  string `json:"defaultAirline"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpdto.WriteError(w, start, "invalid_request", "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Set default values using SetVaConfig
+		configs := make(map[string]string)
+		if req.DefaultAircraft != "" {
+			configs[platformVA.ConfigKeyDefaultAircraft] = req.DefaultAircraft
+		}
+		if req.DefaultAirline != "" {
+			configs[platformVA.ConfigKeyDefaultAirline] = req.DefaultAirline
+		}
+
+		// If both are empty, we can still update (to clear them)
+		if len(configs) == 0 {
+			// Allow clearing defaults by sending empty strings
+			configs[platformVA.ConfigKeyDefaultAircraft] = ""
+			configs[platformVA.ConfigKeyDefaultAirline] = ""
+		}
+
+		_, err := h.vaConfigSvc.SetVaConfig(r.Context(), configs)
+		if err != nil {
+			logging.Error("Failed to set default values", "error", err, "vaID", vaID)
+			httpdto.WriteError(w, start, "internal_error", "Failed to set default values", http.StatusInternalServerError)
+			return
+		}
+
+		// Return updated values
+		defaultAircraft, _ := h.vaConfigSvc.GetConfigVal(r.Context(), vaID, platformVA.ConfigKeyDefaultAircraft)
+		defaultAirline, _ := h.vaConfigSvc.GetConfigVal(r.Context(), vaID, platformVA.ConfigKeyDefaultAirline)
+
+		response := map[string]string{
+			"defaultAircraft": defaultAircraft,
+			"defaultAirline":  defaultAirline,
 		}
 
 		httpdto.WriteSuccess(w, start, response, http.StatusOK)

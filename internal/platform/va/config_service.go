@@ -42,6 +42,10 @@ const (
 	ConfigKeyATFieldLastModified = "at_field_last_modified"
 
 	ConfigKeyTourFlightMode = "tour_flight_mode"
+
+	// Default values for livery mappings
+	ConfigKeyDefaultAircraft = "default_aircraft"
+	ConfigKeyDefaultAirline  = "default_airline"
 )
 
 var AllowedVAConfigKeys = map[string]struct{}{
@@ -64,6 +68,8 @@ var AllowedVAConfigKeys = map[string]struct{}{
 	ConfigKeyATFieldRoutesRoute:           {},
 	ConfigKeyAirtableCallsignColumnPrefix: {},
 	ConfigKeyTourFlightMode:               {},
+	ConfigKeyDefaultAircraft:             {},
+	ConfigKeyDefaultAirline:               {},
 }
 
 func ListAllowedVAConfigKeys() []string {
@@ -371,11 +377,20 @@ func (s *ConfigService) ResolveAircraftName(ctx stdCtx.Context, vaID, liveryID s
 		return aircraftName
 	}
 
-	// If mapping exists for aircraft, use it; otherwise return original
+	// If mapping exists for aircraft, use it
 	if mappedAircraft, ok := mappings["aircraft"]; ok && mappedAircraft != "" {
+		log.Printf("[ConfigService] Using mapped aircraft for va_id=%s, livery_id=%s: %s", vaID, liveryID, mappedAircraft)
 		return mappedAircraft
 	}
 
+	// No mapping found - check for default aircraft value
+	if defaultAircraft, ok := s.GetConfigVal(ctx, vaID, ConfigKeyDefaultAircraft); ok && defaultAircraft != "" {
+		log.Printf("[ConfigService] No mapping found, using default aircraft for va_id=%s, livery_id=%s: %s (original: %s)", vaID, liveryID, defaultAircraft, aircraftName)
+		return defaultAircraft
+	}
+
+	// Fallback to original aircraft name
+	log.Printf("[ConfigService] No mapping or default found, using original aircraft name for va_id=%s, livery_id=%s: %s", vaID, liveryID, aircraftName)
 	return aircraftName
 }
 
@@ -405,10 +420,108 @@ func (s *ConfigService) ResolveLiveryName(ctx stdCtx.Context, vaID, liveryID str
 		return liveryName
 	}
 
-	// If mapping exists for airline, use it; otherwise return original
+	// If mapping exists for airline, use it
 	if mappedAirline, ok := mappings["airline"]; ok && mappedAirline != "" {
+		log.Printf("[ConfigService] Using mapped airline for va_id=%s, livery_id=%s: %s", vaID, liveryID, mappedAirline)
 		return mappedAirline
 	}
 
+	// No mapping found - check for default airline value
+	if defaultAirline, ok := s.GetConfigVal(ctx, vaID, ConfigKeyDefaultAirline); ok && defaultAirline != "" {
+		log.Printf("[ConfigService] No mapping found, using default airline for va_id=%s, livery_id=%s: %s (original: %s)", vaID, liveryID, defaultAirline, liveryName)
+		return defaultAirline
+	}
+
+	// Fallback to original livery name
+	log.Printf("[ConfigService] No mapping or default found, using original livery name for va_id=%s, livery_id=%s: %s", vaID, liveryID, liveryName)
 	return liveryName
+}
+
+// ResolvedValue represents a resolved value with metadata about how it was resolved
+type ResolvedValue struct {
+	Value          string
+	UsedDefault    bool
+	OriginalValue  string
+}
+
+// ResolveAircraftNameWithMetadata resolves aircraft name and returns metadata about resolution
+func (s *ConfigService) ResolveAircraftNameWithMetadata(ctx stdCtx.Context, vaID, liveryID string) ResolvedValue {
+	if liveryID == "" {
+		return ResolvedValue{Value: "", UsedDefault: false, OriginalValue: ""}
+	}
+
+	// Get aircraft name from livery
+	liveryData := s.aircraftSvc.GetAircraftLivery(ctx, liveryID)
+	if liveryData == nil {
+		return ResolvedValue{Value: "", UsedDefault: false, OriginalValue: ""}
+	}
+
+	aircraftName := liveryData.AircraftName
+	if aircraftName == "" {
+		return ResolvedValue{Value: "", UsedDefault: false, OriginalValue: ""}
+	}
+
+	// Check for mapping
+	mappings, err := s.aircraftRepo.GetMappingsByLivery(ctx, vaID, liveryID)
+	if err != nil {
+		log.Printf("[ConfigService] Error fetching aircraft mapping for va_id=%s, livery_id=%s: %v", vaID, liveryID, err)
+		return ResolvedValue{Value: aircraftName, UsedDefault: false, OriginalValue: aircraftName}
+	}
+
+	// If mapping exists for aircraft, use it
+	if mappedAircraft, ok := mappings["aircraft"]; ok && mappedAircraft != "" {
+		log.Printf("[ConfigService] Using mapped aircraft for va_id=%s, livery_id=%s: %s", vaID, liveryID, mappedAircraft)
+		return ResolvedValue{Value: mappedAircraft, UsedDefault: false, OriginalValue: aircraftName}
+	}
+
+	// No mapping found - check for default aircraft value
+	if defaultAircraft, ok := s.GetConfigVal(ctx, vaID, ConfigKeyDefaultAircraft); ok && defaultAircraft != "" {
+		log.Printf("[ConfigService] No mapping found, using default aircraft for va_id=%s, livery_id=%s: %s (original: %s)", vaID, liveryID, defaultAircraft, aircraftName)
+		return ResolvedValue{Value: defaultAircraft, UsedDefault: true, OriginalValue: aircraftName}
+	}
+
+	// Fallback to original aircraft name
+	log.Printf("[ConfigService] No mapping or default found, using original aircraft name for va_id=%s, livery_id=%s: %s", vaID, liveryID, aircraftName)
+	return ResolvedValue{Value: aircraftName, UsedDefault: false, OriginalValue: aircraftName}
+}
+
+// ResolveLiveryNameWithMetadata resolves livery/airline name and returns metadata about resolution
+func (s *ConfigService) ResolveLiveryNameWithMetadata(ctx stdCtx.Context, vaID, liveryID string) ResolvedValue {
+	if liveryID == "" {
+		return ResolvedValue{Value: "", UsedDefault: false, OriginalValue: ""}
+	}
+
+	// Get livery name from livery
+	liveryData := s.aircraftSvc.GetAircraftLivery(ctx, liveryID)
+	if liveryData == nil {
+		return ResolvedValue{Value: "", UsedDefault: false, OriginalValue: ""}
+	}
+
+	liveryName := liveryData.LiveryName
+	if liveryName == "" {
+		return ResolvedValue{Value: "", UsedDefault: false, OriginalValue: ""}
+	}
+
+	// Check for mapping
+	mappings, err := s.aircraftRepo.GetMappingsByLivery(ctx, vaID, liveryID)
+	if err != nil {
+		log.Printf("[ConfigService] Error fetching livery mapping for va_id=%s, livery_id=%s: %v", vaID, liveryID, err)
+		return ResolvedValue{Value: liveryName, UsedDefault: false, OriginalValue: liveryName}
+	}
+
+	// If mapping exists for airline, use it
+	if mappedAirline, ok := mappings["airline"]; ok && mappedAirline != "" {
+		log.Printf("[ConfigService] Using mapped airline for va_id=%s, livery_id=%s: %s", vaID, liveryID, mappedAirline)
+		return ResolvedValue{Value: mappedAirline, UsedDefault: false, OriginalValue: liveryName}
+	}
+
+	// No mapping found - check for default airline value
+	if defaultAirline, ok := s.GetConfigVal(ctx, vaID, ConfigKeyDefaultAirline); ok && defaultAirline != "" {
+		log.Printf("[ConfigService] No mapping found, using default airline for va_id=%s, livery_id=%s: %s (original: %s)", vaID, liveryID, defaultAirline, liveryName)
+		return ResolvedValue{Value: defaultAirline, UsedDefault: true, OriginalValue: liveryName}
+	}
+
+	// Fallback to original livery name
+	log.Printf("[ConfigService] No mapping or default found, using original livery name for va_id=%s, livery_id=%s: %s", vaID, liveryID, liveryName)
+	return ResolvedValue{Value: liveryName, UsedDefault: false, OriginalValue: liveryName}
 }

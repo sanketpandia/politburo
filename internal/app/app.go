@@ -385,7 +385,7 @@ func (a *App) initFeatures() error {
 	datasourceHandler := datasource.NewHandler(a.Platform.VASvc, a.Infra.TemplateRenderer, airtableProvider)
 
 	// Initialize livery mappings handler
-	liveryMappingsHandler := liverymappings.NewHandler(a.Platform.AircraftRepo, a.Infra.TemplateRenderer)
+	liveryMappingsHandler := liverymappings.NewHandler(a.Platform.AircraftRepo, a.Platform.VAConfigSvc, a.Infra.TemplateRenderer)
 
 	logging.Debug("Feature handlers initialized")
 

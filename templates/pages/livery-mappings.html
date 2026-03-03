@@ -227,6 +227,32 @@
     <p class="page-subtitle">Map Infinite Flight liveries to your VA's standardized names for Airtable sync</p>
 </div>
 
+<!-- Default Values Section -->
+<div class="card" style="margin-bottom: 2rem;">
+    <h3 style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 1.5rem;">Default Values</h3>
+    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1.5rem;">
+        Set default aircraft and airline values to use when no specific mapping is found for a livery.
+    </p>
+    <form id="defaults-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label" for="default-aircraft">Default Aircraft</label>
+                <input type="text" class="form-input" id="default-aircraft" name="defaultAircraft" placeholder="e.g., B738">
+                <small style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem; display: block;">Used when no aircraft mapping is found</small>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="default-airline">Default Airline</label>
+                <input type="text" class="form-input" id="default-airline" name="defaultAirline" placeholder="e.g., Your VA Name">
+                <small style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem; display: block;">Used when no airline mapping is found</small>
+            </div>
+        </div>
+        <div class="form-group">
+            <button type="submit" class="btn-primary">Save Defaults</button>
+            <span id="defaults-message" style="margin-left: 1rem;"></span>
+        </div>
+    </form>
+</div>
+
 <!-- Add Mapping Form -->
 <div class="add-mapping-form">
     <h3 style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 1.5rem;">Add New Mapping</h3>
@@ -339,6 +365,48 @@
                 '<div style="text-align: center; color: #dc2626; padding: 2rem;"><p>Failed to load mappings</p></div>';
             document.getElementById('airline-mappings-container').innerHTML = 
                 '<div style="text-align: center; color: #dc2626; padding: 2rem;"><p>Failed to load mappings</p></div>';
+        }
+    }
+
+    // Load default values on page load
+    async function loadDefaults() {
+        try {
+            const response = await fetch('/api/v1/admin/livery-mappings/defaults');
+            const data = await response.json();
+            
+            if (data.status === 'ok' && data.result) {
+                document.getElementById('default-aircraft').value = data.result.defaultAircraft || '';
+                document.getElementById('default-airline').value = data.result.defaultAirline || '';
+            }
+        } catch (error) {
+            console.error('Failed to load defaults:', error);
+        }
+    }
+
+    // Save default values
+    async function saveDefaults(defaultAircraft, defaultAirline) {
+        try {
+            const response = await fetch('/api/v1/admin/livery-mappings/defaults', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    defaultAircraft: defaultAircraft || '',
+                    defaultAirline: defaultAirline || ''
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.status === 'ok') {
+                return { success: true, data: data.result };
+            } else {
+                return { success: false, error: data.error?.message || 'Failed to save defaults' };
+            }
+        } catch (error) {
+            console.error('Failed to save defaults:', error);
+            return { success: false, error: 'Failed to save defaults' };
         }
     }
 
@@ -524,9 +592,36 @@
         }
     });
 
+    // Handle defaults form submission
+    document.getElementById('defaults-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const form = e.target;
+        const formData = new FormData(form);
+        const messageDiv = document.getElementById('defaults-message');
+        
+        const defaultAircraft = formData.get('defaultAircraft') || '';
+        const defaultAirline = formData.get('defaultAirline') || '';
+
+        // Disable form
+        form.classList.add('loading');
+        messageDiv.innerHTML = '';
+
+        const result = await saveDefaults(defaultAircraft, defaultAirline);
+        
+        if (result.success) {
+            messageDiv.innerHTML = '<span style="color: #10b981;">Defaults saved successfully!</span>';
+        } else {
+            messageDiv.innerHTML = `<span style="color: #dc2626;">${result.error || 'Failed to save defaults'}</span>`;
+        }
+        
+        form.classList.remove('loading');
+    });
+
     // Initialize on page load
     loadLiveries();
     loadMappings();
+    loadDefaults();
 </script>
 
 {{end}}
