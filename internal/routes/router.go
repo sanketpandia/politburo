@@ -89,6 +89,7 @@ func NewRouter(application *app.App) http.Handler {
 	fileServer := http.FileServer(http.Dir(staticDir))
 	r.Group(func(static chi.Router) {
 		static.Use(middleware.CDNMiddleware)
+		static.Use(middleware.MimeTypeMiddleware) // Set correct MIME types (especially for .mjs files)
 		static.Handle("/static/*", http.StripPrefix("/static/", fileServer))
 	})
 	logging.Info("Static file server configured", "path", staticDir, "route", "/static/*")
