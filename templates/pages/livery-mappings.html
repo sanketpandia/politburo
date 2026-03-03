@@ -434,6 +434,13 @@
         // Filter mappings by field type
         const filteredMappings = allMappings.filter(m => m.fieldType === activeTab);
         
+        // Sort by target value alphabetically
+        filteredMappings.sort((a, b) => {
+            const targetA = (a.targetValue || '').toLowerCase();
+            const targetB = (b.targetValue || '').toLowerCase();
+            return targetA.localeCompare(targetB);
+        });
+        
         // Render for the active tab
         const containerId = `${activeTab}-mappings-container`;
         const container = document.getElementById(containerId);

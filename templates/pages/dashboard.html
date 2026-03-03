@@ -167,8 +167,10 @@
             </p>
             <div class="dashboard-card-footer">All Members</div>
         </a>
+        {{end}}
 
-        <!-- Logbook Card (All Members) -->
+        {{if .IsStaff}}
+        <!-- Logbook Card (Staff/Admin only) -->
         <a href="/dashboard/logbook" class="dashboard-card">
             <div class="dashboard-card-header">
                 <div class="dashboard-card-icon">📋</div>
@@ -177,7 +179,7 @@
             <p class="dashboard-card-description">
                 Access pilot flight history and logbook data. Search and filter flights by pilot or date.
             </p>
-            <div class="dashboard-card-footer">All Members</div>
+            <div class="dashboard-card-footer">Staff & Admin</div>
         </a>
         {{end}}
 

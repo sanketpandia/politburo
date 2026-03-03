@@ -286,7 +286,7 @@ func (h *Handler) GetUserLogbook() http.HandlerFunc {
 }
 
 // LogbookPageHandler handles GET /dashboard/logbook
-// Serves the logbook page for staff/admin users
+// Serves the logbook page for staff/admin users only (restricted by middleware)
 func (h *Handler) LogbookPageHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get user claims from context (injected by auth middleware)

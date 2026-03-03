@@ -28,23 +28,25 @@ func GetMenuItems(activeVA *session.VAMembership) []MenuItem {
 		Icon:         "dashboard",
 	})
 
-	// All members (pilot, staff, admin) get Live Flights and Logbook
-	baseItems = append(baseItems, []MenuItem{
-		{
-			Label:        "Live Flights",
-			Path:         "/dashboard/live",
-			PageID:       "live",
-			RequiredRole: roles.RolePilot,
-			Icon:         "live",
-		},
-		{
+	// All members (pilot, staff, admin) get Live Flights
+	baseItems = append(baseItems, MenuItem{
+		Label:        "Live Flights",
+		Path:         "/dashboard/live",
+		PageID:       "live",
+		RequiredRole: roles.RolePilot,
+		Icon:         "live",
+	})
+
+	// Staff and admin get Logbook
+	if activeVA.Role == string(roles.RoleAirlineManager) || activeVA.Role == string(roles.RoleAdmin) {
+		baseItems = append(baseItems, MenuItem{
 			Label:        "Logbook",
 			Path:         "/dashboard/logbook",
 			PageID:       "logbook",
-			RequiredRole: roles.RolePilot,
+			RequiredRole: roles.RoleAirlineManager,
 			Icon:         "logbook",
-		},
-	}...)
+		})
+	}
 
 	// Admin-only items
 	if activeVA.Role == string(roles.RoleAdmin) {

@@ -150,8 +150,11 @@ func NewRouter(application *app.App) http.Handler {
 		// Signed link generation endpoint
 		v1.Post("/signed-link", authHandler.GenerateSignedLink())
 
-		// Logbook endpoint
-		v1.Get("/pilots/{ifc_id}/logbook", application.Features.PilotsHandler.GetUserLogbook())
+		// Logbook endpoint (staff/admin only)
+		v1.Route("/pilots/{ifc_id}/logbook", func(logbook chi.Router) {
+			logbook.Use(middleware.IsStaffMiddleware())
+			logbook.Get("/", application.Features.PilotsHandler.GetUserLogbook())
+		})
 
 		// PIREP endpoints - require registration
 		v1.Route("/pireps", func(pireps chi.Router) {
@@ -243,10 +246,15 @@ func NewRouter(application *app.App) http.Handler {
 
 			// Get flight waypoints for route mapping (all members)
 			member.Get("/flights/{flight_id}/waypoints", flights.GetFlightWaypoints(application.Infra.RedisCache))
+		})
 
-			// Logbook page and endpoints (all members)
-			member.Get("/logbook", application.Features.PilotsHandler.LogbookPageHandler())
-			member.Get("/logbook/flights", application.Features.PilotsHandler.LogbookFlightsHandler())
+		// Staff-only routes (staff + admin)
+		dashboard.Group(func(staff chi.Router) {
+			staff.Use(middleware.IsStaffMiddleware())
+
+			// Logbook page and endpoints (staff/admin only)
+			staff.Get("/logbook", application.Features.PilotsHandler.LogbookPageHandler())
+			staff.Get("/logbook/flights", application.Features.PilotsHandler.LogbookFlightsHandler())
 		})
 
 		// Admin-only routes
