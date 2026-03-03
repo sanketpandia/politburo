@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/providers"
+	"infinite-experiment/politburo/infra/session"
+	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/api"
 	"infinite-experiment/politburo/internal/app"
 	"infinite-experiment/politburo/internal/auth"
@@ -21,6 +24,7 @@ import (
 	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/middleware"
 	"infinite-experiment/politburo/internal/models/dtos"
+	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/platform/users"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/sync"
@@ -202,7 +206,8 @@ func NewRouter(application *app.App) http.Handler {
 
 			// Session management API
 			adminAPI.Route("/sessions", func(sessions chi.Router) {
-				sessions.Post("/destroy/{ifc_id}", authHandler.DestroySessionsByIFCId())
+				// Destroy sessions endpoint requires god-mode with key header
+				sessions.With(middleware.IsGodMiddlewareWithKey()).Post("/destroy/{ifc_id}", authHandler.DestroySessionsByIFCId())
 			})
 
 			// Livery mappings API
@@ -221,11 +226,11 @@ func NewRouter(application *app.App) http.Handler {
 
 	// Dashboard routes (require authentication)
 	r.Route("/dashboard", func(dashboard chi.Router) {
-		// Apply authentication middleware to all dashboard routes
-		dashboard.Use(middleware.AuthMiddleware(
-			application.Platform.ClaimsRepo,
-			application.Platform.KeysRepo,
+		// Apply UI authentication middleware to all dashboard routes
+		// Renders 401 error page instead of plain text for browser requests
+		dashboard.Use(uiAuthMiddleware(
 			application.Infra.SessionSvc,
+			application.Infra.TemplateRenderer,
 		))
 
 		// member-only routes (member + staff + admin)
@@ -246,6 +251,9 @@ func NewRouter(application *app.App) http.Handler {
 
 			// Get flight waypoints for route mapping (all members)
 			member.Get("/flights/{flight_id}/waypoints", flights.GetFlightWaypoints(application.Infra.RedisCache))
+
+			// Dashboard signed link endpoint (all members)
+			member.Get("/link", application.Features.DashboardHandler.GetDashboardLinkHandler(authSvc))
 		})
 
 		// Staff-only routes (staff + admin)
@@ -314,7 +322,100 @@ func NewRouter(application *app.App) http.Handler {
 		})
 	})
 
+	// Error handlers
+	r.NotFound(handleNotFound(application.Infra.TemplateRenderer))
+	r.MethodNotAllowed(handleMethodNotAllowed(application.Infra.TemplateRenderer))
+
 	return r
+}
+
+// handleNotFound handles 404 Not Found errors
+func handleNotFound(templateRenderer *templates.Renderer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		data := map[string]interface{}{
+			"PageTitle": "Not Found",
+		}
+		if err := templateRenderer.RenderStandalone(w, "pages/404.html", data); err != nil {
+			logging.Error("Failed to render 404 page", "error", err)
+		}
+	}
+}
+
+// handleMethodNotAllowed handles 405 Method Not Allowed errors
+func handleMethodNotAllowed(templateRenderer *templates.Renderer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		data := map[string]interface{}{
+			"PageTitle": "Method Not Allowed",
+		}
+		if err := templateRenderer.RenderStandalone(w, "pages/404.html", data); err != nil {
+			logging.Error("Failed to render 405 page", "error", err)
+		}
+	}
+}
+
+// uiAuthMiddleware checks for a valid session directly and renders the 401 error page
+// if no session is found. Unlike the API AuthMiddleware, this never calls http.Error —
+// it renders a proper HTML page so the browser displays it correctly.
+func uiAuthMiddleware(
+	sessionSvc *session.SessionService,
+	templateRenderer *templates.Renderer,
+) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check session cookie
+			cookie, err := r.Cookie("session_id")
+			if err != nil {
+				render401(w, templateRenderer)
+				return
+			}
+
+			sess, err := sessionSvc.GetSession(r.Context(), cookie.Value)
+			if err != nil || sess == nil {
+				render401(w, templateRenderer)
+				return
+			}
+
+			if time.Now().After(sess.ExpiresAt) {
+				render401(w, templateRenderer)
+				return
+			}
+
+			activeVA := sess.GetActiveVA()
+			if activeVA == nil {
+				render401(w, templateRenderer)
+				return
+			}
+
+			// Valid session — build claims and set context, same as AuthMiddleware
+			userClaims := &auth.APIKeyClaims{
+				UserUUID:           sess.UserID,
+				VaUUID:             sess.ActiveVAID,
+				RoleValue:          roles.VARole(activeVA.Role),
+				DiscordUIDVal:      sess.DiscordID,
+				DiscordServerIDVal: activeVA.DiscordServerID,
+			}
+
+			ctx := auth.SetUserClaims(r.Context(), userClaims)
+			ctx = auth.SetSessionData(ctx, sess)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// render401 renders the 401 Unauthorized error page
+func render401(w http.ResponseWriter, templateRenderer *templates.Renderer) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnauthorized)
+	data := map[string]interface{}{
+		"PageTitle": "Unauthorized",
+	}
+	if err := templateRenderer.RenderStandalone(w, "pages/401.html", data); err != nil {
+		logging.Error("Failed to render 401 page", "error", err)
+	}
 }
 
 // vaServiceAdapter adapts platform VA service to auth VAService interface

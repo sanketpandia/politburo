@@ -2,11 +2,13 @@ package dashboard
 
 import (
 	"net/http"
+	"time"
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
+	"infinite-experiment/politburo/internal/platform/httpdto"
 )
 
 // Handler handles dashboard UI endpoints
@@ -155,5 +157,51 @@ func (h *Handler) TestClickHandler() http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		// Return empty HTML fragment since hx-swap="none" doesn't use the response
 		w.Write([]byte("<!-- Click handler triggered -->"))
+	}
+}
+
+// GetDashboardLinkHandler handles GET /dashboard/link
+// Returns a signed link to the dashboard UI (similar to /tour command)
+func (h *Handler) GetDashboardLinkHandler(authSvc *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		// Get claims from context (set by AuthMiddleware)
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			logging.Warn("Unauthorized request to /dashboard/link - missing claims")
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Missing authentication claims", http.StatusUnauthorized)
+			return
+		}
+
+		userID := claims.UserID()
+		vaID := claims.ServerID()
+
+		if userID == "" || vaID == "" {
+			logging.Warn("Invalid claims for /dashboard/link", "user_id", userID, "va_id", vaID)
+			httpdto.WriteError(w, initTime, "INVALID_CLAIMS", "Invalid user or VA ID", http.StatusBadRequest)
+			return
+		}
+
+		// Generate signed link to dashboard (15 minute TTL)
+		token, err := authSvc.GenerateSignedLink(r.Context(), userID, vaID, "/dashboard", 15*time.Minute)
+		if err != nil {
+			logging.Error("Failed to generate signed link", "error", err)
+			httpdto.WriteError(w, initTime, "GENERATION_FAILED", "Failed to generate link", http.StatusInternalServerError)
+			return
+		}
+
+		// Get the UI base URL and format the signed link URL
+		uiBaseURL := auth.GetUIBaseURL(r)
+		signedLinkURL := auth.FormatSignedLinkURL(uiBaseURL, token)
+
+		// Return JSON response
+		response := map[string]interface{}{
+			"url":         signedLinkURL,
+			"expires_in":  900, // 15 minutes in seconds
+			"redirect_to": "/dashboard",
+		}
+
+		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
 	}
 }

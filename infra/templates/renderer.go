@@ -194,6 +194,59 @@ func (r *Renderer) RenderPartial(w http.ResponseWriter, templateName string, dat
 	return nil
 }
 
+// RenderStandalone renders a standalone template with the error base layout
+// Useful for error pages that don't need the full app shell or session data
+func (r *Renderer) RenderStandalone(w http.ResponseWriter, templateName string, data map[string]interface{}) error {
+	funcMap := r.getFuncMap()
+
+	// Load error base layout
+	resolvedLayoutPath := resolvePath(r.LayoutPath)
+	// Replace base.html with error.html for error pages
+	errorLayoutPath := strings.Replace(resolvedLayoutPath, "base.html", "error.html", 1)
+	
+	// Load page template
+	resolvedBasePath := resolvePath(r.BasePath)
+	templatePath := filepath.Join(resolvedBasePath, templateName)
+	
+	// Verify files exist
+	files := []string{errorLayoutPath, templatePath}
+	for _, file := range files {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			logging.Error("Template file not found", "file", file, "error", err)
+			http.Error(w, "Template file not found: "+file, http.StatusInternalServerError)
+			return err
+		}
+	}
+
+	// Parse templates with custom functions
+	// Use the layout file's base name as the template name (like RenderTemplate does with base.html)
+	layoutBaseName := filepath.Base(errorLayoutPath)
+	t := template.New(layoutBaseName).Funcs(funcMap)
+
+	// Parse both layout and page template together
+	t, err := t.ParseFiles(files...)
+	if err != nil {
+		logging.Error("Failed to parse template files", "error", err, "files", files)
+		http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
+		return err
+	}
+
+	// Set content type only if headers haven't been written yet
+	// (caller may have already set headers and status code)
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
+	// Execute the layout template (like RenderTemplate does with base.html)
+	// The layout will pull in blocks from the page template automatically
+	if err := t.Execute(w, data); err != nil {
+		logging.Error("Failed to execute template", "error", err)
+		http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
+		return err
+	}
+
+	return nil
+}
+
 // getFuncMap returns the standard template function map
 func (r *Renderer) getFuncMap() template.FuncMap {
 	return template.FuncMap{

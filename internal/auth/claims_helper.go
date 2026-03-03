@@ -55,3 +55,24 @@ func IsGodMode(discordUserID string) bool {
 	log.Printf("GOD_MODE  key: %s | input : %s", godModeKey, discordUserID)
 	return godModeKey != "" && discordUserID == godModeKey
 }
+
+// IsGodModeWithKey checks if the given Discord user ID has god-mode access
+// and validates the provided god-mode key header against GOD_MODE_KEY env variable
+// Returns true if both GOD_MODE matches the user ID and GOD_MODE_KEY matches the provided key
+func IsGodModeWithKey(discordUserID string, godModeKeyHeader string) bool {
+	godModeUserID := os.Getenv("GOD_MODE")
+	godModeKey := os.Getenv("GOD_MODE_KEY")
+	
+	log.Printf("IsGodModeWithKey: GOD_MODE user=%s, input user=%s, GOD_MODE_KEY=%s, header key=%s", 
+		godModeUserID, discordUserID, godModeKey, godModeKeyHeader)
+	log.Printf("IsGodModeWithKey: GOD_MODE_KEY length=%d, header length=%d, match=%v", 
+		len(godModeKey), len(godModeKeyHeader), godModeKey == godModeKeyHeader)
+	
+	// Both must match
+	userMatches := godModeUserID != "" && discordUserID == godModeUserID
+	keyMatches := godModeKey != "" && godModeKeyHeader != "" && godModeKey == godModeKeyHeader
+	
+	log.Printf("IsGodModeWithKey: userMatches=%v, keyMatches=%v, result=%v", userMatches, keyMatches, userMatches && keyMatches)
+	
+	return userMatches && keyMatches
+}
