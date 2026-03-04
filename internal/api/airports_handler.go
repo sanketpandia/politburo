@@ -21,7 +21,7 @@ func SyncAirportsHandler(airportLoader *common.AirportLoaderService) http.Handle
 		}
 
 		// Check if user is god-mode user
-		if !auth.IsGodMode(claims.DiscordUserID()) {
+		if !auth.IsGodMode(r) {
 			common.RespondError(w, initTime, nil, "Unauthorized: god-mode required", http.StatusForbidden)
 			return
 		}

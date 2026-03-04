@@ -21,7 +21,7 @@ func VerifyGodModeHandler() http.HandlerFunc {
 		}
 
 		// Check if user is god-mode user using the common utility
-		isGod := auth.IsGodMode(claims.DiscordUserID())
+		isGod := auth.IsGodMode(r)
 
 		response := map[string]interface{}{
 			"is_god": isGod,

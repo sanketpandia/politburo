@@ -70,6 +70,7 @@ func (r *Repository) GetMembershipByDiscordIDs(ctx context.Context, uid string, 
 		LEFT JOIN va_user_roles vur
 		    ON vur.user_id = u.id
 		   AND vur.va_id = va.id
+		   AND vur.is_active = true
 	`).
 		Where("u.discord_id = ?", uid).
 		Limit(1).

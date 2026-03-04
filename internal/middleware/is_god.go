@@ -15,7 +15,7 @@ func IsGodMiddleware() func(http.Handler) http.Handler {
 			claims := auth.GetUserClaims(r.Context())
 			log.Printf("Discord User ID: %s", claims.DiscordUserID())
 
-			if auth.IsGodMode(claims.DiscordUserID()) {
+			if auth.IsGodMode(r) {
 				next.ServeHTTP(w, r)
 				return
 			}

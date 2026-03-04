@@ -5,6 +5,7 @@ import (
 	"infinite-experiment/politburo/internal/platform/claims"
 	"infinite-experiment/politburo/internal/platform/roles"
 	"log"
+	"net/http"
 	"os"
 )
 
@@ -48,25 +49,43 @@ func MakeClaimsFromApi(ctx context.Context, claimsRepo *claims.Repository, serve
 	}
 }
 
-// IsGodMode checks if the given Discord user ID has god-mode access
-// Returns true if GOD_MODE env variable is set and matches the user ID
-func IsGodMode(discordUserID string) bool {
-	godModeKey := os.Getenv("GOD_MODE")
-	log.Printf("GOD_MODE  key: %s | input : %s", godModeKey, discordUserID)
-	return godModeKey != "" && discordUserID == godModeKey
+// IsGodMode checks if the request has god-mode access
+// Requires both:
+//   - Discord user ID (from claims) matches GOD_MODE env variable
+//   - X-God-Mode-Key header matches GOD_MODE_KEY env variable
+// Returns true only if both conditions are met
+func IsGodMode(r *http.Request) bool {
+	claims := GetUserClaims(r.Context())
+	if claims == nil {
+		return false
+	}
+
+	discordUserID := claims.DiscordUserID()
+	godModeKeyHeader := r.Header.Get("X-God-Mode-Key")
+	
+	godModeUserID := os.Getenv("GOD_MODE")
+	godModeKey := os.Getenv("GOD_MODE_KEY")
+	
+	log.Printf("IsGodMode: GOD_MODE user=%s, input user=%s, GOD_MODE_KEY=%s, header key=%s", 
+		godModeUserID, discordUserID, godModeKey, godModeKeyHeader)
+	
+	// Both must match
+	userMatches := godModeUserID != "" && discordUserID == godModeUserID
+	keyMatches := godModeKey != "" && godModeKeyHeader != "" && godModeKey == godModeKeyHeader
+	
+	log.Printf("IsGodMode: userMatches=%v, keyMatches=%v, result=%v", userMatches, keyMatches, userMatches && keyMatches)
+	
+	return userMatches && keyMatches
 }
 
-// IsGodModeWithKey checks if the given Discord user ID has god-mode access
-// and validates the provided god-mode key header against GOD_MODE_KEY env variable
-// Returns true if both GOD_MODE matches the user ID and GOD_MODE_KEY matches the provided key
+// IsGodModeWithKey is deprecated - use IsGodMode(r *http.Request) instead
+// Kept for backward compatibility
 func IsGodModeWithKey(discordUserID string, godModeKeyHeader string) bool {
 	godModeUserID := os.Getenv("GOD_MODE")
 	godModeKey := os.Getenv("GOD_MODE_KEY")
 	
 	log.Printf("IsGodModeWithKey: GOD_MODE user=%s, input user=%s, GOD_MODE_KEY=%s, header key=%s", 
 		godModeUserID, discordUserID, godModeKey, godModeKeyHeader)
-	log.Printf("IsGodModeWithKey: GOD_MODE_KEY length=%d, header length=%d, match=%v", 
-		len(godModeKey), len(godModeKeyHeader), godModeKey == godModeKeyHeader)
 	
 	// Both must match
 	userMatches := godModeUserID != "" && discordUserID == godModeUserID

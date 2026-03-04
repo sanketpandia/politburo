@@ -15,7 +15,7 @@ func IsAdminMiddleware() func(http.Handler) http.Handler {
 
 			claims := context.GetUserClaims(r.Context())
 
-			if claims.Role() != roles.RoleAdmin.String() && !auth.IsGodMode(claims.DiscordUserID()) {
+			if claims.Role() != roles.RoleAdmin.String() && !auth.IsGodMode(r) {
 				common.RespondPermissionDenied(w, "admin")
 				return
 			}

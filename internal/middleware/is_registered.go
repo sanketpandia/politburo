@@ -19,7 +19,7 @@ func IsRegisteredMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			if claims.UserID() == "" && !context.IsGodMode(claims.DiscordUserID()) {
+			if claims.UserID() == "" && !context.IsGodMode(r) {
 				common.RespondError(w, time.Now(), nil, "You must register before accessing this resource. Please use the /register command in Discord to register your account.", http.StatusForbidden)
 				return
 			}

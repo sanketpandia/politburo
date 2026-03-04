@@ -14,7 +14,7 @@ func IsMemberMiddleware() func(http.Handler) http.Handler {
 			claims := context.GetUserClaims(r.Context())
 
 			// Check permissions BEFORE calling next handler
-			if claims.Role() == "" && !context.IsGodMode(claims.DiscordUserID()) {
+			if claims.Role() == "" && !context.IsGodMode(r) {
 				common.RespondPermissionDenied(w, "member (pilot)")
 				return
 			}

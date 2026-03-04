@@ -160,9 +160,10 @@ func NewRouter(application *app.App) http.Handler {
 			logbook.Get("/", application.Features.PilotsHandler.GetUserLogbook())
 		})
 
-		// PIREP endpoints - require registration
+		// PIREP endpoints - require registration and membership
 		v1.Route("/pireps", func(pireps chi.Router) {
 			pireps.Use(middleware.IsRegisteredMiddleware())
+			pireps.Use(middleware.IsMemberMiddleware())
 			pireps.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 				logging.Info("PIREP config endpoint called (not yet implemented)")
 				w.WriteHeader(http.StatusNotImplemented)
@@ -171,9 +172,10 @@ func NewRouter(application *app.App) http.Handler {
 			pireps.Post("/submit", handleTourPirepSubmit(application))
 		})
 
-		// Events endpoints - require registration
+		// Events endpoints (tours and tour legs) - require registration and membership
 		v1.Route("/events", func(events chi.Router) {
 			events.Use(middleware.IsRegisteredMiddleware())
+			events.Use(middleware.IsMemberMiddleware())
 			events.Get("/", application.Features.EventsHandler.ListEvents())
 			events.Post("/", application.Features.EventsHandler.CreateEvent())
 			// pirep-config must come before dynamic {id} routes

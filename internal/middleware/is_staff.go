@@ -14,7 +14,7 @@ func IsStaffMiddleware() func(http.Handler) http.Handler {
 
 			claims := auth.GetUserClaims(r.Context())
 
-			if claims.Role() == roles.RoleAirlineManager.String() || claims.Role() == roles.RoleAdmin.String() || auth.IsGodMode(claims.DiscordUserID()) {
+			if claims.Role() == roles.RoleAirlineManager.String() || claims.Role() == roles.RoleAdmin.String() || auth.IsGodMode(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
