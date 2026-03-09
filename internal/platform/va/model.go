@@ -138,3 +138,21 @@ type ProviderValidationHistory struct {
 func (ProviderValidationHistory) TableName() string {
 	return "va_provider_validation_history"
 }
+
+// VAWebhook represents a per-VA webhook (e.g. Discord) for notifications
+type VAWebhook struct {
+	ID               string    `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
+	VAID             string    `gorm:"column:va_id;type:uuid;not null"`
+	WebhookType      string    `gorm:"column:webhook_type;type:varchar(50);not null"`
+	WebhookURL       string    `gorm:"column:webhook_url;type:text;not null"`
+	FrequencyMinutes int       `gorm:"column:frequency_minutes;default:30;not null"`
+	IsActive         bool      `gorm:"column:is_active;default:true;not null"`
+	Label            string    `gorm:"column:label;type:varchar(255)"`
+	CreatedAt        time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt        time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+// TableName specifies the table name for GORM
+func (VAWebhook) TableName() string {
+	return "va_webhooks"
+}

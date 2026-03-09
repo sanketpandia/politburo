@@ -1,0 +1,90 @@
+{{define "content"}}
+<style>
+    .vaadmin-links {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 1.5rem;
+    }
+    .vaadmin-link-card {
+        display: flex;
+        flex-direction: column;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--border-color);
+        background-color: var(--bg-surface);
+        transition: all 0.2s ease;
+        text-decoration: none;
+        color: inherit;
+        min-height: 140px;
+    }
+    .vaadmin-link-card:hover {
+        border-color: var(--accent-primary);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    .vaadmin-link-card-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    .vaadmin-link-card-icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--accent-primary);
+        color: white;
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+    .vaadmin-link-card-title {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+    }
+    .vaadmin-link-card-description {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+        margin: 0;
+        flex: 1;
+    }
+</style>
+
+<!-- Secondary Navigation -->
+{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" .CurrentPage "MenuItems" .MenuItems}}
+
+<!-- Page Header -->
+<div class="page-header">
+    <h2 class="page-title">VA Administration</h2>
+    <p class="page-subtitle">Manage flight modes, pilots, and webhooks for {{.ActiveVA.VAName}}</p>
+</div>
+
+<div class="vaadmin-links">
+    <a href="/dashboard/vaadmin/flight-modes" class="vaadmin-link-card">
+        <div class="vaadmin-link-card-header">
+            <div class="vaadmin-link-card-icon">⚙️</div>
+            <h3 class="vaadmin-link-card-title">Setup flight modes</h3>
+        </div>
+        <p class="vaadmin-link-card-description">Configure PIREP submission modes and field visibility</p>
+    </a>
+    <a href="/dashboard/vaadmin/pilots" class="vaadmin-link-card">
+        <div class="vaadmin-link-card-header">
+            <div class="vaadmin-link-card-icon">👥</div>
+            <h3 class="vaadmin-link-card-title">Manage pilots</h3>
+        </div>
+        <p class="vaadmin-link-card-description">Manage pilots, roles, and callsigns for your VA</p>
+    </a>
+    <a href="/dashboard/vaadmin/webhooks" class="vaadmin-link-card">
+        <div class="vaadmin-link-card-header">
+            <div class="vaadmin-link-card-icon">🔗</div>
+            <h3 class="vaadmin-link-card-title">Setup webhooks</h3>
+        </div>
+        <p class="vaadmin-link-card-description">Send live flight snapshots to Discord every 30 minutes</p>
+    </a>
+</div>
+{{end}}

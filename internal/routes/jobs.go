@@ -74,6 +74,14 @@ func RegisterScheduledJobs(application *app.App) error {
 		logging.Info("PIREP sync job registered (every 5 minutes)")
 	}
 
+	// Live flights webhook job - runs at :00 and :30 past every hour (every 30th minute)
+	// POSTs Discord webhook payload with current VA live flights snapshot
+	// Cron (sec min hour dom month dow): "0 0,30 * * * *" = at second 0, minutes 0 and 30
+	if application.Features.LiveFlightsWebhookJob != nil {
+		registry.Add(application.Features.LiveFlightsWebhookJob, "0 10,40 * * * *")
+		logging.Info("Live flights webhook job registered (at :00 and :30 past each hour)")
+	}
+
 	return nil
 }
 

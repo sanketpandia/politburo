@@ -42,9 +42,11 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 COPY --from=builder /app/bin/app .
-# Copy template files for the UI
+# Copy template files for the UI (required for dashboard, live, etc.)
 COPY --from=builder /app/vizburo/ui/templates ./vizburo/ui/templates
 COPY --from=builder /app/templates ./templates
+# Fail build if base layout is missing (catches context/dockerignore issues)
+RUN test -f /app/templates/layouts/base.html || (echo "Missing /app/templates/layouts/base.html" && exit 1)
 # Copy static files
 COPY --from=builder /app/static ./static
 

@@ -15,13 +15,26 @@ import (
 var projectRoot string
 
 func init() {
-	// Find project root by looking for go.mod file
+	// Allow override for containers (e.g. TEMPLATES_ROOT=/app)
+	if root := os.Getenv("TEMPLATES_ROOT"); root != "" {
+		if _, err := os.Stat(filepath.Join(root, "templates", "layouts", "base.html")); err == nil {
+			projectRoot = root
+			return
+		}
+	}
+
+	// Container fallback: app often runs with WORKDIR /app and templates at /app/templates
+	if _, err := os.Stat("/app/templates/layouts/base.html"); err == nil {
+		projectRoot = "/app"
+		return
+	}
+
+	// Find project root by looking for go.mod file (local dev)
 	wd, err := os.Getwd()
 	if err != nil {
 		return
 	}
 
-	// Start from current directory and walk up to find go.mod
 	dir := wd
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
@@ -30,13 +43,11 @@ func init() {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached filesystem root
 			break
 		}
 		dir = parent
 	}
 
-	// Fallback: use current working directory
 	projectRoot = wd
 }
 
