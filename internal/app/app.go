@@ -103,6 +103,7 @@ type FeatureDeps struct {
 	EventsHandler        *events.Handler
 	DatasourceHandler    *datasource.Handler
 	LiveryMappingsHandler *liverymappings.Handler
+	TourPirepHandler     *pireps.TourHandler
 
 	// Providers
 	LiveAPIProvider *providers.LiveAPIProvider
@@ -419,6 +420,20 @@ func (a *App) initFeatures() error {
 	airtableProvider := providers.NewAirtableProvider(a.Infra.RedisCache)
 	datasourceHandler := datasource.NewHandler(a.Platform.VASvc, a.Infra.TemplateRenderer, airtableProvider)
 
+	// Initialize tour PIREP feature (extracted from inline handler in routes/router.go)
+	tourPirepSvc := pireps.NewTourPirepService(
+		a.Platform.VASvc,
+		a.Platform.VAConfigSvc,
+		a.Platform.UsersRepo,
+		eventSvc,
+		syncRepo,
+		a.Infra.RedisCache,
+		airtableProvider,
+		configRepo,
+	)
+	tourPirepHandler := pireps.NewTourHandler(tourPirepSvc)
+	logging.Debug("Tour PIREP handler initialized")
+
 	// Initialize livery mappings handler
 	liveryMappingsHandler := liverymappings.NewHandler(a.Platform.AircraftRepo, a.Platform.VAConfigSvc, a.Infra.TemplateRenderer)
 
@@ -436,6 +451,7 @@ func (a *App) initFeatures() error {
 		EventsHandler:         eventsHandler,
 		DatasourceHandler:     datasourceHandler,
 		LiveryMappingsHandler: liveryMappingsHandler,
+		TourPirepHandler:     tourPirepHandler,
 		LiveAPIProvider:       liveAPIProvider,
 		PilotSyncJob:          pilotSyncJob,
 		PirepSyncJob:          pirepSyncJob,
