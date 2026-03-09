@@ -252,6 +252,8 @@ func NewRouter(application *app.App) http.Handler {
 
 			// VA Admin features
 			admin.Route("/vaadmin", func(vaadmin chi.Router) {
+				vaadmin.Get("/", application.Features.VAAdminHandler.IndexPageHandler())
+				vaadmin.Get("/flight-modes", application.Features.VAAdminHandler.FlightModesPageHandler())
 				// Pilots Management
 				vaadmin.Get("/pilots", application.Features.VAAdminHandler.PilotsPageHandler())
 				vaadmin.Get("/pilots/list", application.Features.VAAdminHandler.PilotsListHandler())
@@ -264,6 +266,11 @@ func NewRouter(application *app.App) http.Handler {
 				vaadmin.Get("/flight-modes/{mode_id}/edit", application.Features.VAAdminHandler.GetFlightModeEditHandler())
 				vaadmin.Post("/flight-modes/{mode_id}/toggle", application.Features.VAAdminHandler.ToggleFlightModeHandler())
 				vaadmin.Post("/flight-modes/{mode_id}/update", application.Features.VAAdminHandler.UpdateFlightModeHandler())
+				// Setup webhooks (list + add Live Flights webhook)
+				vaadmin.Get("/webhooks", application.Features.VAAdminHandler.WebhooksPageHandler())
+				vaadmin.Get("/webhooks/list", application.Features.VAAdminHandler.WebhooksListHandler())
+				vaadmin.Post("/webhooks", application.Features.VAAdminHandler.CreateWebhookFormHandler())
+				vaadmin.Post("/webhooks/run", application.Features.VAAdminHandler.WebhooksRunNowHandler())
 			})
 
 			// Events Management

@@ -53,7 +53,7 @@ func GetMenuItems(activeVA *session.VAMembership) []MenuItem {
 		baseItems = append(baseItems, []MenuItem{
 			{
 				Label:        "VA Admin",
-				Path:         "/dashboard/vaadmin/pilots",
+				Path:         "/dashboard/vaadmin",
 				PageID:       "vaadmin-pilots",
 				RequiredRole: roles.RoleAdmin,
 				Icon:         "vaadmin",

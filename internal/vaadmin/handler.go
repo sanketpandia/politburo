@@ -1,6 +1,7 @@
 package vaadmin
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,19 +17,64 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// LiveFlightsRunner can trigger the live flights webhook for a VA (e.g. for "Run now" in UI).
+// Implemented by the webhooks job; vaadmin does not import webhooks.
+type LiveFlightsRunner interface {
+	RunForVA(ctx context.Context, vaID string) error
+}
+
 // Handler handles VA admin UI endpoints
 type Handler struct {
-	pilotMgmtSvc     *pilots.ManagementService
-	vaSvc            *platformVA.Service
+	pilotMgmtSvc      *pilots.ManagementService
+	vaSvc             *platformVA.Service
+	webhookRepo       *platformVA.WebhookRepo
+	liveFlightsRunner LiveFlightsRunner // optional: nil means "Run now" is not available
 	templateRenderer *templates.Renderer
 }
 
-// NewHandler creates a new VA admin handler instance
-func NewHandler(pilotMgmtSvc *pilots.ManagementService, vaSvc *platformVA.Service, templateRenderer *templates.Renderer) *Handler {
+// NewHandler creates a new VA admin handler instance.
+// liveFlightsRunner may be nil; if set, "Run now" for live flights webhooks is enabled.
+func NewHandler(pilotMgmtSvc *pilots.ManagementService, vaSvc *platformVA.Service, webhookRepo *platformVA.WebhookRepo, liveFlightsRunner LiveFlightsRunner, templateRenderer *templates.Renderer) *Handler {
 	return &Handler{
-		pilotMgmtSvc:     pilotMgmtSvc,
-		vaSvc:            vaSvc,
-		templateRenderer: templateRenderer,
+		pilotMgmtSvc:      pilotMgmtSvc,
+		vaSvc:             vaSvc,
+		webhookRepo:       webhookRepo,
+		liveFlightsRunner: liveFlightsRunner,
+		templateRenderer:  templateRenderer,
+	}
+}
+
+// IndexPageHandler handles GET /dashboard/vaadmin
+// Renders the VA Admin landing page with links to flight modes, pilots, and webhooks.
+func (h *Handler) IndexPageHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+		data, err := templates.PrepareTemplateData(sessionData, "VA Admin")
+		if err != nil {
+			logging.Error("Failed to prepare template data", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		data["CurrentPage"] = "vaadmin-pilots"
+		if err := h.templateRenderer.RenderTemplate(w, "pages/vaadmin-index.html", data); err != nil {
+			logging.Error("Error rendering VA Admin index page", "error", err)
+			http.Error(w, "Error rendering VA Admin index page", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -72,6 +118,40 @@ func (h *Handler) PilotsPageHandler() http.HandlerFunc {
 		if err := h.templateRenderer.RenderTemplate(w, "pages/vaadmin-pilots.html", data); err != nil {
 			logging.Error("Error rendering pilots page", "error", err)
 			http.Error(w, "Error rendering pilots page", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// FlightModesPageHandler handles GET /dashboard/vaadmin/flight-modes
+// Renders the flight modes configuration page only.
+func (h *Handler) FlightModesPageHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+		data, err := templates.PrepareTemplateData(sessionData, "VA Admin - Flight Modes")
+		if err != nil {
+			logging.Error("Failed to prepare template data", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		data["CurrentPage"] = "vaadmin-pilots"
+		if err := h.templateRenderer.RenderTemplate(w, "pages/vaadmin-flight-modes.html", data); err != nil {
+			logging.Error("Error rendering flight modes page", "error", err)
+			http.Error(w, "Error rendering flight modes page", http.StatusInternalServerError)
 			return
 		}
 	}

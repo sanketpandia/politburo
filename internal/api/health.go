@@ -34,9 +34,14 @@ func HealthCheckHandler(db *gorm.DB, cache *cache.RedisCacheService, upSince tim
 			Details: pgDetails,
 		}
 
-		if err := cache.Ping(); err != nil {
+		if cache != nil {
+			if err := cache.Ping(); err != nil {
+				cacheStatus = "down"
+				cacheDetails = err.Error()
+			}
+		} else {
 			cacheStatus = "down"
-			cacheDetails = err.Error()
+			cacheDetails = "redis client not initialized"
 		}
 		services["cache"] = entities.ServiceStatus{
 			Status:  cacheStatus,

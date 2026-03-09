@@ -36,6 +36,7 @@ import (
 	"infinite-experiment/politburo/internal/sync"
 	vaRoutes "infinite-experiment/politburo/internal/va_routes"
 	"infinite-experiment/politburo/internal/vaadmin"
+	"infinite-experiment/politburo/internal/webhooks"
 	"os"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -104,13 +105,15 @@ type FeatureDeps struct {
 	DatasourceHandler    *datasource.Handler
 	LiveryMappingsHandler *liverymappings.Handler
 	TourPirepHandler     *pireps.TourHandler
+	WebhooksHandler     *webhooks.Handler
 
 	// Providers
 	LiveAPIProvider *providers.LiveAPIProvider
 
 	// Jobs
-	PilotSyncJob *pilots.SyncJob
-	PirepSyncJob *pireps.PirepSyncJob
+	PilotSyncJob          *pilots.SyncJob
+	PirepSyncJob          *pireps.PirepSyncJob
+	LiveFlightsWebhookJob *webhooks.LiveFlightsWebhookJob
 
 	// Workers
 	PilotSyncWorker  *pilots.SyncWorker
@@ -414,7 +417,6 @@ func (a *App) initFeatures() error {
 	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc, pilotRepo, a.Platform.VAConfigSvc)
 	pilotsHandler := pilots.NewHandler(nil, pilotsRegSvc, logbookSvc)
 	serversHandler := servers.NewHandler(serversRegSvc)
-	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, a.Infra.TemplateRenderer)
 
 	// Initialize datasource handler
 	airtableProvider := providers.NewAirtableProvider(a.Infra.RedisCache)
@@ -437,6 +439,16 @@ func (a *App) initFeatures() error {
 	// Initialize livery mappings handler
 	liveryMappingsHandler := liverymappings.NewHandler(a.Platform.AircraftRepo, a.Platform.VAConfigSvc, a.Infra.TemplateRenderer)
 
+	// VA webhook repo (used by vaadmin UI and webhooks API/job)
+	vaWebhookRepo := va.NewWebhookRepo(a.Infra.DB)
+	webhooksHandler := webhooks.NewHandler(vaWebhookRepo, a.Platform.VASvc)
+	liveFlightsWebhookJob := webhooks.NewLiveFlightsWebhookJob(
+		vaWebhookRepo,
+		a.Platform.VARepo,
+		a.Infra.RedisCache,
+	)
+	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, vaWebhookRepo, liveFlightsWebhookJob, a.Infra.TemplateRenderer)
+
 	logging.Debug("Feature handlers initialized")
 
 	a.Features = FeatureDeps{
@@ -457,6 +469,8 @@ func (a *App) initFeatures() error {
 		PirepSyncJob:          pirepSyncJob,
 		PilotSyncWorker:       pilotSyncWorker,
 		PirepQueueWorker:      pirepQueueWorker,
+		WebhooksHandler:       webhooksHandler,
+		LiveFlightsWebhookJob: liveFlightsWebhookJob,
 	}
 
 	logging.Info("Features layer initialized")

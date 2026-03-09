@@ -252,28 +252,8 @@
 
 <!-- Page Header -->
 <div class="page-header">
-    <h2 class="page-title">VA Administration</h2>
-    <p class="page-subtitle">Manage flight modes and pilots for {{.ActiveVA.VAName}}</p>
-</div>
-
-<!-- Flight Modes Section -->
-<div class="card" style="margin-bottom: 2rem;">
-    <div style="margin-bottom: 1.5rem;">
-        <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;">Flight Modes Configuration</h3>
-        <p class="page-subtitle" style="font-size: 0.875rem;">Configure PIREP submission modes and field visibility</p>
-    </div>
-
-    <!-- Flight Modes List Container (HTMX Target) -->
-    <div id="flight-modes-container"
-         hx-get="/dashboard/vaadmin/flight-modes/list"
-         hx-trigger="load"
-         hx-swap="innerHTML"
-         hx-indicator="#global-spinner">
-        <!-- Loading state -->
-        <div style="display: flex; align-items: center; justify-content: center; padding: 2rem; color: var(--text-muted);">
-            <p>Loading flight modes...</p>
-        </div>
-    </div>
+    <h2 class="page-title">Manage pilots</h2>
+    <p class="page-subtitle">Manage pilots, roles, and callsigns for {{.ActiveVA.VAName}}</p>
 </div>
 
 <!-- Pilots Content -->
