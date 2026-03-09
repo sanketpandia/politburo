@@ -145,6 +145,72 @@ func (r *Repository) GetLiveryMap(ctx context.Context) (map[string]AircraftLiver
 	return liveryMap, nil
 }
 
+// GetUniqueAircraftNames returns distinct aircraft names from active liveries
+func (r *Repository) GetUniqueAircraftNames(ctx context.Context) ([]string, error) {
+	var names []string
+
+	err := r.db.WithContext(ctx).
+		Model(&AircraftLivery{}).
+		Where("is_active = ?", true).
+		Distinct("aircraft_name").
+		Order("aircraft_name ASC").
+		Pluck("aircraft_name", &names).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch unique aircraft names: %w", err)
+	}
+
+	return names, nil
+}
+
+// GetUniqueLiveryNames returns distinct livery names (airlines) from active liveries
+func (r *Repository) GetUniqueLiveryNames(ctx context.Context) ([]string, error) {
+	var names []string
+
+	err := r.db.WithContext(ctx).
+		Model(&AircraftLivery{}).
+		Where("is_active = ?", true).
+		Distinct("livery_name").
+		Order("livery_name ASC").
+		Pluck("livery_name", &names).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch unique livery names: %w", err)
+	}
+
+	return names, nil
+}
+
+// GetLiveriesByAircraftName finds all active liveries with matching aircraft name
+func (r *Repository) GetLiveriesByAircraftName(ctx context.Context, aircraftName string) ([]AircraftLivery, error) {
+	var liveries []AircraftLivery
+
+	err := r.db.WithContext(ctx).
+		Where("aircraft_name = ? AND is_active = ?", aircraftName, true).
+		Find(&liveries).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch liveries by aircraft name: %w", err)
+	}
+
+	return liveries, nil
+}
+
+// GetLiveriesByLiveryName finds all active liveries with matching livery name
+func (r *Repository) GetLiveriesByLiveryName(ctx context.Context, liveryName string) ([]AircraftLivery, error) {
+	var liveries []AircraftLivery
+
+	err := r.db.WithContext(ctx).
+		Where("livery_name = ? AND is_active = ?", liveryName, true).
+		Find(&liveries).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch liveries by livery name: %w", err)
+	}
+
+	return liveries, nil
+}
+
 // ====================
 // LiveryAirtableMapping Operations
 // ====================

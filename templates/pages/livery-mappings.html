@@ -259,25 +259,23 @@
     <form id="add-mapping-form">
         <div class="form-row">
             <div class="form-group">
-                <label class="form-label" for="livery-select">Livery</label>
-                <select class="form-select" id="livery-select" name="liveryId" required>
-                    <option value="">Select a livery...</option>
-                </select>
-            </div>
-            <div class="form-group">
                 <label class="form-label" for="field-type-select">Field Type</label>
                 <select class="form-select" id="field-type-select" name="fieldType" required>
                     <option value="">Select type...</option>
                     <option value="aircraft">Aircraft</option>
                     <option value="airline">Airline</option>
                 </select>
+                <small style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem; display: block;">Select whether to map aircraft or airline names</small>
             </div>
         </div>
         <div class="form-row">
             <div class="form-group">
                 <label class="form-label" for="source-value">Source Value (IF Name)</label>
-                <input type="text" class="form-input" id="source-value" name="sourceValue" placeholder="e.g., Boeing 737-800" required>
-                <small style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem; display: block;">The name from Infinite Flight</small>
+                <input type="text" class="form-input" id="source-value" name="sourceValue" list="source-datalist" placeholder="Type to search..." required>
+                <datalist id="source-datalist">
+                    <!-- Options will be populated dynamically based on field type -->
+                </datalist>
+                <small style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem; display: block;">The name from Infinite Flight (will map to all matching liveries)</small>
             </div>
             <div class="form-group">
                 <label class="form-label" for="target-value">Target Value (VA Name)</label>
@@ -322,23 +320,43 @@
 </div>
 
 <script>
-    // Load liveries on page load
-    async function loadLiveries() {
+    // Load unique aircraft names
+    async function loadUniqueAircraft() {
         try {
-            const response = await fetch('/api/v1/admin/livery-mappings/liveries');
+            const response = await fetch('/api/v1/admin/livery-mappings/unique-aircraft');
             const data = await response.json();
             
             if (data.status === 'ok' && data.result) {
-                const select = document.getElementById('livery-select');
-                data.result.forEach(livery => {
+                const datalist = document.getElementById('source-datalist');
+                datalist.innerHTML = ''; // Clear existing options
+                data.result.forEach(aircraftName => {
                     const option = document.createElement('option');
-                    option.value = livery.liveryId;
-                    option.textContent = `${livery.aircraftName} - ${livery.liveryName}`;
-                    select.appendChild(option);
+                    option.value = aircraftName;
+                    datalist.appendChild(option);
                 });
             }
         } catch (error) {
-            console.error('Failed to load liveries:', error);
+            console.error('Failed to load unique aircraft names:', error);
+        }
+    }
+
+    // Load unique livery names (airlines)
+    async function loadUniqueLiveries() {
+        try {
+            const response = await fetch('/api/v1/admin/livery-mappings/unique-liveries');
+            const data = await response.json();
+            
+            if (data.status === 'ok' && data.result) {
+                const datalist = document.getElementById('source-datalist');
+                datalist.innerHTML = ''; // Clear existing options
+                data.result.forEach(liveryName => {
+                    const option = document.createElement('option');
+                    option.value = liveryName;
+                    datalist.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load unique livery names:', error);
         }
     }
 
@@ -507,14 +525,13 @@
         const messageDiv = document.getElementById('form-message');
         
         const payload = {
-            liveryId: formData.get('liveryId'),
             fieldType: formData.get('fieldType'),
             sourceValue: formData.get('sourceValue'),
             targetValue: formData.get('targetValue')
         };
 
         // Validate
-        if (!payload.liveryId || !payload.fieldType || !payload.sourceValue || !payload.targetValue) {
+        if (!payload.fieldType || !payload.sourceValue || !payload.targetValue) {
             messageDiv.innerHTML = '<div class="error-message">All fields are required</div>';
             return;
         }
@@ -535,8 +552,11 @@
             const data = await response.json();
             
             if (data.status === 'ok') {
-                messageDiv.innerHTML = '<div class="success-message">Mapping added successfully!</div>';
+                const count = data.result?.count || 0;
+                messageDiv.innerHTML = `<div class="success-message">Mapping created successfully for ${count} livery/liveries!</div>`;
                 form.reset();
+                // Clear datalist
+                document.getElementById('source-datalist').innerHTML = '';
                 loadMappings(); // Reload the list
             } else {
                 messageDiv.innerHTML = `<div class="error-message">${data.error?.message || 'Failed to add mapping'}</div>`;
@@ -549,53 +569,25 @@
         }
     });
 
-    // Auto-fill source value when livery is selected
-    document.getElementById('livery-select').addEventListener('change', async (e) => {
-        const liveryId = e.target.value;
-        if (!liveryId) return;
-
-        try {
-            const response = await fetch('/api/v1/admin/livery-mappings/liveries');
-            const data = await response.json();
-            
-            if (data.status === 'ok' && data.result) {
-                const livery = data.result.find(l => l.liveryId === liveryId);
-                if (livery) {
-                    const fieldType = document.getElementById('field-type-select').value;
-                    if (fieldType === 'aircraft') {
-                        document.getElementById('source-value').value = livery.aircraftName;
-                    } else if (fieldType === 'airline') {
-                        document.getElementById('source-value').value = livery.liveryName;
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Failed to load livery details:', error);
-        }
-    });
-
-    // Update source value when field type changes
+    // Update datalist options when field type changes
     document.getElementById('field-type-select').addEventListener('change', async (e) => {
-        const liveryId = document.getElementById('livery-select').value;
-        if (!liveryId) return;
-
-        try {
-            const response = await fetch('/api/v1/admin/livery-mappings/liveries');
-            const data = await response.json();
-            
-            if (data.status === 'ok' && data.result) {
-                const livery = data.result.find(l => l.liveryId === liveryId);
-                if (livery) {
-                    const fieldType = e.target.value;
-                    if (fieldType === 'aircraft') {
-                        document.getElementById('source-value').value = livery.aircraftName;
-                    } else if (fieldType === 'airline') {
-                        document.getElementById('source-value').value = livery.liveryName;
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Failed to load livery details:', error);
+        const fieldType = e.target.value;
+        const sourceInput = document.getElementById('source-value');
+        
+        // Clear source value when field type changes
+        sourceInput.value = '';
+        
+        // Load appropriate options based on field type
+        if (fieldType === 'aircraft') {
+            await loadUniqueAircraft();
+            sourceInput.placeholder = 'Type to search aircraft...';
+        } else if (fieldType === 'airline') {
+            await loadUniqueLiveries();
+            sourceInput.placeholder = 'Type to search airline...';
+        } else {
+            // Clear datalist if no field type selected
+            document.getElementById('source-datalist').innerHTML = '';
+            sourceInput.placeholder = 'Type to search...';
         }
     });
 
@@ -626,7 +618,6 @@
     });
 
     // Initialize on page load
-    loadLiveries();
     loadMappings();
     loadDefaults();
 </script>

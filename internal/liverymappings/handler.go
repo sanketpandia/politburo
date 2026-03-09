@@ -2,6 +2,7 @@ package liverymappings
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -155,7 +156,7 @@ func (h *Handler) ListMappingsHandler() http.HandlerFunc {
 }
 
 // CreateMappingHandler handles POST /api/v1/admin/livery-mappings
-// Creates a new livery mapping
+// Creates livery mappings for all liveries matching the source value
 func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -175,7 +176,6 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 
 		// Parse request body
 		var req struct {
-			LiveryID    string `json:"liveryId"`
 			FieldType   string `json:"fieldType"`
 			SourceValue string `json:"sourceValue"`
 			TargetValue string `json:"targetValue"`
@@ -187,7 +187,7 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 		}
 
 		// Validate required fields
-		if req.LiveryID == "" || req.FieldType == "" || req.SourceValue == "" || req.TargetValue == "" {
+		if req.FieldType == "" || req.SourceValue == "" || req.TargetValue == "" {
 			httpdto.WriteError(w, start, "invalid_request", "Missing required fields", http.StatusBadRequest)
 			return
 		}
@@ -198,52 +198,63 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 			return
 		}
 
-		// Create mapping
-		mapping := aircraft.LiveryAirtableMapping{
-			VAID:        vaID,
-			LiveryID:    req.LiveryID,
-			FieldType:   req.FieldType,
-			SourceValue: req.SourceValue,
-			TargetValue: req.TargetValue,
-			IsActive:    true,
+		// Find all liveries matching the source value based on field type
+		var matchingLiveries []aircraft.AircraftLivery
+		var err error
+
+		if req.FieldType == "aircraft" {
+			matchingLiveries, err = h.aircraftRepo.GetLiveriesByAircraftName(r.Context(), req.SourceValue)
+		} else {
+			matchingLiveries, err = h.aircraftRepo.GetLiveriesByLiveryName(r.Context(), req.SourceValue)
 		}
 
-		// Upsert mapping (handles conflicts)
-		mappings := []aircraft.LiveryAirtableMapping{mapping}
-		if err := h.aircraftRepo.UpsertMappings(r.Context(), mappings); err != nil {
-			logging.Error("Failed to create livery mapping", "error", err, "vaID", vaID, "liveryID", req.LiveryID)
-			httpdto.WriteError(w, start, "internal_error", "Failed to create mapping", http.StatusInternalServerError)
-			return
-		}
-
-		// Fetch the created mapping to return
-		createdMapping, err := h.aircraftRepo.GetMapping(r.Context(), vaID, req.LiveryID, req.FieldType)
 		if err != nil {
-			logging.Error("Failed to fetch created mapping", "error", err)
-			httpdto.WriteError(w, start, "internal_error", "Mapping created but failed to fetch", http.StatusInternalServerError)
+			logging.Error("Failed to find matching liveries", "error", err, "fieldType", req.FieldType, "sourceValue", req.SourceValue)
+			httpdto.WriteError(w, start, "internal_error", "Failed to find matching liveries", http.StatusInternalServerError)
 			return
 		}
 
+		if len(matchingLiveries) == 0 {
+			httpdto.WriteError(w, start, "not_found", "No liveries found matching the source value", http.StatusNotFound)
+			return
+		}
+
+		// Create mappings for all matching liveries
+		mappings := make([]aircraft.LiveryAirtableMapping, 0, len(matchingLiveries))
+		for _, livery := range matchingLiveries {
+			mapping := aircraft.LiveryAirtableMapping{
+				VAID:        vaID,
+				LiveryID:    livery.LiveryID,
+				FieldType:   req.FieldType,
+				SourceValue: req.SourceValue,
+				TargetValue: req.TargetValue,
+				IsActive:    true,
+			}
+			mappings = append(mappings, mapping)
+		}
+
+		// Upsert all mappings (handles conflicts)
+		if err := h.aircraftRepo.UpsertMappings(r.Context(), mappings); err != nil {
+			logging.Error("Failed to create livery mappings", "error", err, "vaID", vaID, "fieldType", req.FieldType, "sourceValue", req.SourceValue, "count", len(mappings))
+			httpdto.WriteError(w, start, "internal_error", "Failed to create mappings", http.StatusInternalServerError)
+			return
+		}
+
+		// Build response with summary
 		type MappingResponse struct {
-			ID          string `json:"id"`
-			LiveryID    string `json:"liveryId"`
+			Count       int    `json:"count"`
 			FieldType   string `json:"fieldType"`
 			SourceValue string `json:"sourceValue"`
 			TargetValue string `json:"targetValue"`
-			IsActive    bool   `json:"isActive"`
-			CreatedAt   string `json:"createdAt"`
-			UpdatedAt   string `json:"updatedAt"`
+			Message     string `json:"message"`
 		}
 
 		response := MappingResponse{
-			ID:          createdMapping.ID,
-			LiveryID:    createdMapping.LiveryID,
-			FieldType:   createdMapping.FieldType,
-			SourceValue: createdMapping.SourceValue,
-			TargetValue: createdMapping.TargetValue,
-			IsActive:    createdMapping.IsActive,
-			CreatedAt:   createdMapping.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:   createdMapping.UpdatedAt.Format(time.RFC3339),
+			Count:       len(mappings),
+			FieldType:   req.FieldType,
+			SourceValue: req.SourceValue,
+			TargetValue: req.TargetValue,
+			Message:     fmt.Sprintf("Created %d mapping(s) successfully", len(mappings)),
 		}
 
 		httpdto.WriteSuccess(w, start, response, http.StatusCreated)
@@ -342,6 +353,42 @@ func (h *Handler) GetAvailableLiveriesHandler() http.HandlerFunc {
 		}
 
 		httpdto.WriteSuccess(w, start, response, http.StatusOK)
+	}
+}
+
+// GetUniqueAircraftHandler handles GET /api/v1/admin/livery-mappings/unique-aircraft
+// Returns distinct aircraft names from active liveries
+func (h *Handler) GetUniqueAircraftHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Fetch unique aircraft names
+		aircraftNames, err := h.aircraftRepo.GetUniqueAircraftNames(r.Context())
+		if err != nil {
+			logging.Error("Failed to fetch unique aircraft names", "error", err)
+			httpdto.WriteError(w, start, "internal_error", "Failed to fetch unique aircraft names", http.StatusInternalServerError)
+			return
+		}
+
+		httpdto.WriteSuccess(w, start, aircraftNames, http.StatusOK)
+	}
+}
+
+// GetUniqueLiveriesHandler handles GET /api/v1/admin/livery-mappings/unique-liveries
+// Returns distinct livery names (airlines) from active liveries
+func (h *Handler) GetUniqueLiveriesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Fetch unique livery names
+		liveryNames, err := h.aircraftRepo.GetUniqueLiveryNames(r.Context())
+		if err != nil {
+			logging.Error("Failed to fetch unique livery names", "error", err)
+			httpdto.WriteError(w, start, "internal_error", "Failed to fetch unique livery names", http.StatusInternalServerError)
+			return
+		}
+
+		httpdto.WriteSuccess(w, start, liveryNames, http.StatusOK)
 	}
 }
 
