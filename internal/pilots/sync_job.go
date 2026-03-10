@@ -87,6 +87,7 @@ func (j *SyncJob) Run(ctx context.Context) error {
 	// Sync pilots for each VA
 	totalProcessed := 0
 	for _, vaID := range vaIDs {
+		// Sync regular pilots
 		processed, err := j.SyncVAPilots(ctx, vaID)
 		if err != nil {
 			log.Printf("[PilotSyncJob] Error syncing pilots for VA %s: %v", vaID, err)
@@ -94,6 +95,15 @@ func (j *SyncJob) Run(ctx context.Context) error {
 			continue
 		}
 		totalProcessed += processed
+
+		// Sync career mode pilots
+		cmProcessed, err := j.SyncVACareerModePilots(ctx, vaID)
+		if err != nil {
+			log.Printf("[PilotSyncJob] Error syncing career mode pilots for VA %s: %v", vaID, err)
+			// Continue even if career mode sync fails
+		} else {
+			totalProcessed += cmProcessed
+		}
 	}
 
 	if j.useQueue {
@@ -378,6 +388,240 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	return syncedCount, nil
 }
 
+// SyncVACareerModePilots syncs career mode pilots for a specific VA
+func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int, error) {
+	start := time.Now()
+	log.Printf("[PilotSyncJob] Syncing career mode pilots for VA %s", vaID)
+
+	// Get credentials config for this VA
+	credentialsConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
+	if err != nil {
+		return 0, fmt.Errorf("failed to get credentials config: %w", err)
+	}
+
+	if credentialsConfig == nil {
+		log.Printf("[PilotSyncJob] No active credentials config found for VA %s", vaID)
+		return 0, nil
+	}
+
+	// Parse credentials config data
+	var credsData struct {
+		APIKey       string            `json:"api_key"`
+		BaseID       string            `json:"base_id"`
+		SyncSettings dtos.SyncSettings `json:"sync_settings"`
+	}
+	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal credentials config data: %w", err)
+	}
+	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
+		return 0, fmt.Errorf("failed to parse credentials config data: %w", err)
+	}
+
+	// Validate credentials
+	if credsData.APIKey == "" {
+		return 0, fmt.Errorf("API key is empty in credentials config")
+	}
+	if credsData.BaseID == "" {
+		return 0, fmt.Errorf("Base ID is empty in credentials config")
+	}
+
+	// Get career mode schema config
+	careerModeConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "career_mode")
+	if err != nil {
+		return 0, fmt.Errorf("failed to get career mode schema config: %w", err)
+	}
+
+	if careerModeConfig == nil {
+		log.Printf("[PilotSyncJob] No career mode schema configured for VA %s", vaID)
+		return 0, nil
+	}
+
+	// Parse career mode schema config data
+	var careerModeSchema dtos.EntitySchema
+	bytes, err := json.Marshal(careerModeConfig.ConfigData)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal career mode config data: %w", err)
+	}
+
+	if err := json.Unmarshal(bytes, &careerModeSchema); err != nil {
+		return 0, fmt.Errorf("failed to parse career mode schema: %w", err)
+	}
+
+	// Set entity_type if not set
+	if careerModeSchema.EntityType == "" {
+		careerModeSchema.EntityType = "career_mode"
+	}
+
+	// Check if enabled
+	if !careerModeSchema.Enabled {
+		log.Printf("[PilotSyncJob] Career mode schema is disabled for VA %s", vaID)
+		return 0, nil
+	}
+
+	// Validate that callsign field is configured
+	hasCallsignField := false
+	for _, field := range careerModeSchema.Fields {
+		if field.InternalName == "callsign" {
+			hasCallsignField = true
+			break
+		}
+	}
+	if !hasCallsignField {
+		log.Printf("[PilotSyncJob] Career mode schema for VA %s is missing required 'callsign' field mapping", vaID)
+		return 0, fmt.Errorf("career mode schema missing required 'callsign' field mapping")
+	}
+
+	// Get VA name for logging
+	var vaName string
+	j.db.WithContext(ctx).
+		Table("virtual_airlines").
+		Where("id = ?", vaID).
+		Pluck("name", &vaName)
+
+	log.Printf("[PilotSyncJob] VA: %s (%s), Career Mode Table: %s", vaName, vaID, careerModeSchema.TableName)
+
+	// Get last sync timestamp for incremental sync (using career mode specific event)
+	lastModified, err := j.getLastSyncTimestampForEvent(ctx, vaID, platformVA.SyncEventCareerModePilotsAT)
+	if err != nil {
+		log.Printf("[PilotSyncJob] VA %s: Error getting last career mode sync timestamp: %v. Doing full sync.", vaName, err)
+		lastModified = nil
+	}
+
+	if lastModified != nil {
+		log.Printf("[PilotSyncJob] VA %s: Incremental career mode sync from %s", vaName, *lastModified)
+	} else {
+		log.Printf("[PilotSyncJob] VA %s: Full career mode sync (no previous sync timestamp)", vaName)
+	}
+
+	// Check if schema has last_modified_field configured
+	if lastModified != nil && careerModeSchema.LastModifiedField == "" {
+		log.Printf("[PilotSyncJob] VA %s: Warning - no last_modified_field configured in career mode schema, cannot filter by date. Doing full sync.", vaName)
+		lastModified = nil
+	}
+
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	vaCareerModeSchema := convertDTOsEntitySchema(&careerModeSchema)
+
+	// Build credentials from parsed data
+	creds := &platformVA.ProviderCredentials{
+		APIKey: credsData.APIKey,
+		BaseID: credsData.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          credsData.SyncSettings.BatchSize,
+			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
+		},
+	}
+
+	// Set credentials in context for provider
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
+
+	// Fetch career mode pilots with pagination
+	offset := ""
+	pageCount := 0
+	enqueuedCount := 0
+	syncedCount := 0
+	errorCount := 0
+
+	streamName := "pilot_sync_queue"
+
+	// If using queue, ensure consumer group exists
+	if j.useQueue {
+		if err := j.redisQueue.CreateConsumerGroup(ctx, streamName, "pilot-workers"); err != nil {
+			log.Printf("[PilotSyncJob] VA %s: Warning - failed to create consumer group: %v", vaName, err)
+		}
+	}
+
+	// Convert schema to queue format for serialization
+	queueSchema := convertSchemaToQueueFormat(vaCareerModeSchema)
+
+	for {
+		pageCount++
+		filters := &providers.SyncFilters{
+			Offset:        offset,
+			Limit:         100, // Batch size
+			ModifiedSince: lastModified,
+		}
+
+		recordSet, err := j.airtableProvider.FetchRecords(ctx, vaCareerModeSchema, filters)
+		if err != nil {
+			return 0, fmt.Errorf("failed to fetch career mode records (page %d): %w", pageCount, err)
+		}
+
+		log.Printf("[PilotSyncJob] VA %s: Fetched career mode page %d with %d records", vaName, pageCount, len(recordSet.Records))
+
+		if j.useQueue {
+			// Queue-based processing: Enqueue batch to Redis
+			var queueItems []*queue.PilotQueueItem
+			for _, record := range recordSet.Records {
+				queueItems = append(queueItems, &queue.PilotQueueItem{
+					VAID:             vaID,
+					AirtableRecordID: record.ID,
+					Fields:           record.Fields,
+					Schema:           queueSchema,
+				})
+				log.Printf("[PilotSyncJob] VA %s: Enqueueing career mode pilot - ATID: %s", vaName, record.ID)
+			}
+
+			if err := j.redisQueue.EnqueuePilotBatch(ctx, streamName, queueItems); err != nil {
+				log.Printf("[PilotSyncJob] VA %s: Error enqueuing career mode batch: %v", vaName, err)
+				errorCount += len(queueItems)
+			} else {
+				enqueuedCount += len(queueItems)
+				// Track metrics
+				if j.metrics != nil {
+					j.metrics.QueueEnqueuedTotal.WithLabelValues(streamName, "career_mode_pilot").Add(float64(len(queueItems)))
+					j.metrics.SyncJobRecordsProcessed.WithLabelValues("pilot_sync_job", "airtable", "career_mode", vaID, "enqueued").Add(float64(len(queueItems)))
+				}
+			}
+		} else {
+			// Direct processing: Process immediately
+			for _, record := range recordSet.Records {
+				if err := j.upsertPilot(ctx, vaID, record.ID, record.Fields, vaCareerModeSchema); err != nil {
+					log.Printf("[PilotSyncJob] VA %s: Error upserting career mode record: %v", vaName, err)
+					errorCount++
+					continue
+				}
+				syncedCount++
+			}
+		}
+
+		if !recordSet.HasMore {
+			break
+		}
+		offset = recordSet.Offset
+	}
+
+	if j.useQueue {
+		log.Printf("[PilotSyncJob] VA %s: Completed career mode sync in %s. Enqueued: %d, Errors: %d",
+			vaName, time.Since(start).Truncate(time.Millisecond), enqueuedCount, errorCount)
+		log.Printf("[PilotSyncJob] VA %s: Queue: %s - Workers will process items asynchronously", vaName, streamName)
+		// Record sync history after successful enqueue (using career mode specific event)
+		if enqueuedCount > 0 {
+			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventCareerModePilotsAT); err != nil {
+				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record career mode sync history: %v", vaName, err)
+			}
+		}
+	} else {
+		log.Printf("[PilotSyncJob] VA %s: Completed career mode sync in %s. Synced: %d, Errors: %d",
+			vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
+		// Record sync history after direct processing (using career mode specific event)
+		if syncedCount > 0 {
+			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventCareerModePilotsAT); err != nil {
+				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record career mode sync history: %v", vaName, err)
+			}
+		}
+	}
+
+	// Return count (enqueued if using queue, synced if direct)
+	if j.useQueue {
+		return enqueuedCount, nil
+	}
+	return syncedCount, nil
+}
+
 // upsertPilot updates or creates a pilot record in va_user_roles and pilot_at_synced
 func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID string, record map[string]interface{}, schema *platformVA.EntitySchema) error {
 	// Extract callsign from record using field mapping
@@ -403,12 +647,18 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 	}
 
 	// Upsert into pilot_at_synced table first (keeps our database in sync with Airtable)
-	log.Printf("[PilotSyncJob] Upserting pilot - ATID: %s, Callsign: %s, ServerID: %s", airtableRecordID, callsign, vaID)
+	// Determine pilot type based on entity type
+	pilotType := PilotTypeRegular
+	if schema.EntityType == "career_mode" {
+		pilotType = PilotTypeCareerMode
+	}
+	log.Printf("[PilotSyncJob] Upserting pilot - ATID: %s, Callsign: %s, ServerID: %s, Type: %s", airtableRecordID, callsign, vaID, pilotType)
 	pilotATSynced := &PilotATSyncedGORM{
 		ATID:       airtableRecordID,
 		Callsign:   callsign,
 		Registered: false, // Will be updated to true if found in va_user_roles
 		ServerID:   vaID,
+		PilotType:  pilotType,
 	}
 
 	// Find user by callsign in va_user_roles for this VA
@@ -452,20 +702,35 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 	}
 	log.Printf("[PilotSyncJob] Successfully upserted pilot %s (ATID: %s) into pilot_at_synced with registered=true", callsign, airtableRecordID)
 
-	// Update the airtable_pilot_id and updated_at timestamp in va_user_roles
+	// Update the appropriate pilot ID field based on pilot type
+	updateFields := map[string]interface{}{
+		"updated_at": time.Now(),
+	}
+	if pilotType == PilotTypeCareerMode {
+		updateFields["career_mode_pilot_id"] = airtableRecordID
+	} else {
+		updateFields["airtable_pilot_id"] = airtableRecordID
+	}
+
 	err = j.db.WithContext(ctx).
 		Table("va_user_roles").
 		Where("id = ?", existingRole.ID).
-		Updates(map[string]interface{}{
-			"airtable_pilot_id": airtableRecordID,
-			"updated_at":        time.Now(),
-		}).Error
+		Updates(updateFields).Error
 
 	if err != nil {
+		if pilotType == PilotTypeCareerMode {
+			return fmt.Errorf("failed to update career_mode_pilot_id for callsign %s: %w", callsign, err)
+		}
 		return fmt.Errorf("failed to update airtable_pilot_id for callsign %s: %w", callsign, err)
 	}
 
-	log.Printf("[PilotSyncJob] Updated airtable_pilot_id for callsign %s (record: %s)", callsign, airtableRecordID)
+	if pilotType == PilotTypeCareerMode {
+		log.Printf("[PilotSyncJob] Updated career_mode_pilot_id for callsign %s (record: %s)", callsign, airtableRecordID)
+	} else {
+		log.Printf("[PilotSyncJob] Updated airtable_pilot_id for callsign %s (record: %s)", callsign, airtableRecordID)
+		// Try to link career mode pilot if career mode schema exists (only for regular pilots)
+		j.linkCareerModePilot(ctx, vaID, callsign, existingRole.ID)
+	}
 
 	// Invalidate cache for this pilot's stats
 	cacheKey := fmt.Sprintf("pilot_stats:%s:%s", vaID, airtableRecordID)
@@ -474,10 +739,140 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 	return nil
 }
 
+// linkCareerModePilot attempts to link a career mode pilot record for the given callsign
+func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign string, userRoleID string) {
+	// Get career mode schema config
+	careerModeConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "career_mode")
+	if err != nil {
+		log.Printf("[PilotSyncJob] Error getting career mode config for VA %s: %v", vaID, err)
+		return
+	}
+
+	if careerModeConfig == nil {
+		// Career mode not configured - this is fine, just return
+		return
+	}
+
+	// Parse career mode schema config
+	var careerModeSchema dtos.EntitySchema
+	bytes, err := json.Marshal(careerModeConfig.ConfigData)
+	if err != nil {
+		log.Printf("[PilotSyncJob] Error marshaling career mode config: %v", err)
+		return
+	}
+
+	if err := json.Unmarshal(bytes, &careerModeSchema); err != nil {
+		log.Printf("[PilotSyncJob] Error parsing career mode schema: %v", err)
+		return
+	}
+
+	// Set entity_type if not set
+	if careerModeSchema.EntityType == "" {
+		careerModeSchema.EntityType = "career_mode"
+	}
+
+	// Check if enabled
+	if !careerModeSchema.Enabled {
+		log.Printf("[PilotSyncJob] Career mode schema is disabled for VA %s", vaID)
+		return
+	}
+
+	// Get credentials config (reuse from regular pilot sync context)
+	credentialsConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
+	if err != nil || credentialsConfig == nil {
+		log.Printf("[PilotSyncJob] Error getting credentials for career mode linking: %v", err)
+		return
+	}
+
+	var credsData struct {
+		APIKey       string            `json:"api_key"`
+		BaseID       string            `json:"base_id"`
+		SyncSettings dtos.SyncSettings `json:"sync_settings"`
+	}
+	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
+	if err != nil {
+		log.Printf("[PilotSyncJob] Error marshaling credentials: %v", err)
+		return
+	}
+	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
+		log.Printf("[PilotSyncJob] Error parsing credentials: %v", err)
+		return
+	}
+
+	// Build credentials
+	creds := &platformVA.ProviderCredentials{
+		APIKey: credsData.APIKey,
+		BaseID: credsData.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          credsData.SyncSettings.BatchSize,
+			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
+		},
+	}
+
+	// Get callsign field name from schema
+	var callsignFieldName string
+	for _, field := range careerModeSchema.Fields {
+		if field.InternalName == "callsign" {
+			callsignFieldName = field.AirtableName
+			break
+		}
+	}
+
+	if callsignFieldName == "" {
+		log.Printf("[PilotSyncJob] Career mode schema missing callsign field mapping")
+		return
+	}
+
+	// Set credentials in context
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
+
+	// Convert schema
+	vaCareerModeSchema := convertDTOsEntitySchema(&careerModeSchema)
+
+	// Build filter formula to find career mode record by callsign
+	filterFormula := fmt.Sprintf("{%s} = '%s'", callsignFieldName, callsign)
+	filters := &providers.SyncFilters{
+		FilterFormula: filterFormula,
+		Limit:         1,
+	}
+
+	// Fetch career mode record
+	recordSet, err := j.airtableProvider.FetchRecords(ctx, vaCareerModeSchema, filters)
+	if err != nil {
+		log.Printf("[PilotSyncJob] Error fetching career mode record for callsign %s: %v", callsign, err)
+		return
+	}
+
+	if len(recordSet.Records) == 0 {
+		log.Printf("[PilotSyncJob] No career mode record found for callsign %s", callsign)
+		return
+	}
+
+	careerModeRecordID := recordSet.Records[0].ID
+
+	// Update career_mode_pilot_id
+	err = j.pilotRepo.UpdateUserCareerModePilotID(ctx, userRoleID, careerModeRecordID)
+	if err != nil {
+		log.Printf("[PilotSyncJob] Error updating career_mode_pilot_id for callsign %s: %v", callsign, err)
+		return
+	}
+
+	log.Printf("[PilotSyncJob] Updated career_mode_pilot_id for callsign %s (record: %s)", callsign, careerModeRecordID)
+}
+
 // getLastSyncTimestamp gets the most recent sync timestamp for this VA from sync history
 // This is used for incremental syncing - only fetch records modified after this time
+// DEPRECATED: Use getLastSyncTimestampForEvent instead
 func (j *SyncJob) getLastSyncTimestamp(ctx context.Context, vaID string) (*string, error) {
-	lastSyncTime, err := j.syncRepo.GetLastSyncTimeForVAAndEvent(ctx, vaID, platformVA.SyncEventPilotsAT)
+	return j.getLastSyncTimestampForEvent(ctx, vaID, platformVA.SyncEventPilotsAT)
+}
+
+// getLastSyncTimestampForEvent gets the most recent sync timestamp for this VA and specific event from sync history
+// This is used for incremental syncing - only fetch records modified after this time
+func (j *SyncJob) getLastSyncTimestampForEvent(ctx context.Context, vaID string, event string) (*string, error) {
+	lastSyncTime, err := j.syncRepo.GetLastSyncTimeForVAAndEvent(ctx, vaID, event)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last sync timestamp: %w", err)

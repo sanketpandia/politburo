@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/internal/events"
+	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/pireps"
 
 	"gorm.io/gorm"
@@ -13,18 +14,25 @@ import (
 
 // Service handles dashboard business logic
 type Service struct {
-	eventSvc *events.Service
-	pirepRepo *pireps.Repository
-	db *gorm.DB
+	eventSvc   *events.Service
+	pirepRepo  *pireps.Repository
+	statsSvc   *pilots.StatsService
+	db         *gorm.DB
 }
 
 // NewService creates a new dashboard service
-func NewService(eventSvc *events.Service, pirepRepo *pireps.Repository, db *gorm.DB) *Service {
+func NewService(eventSvc *events.Service, pirepRepo *pireps.Repository, statsSvc *pilots.StatsService, db *gorm.DB) *Service {
 	return &Service{
-		eventSvc: eventSvc,
+		eventSvc:  eventSvc,
 		pirepRepo: pirepRepo,
-		db: db,
+		statsSvc:  statsSvc,
+		db:        db,
 	}
+}
+
+// GetPilotStats fetches pilot statistics for the current user
+func (s *Service) GetPilotStats(ctx context.Context, userDiscordID, vaID string) (*pilots.StatsResponse, error) {
+	return s.statsSvc.GetPilotStats(ctx, userDiscordID, vaID)
 }
 
 // LeaderboardEntry represents a single leaderboard entry

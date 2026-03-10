@@ -10,15 +10,16 @@ import (
 
 // UserVARole represents the relationship between a user and a VA
 type UserVARole struct {
-	ID              string       `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
-	UserID          string       `gorm:"column:user_id;type:uuid"`
-	VAID            string       `gorm:"column:va_id;type:uuid"`
-	Role            roles.VARole `gorm:"column:role;type:va_role"`
-	IsActive        bool         `gorm:"column:is_active;default:true"`
-	JoinedAt        time.Time    `gorm:"column:joined_at;autoCreateTime"`
-	Callsign        string       `gorm:"column:callsign"`
-	AirtablePilotID *string      `gorm:"column:airtable_pilot_id"`
-	UpdatedAt       time.Time    `gorm:"column:updated_at;autoUpdateTime"`
+	ID                string       `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
+	UserID            string       `gorm:"column:user_id;type:uuid"`
+	VAID              string       `gorm:"column:va_id;type:uuid"`
+	Role              roles.VARole `gorm:"column:role;type:va_role"`
+	IsActive          bool         `gorm:"column:is_active;default:true"`
+	JoinedAt          time.Time    `gorm:"column:joined_at;autoCreateTime"`
+	Callsign          string       `gorm:"column:callsign"`
+	AirtablePilotID   *string      `gorm:"column:airtable_pilot_id"`
+	CareerModePilotID *string      `gorm:"column:career_mode_pilot_id"`
+	UpdatedAt         time.Time    `gorm:"column:updated_at;autoUpdateTime"`
 
 	// Relationships
 	User users.User `gorm:"foreignKey:UserID"`

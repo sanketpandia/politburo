@@ -36,7 +36,7 @@ func (r *Repository) Upsert(ctx context.Context, pilot *PilotATSyncedGORM) error
 				{Name: "server_id"},
 				{Name: "at_id"},
 			},
-			DoUpdates: clause.AssignmentColumns([]string{"callsign", "registered"}),
+			DoUpdates: clause.AssignmentColumns([]string{"callsign", "registered", "pilot_type"}),
 		}).
 		Create(pilot)
 
@@ -96,6 +96,14 @@ func (r *Repository) UpdateUserAirtableID(ctx context.Context, userRoleID string
 		Table("va_user_roles").
 		Where("id = ?", userRoleID).
 		Update("airtable_pilot_id", airtableID).Error
+}
+
+// UpdateUserCareerModePilotID updates the career_mode_pilot_id for a user in va_user_roles
+func (r *Repository) UpdateUserCareerModePilotID(ctx context.Context, userRoleID string, careerModePilotID string) error {
+	return r.db.WithContext(ctx).
+		Table("va_user_roles").
+		Where("id = ?", userRoleID).
+		Update("career_mode_pilot_id", careerModePilotID).Error
 }
 
 // FindByATID finds a Pilot by VA ID and Airtable ID

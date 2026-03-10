@@ -6,6 +6,9 @@ const (
 	// SyncEventPilotsAT indicates a pilot sync from Airtable
 	SyncEventPilotsAT = "PILOT_AT_SYNC"
 
+	// SyncEventCareerModePilotsAT indicates a career mode pilot sync from Airtable
+	SyncEventCareerModePilotsAT = "CAREER_MODE_PILOT_AT_SYNC"
+
 	// SyncEventRoutesAT indicates a route sync from Airtable
 	SyncEventRoutesAT = "ROUTES_AT_SYNC"
 

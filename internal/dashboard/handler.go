@@ -73,9 +73,21 @@ func (h *Handler) DashboardPageHandler() http.HandlerFunc {
 			}
 			data["Leaderboard"] = leaderboard
 			data["ActiveEvent"] = activeEvent
+
+			// Fetch pilot stats (optional - don't fail if unavailable)
+			userDiscordID := sessionData.DiscordID
+			stats, err := h.dashboardSvc.GetPilotStats(r.Context(), userDiscordID, activeVA.VAID)
+			if err != nil {
+				logging.Warn("Failed to fetch pilot stats", "error", err, "va_id", activeVA.VAID, "discord_id", userDiscordID)
+				// Continue without stats - not critical
+				data["PilotStats"] = nil
+			} else {
+				data["PilotStats"] = stats
+			}
 		} else {
 			data["Leaderboard"] = []LeaderboardEntry{}
 			data["ActiveEvent"] = nil
+			data["PilotStats"] = nil
 		}
 
 		// Render template
