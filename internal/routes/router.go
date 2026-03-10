@@ -120,6 +120,9 @@ func NewRouter(application *app.App) http.Handler {
 		// Membership join endpoint
 		v1.Post("/memberships/join", application.Features.MembershipsHandler.JoinVA())
 
+		// Pilot stats endpoint
+		v1.Get("/pilot/stats", application.Features.PilotsHandler.GetPilotStats())
+
 		// Live flights endpoint - returns cached live flights for the current VA
 		// Reads from prepopulated cache (game:live:vaflights:<va_id> and game:live:flight:<flight_id>)
 		// Includes signed link for browser access to /live page

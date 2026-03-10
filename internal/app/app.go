@@ -17,6 +17,7 @@ import (
 	"infinite-experiment/politburo/infra/security"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
+	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/dashboard"
 	"infinite-experiment/politburo/internal/datasource"
 	"infinite-experiment/politburo/internal/db/repositories"
@@ -409,13 +410,31 @@ func (a *App) initFeatures() error {
 		logging.Debug("PIREP queue worker initialized")
 	}
 
+	// Initialize legacy VA config service (needed by StatsService)
+	// Create legacy cache service for StatsService
+	legacyCacheSvc := cache.NewCacheService(60000, 600)
+	// Create another legacy VARepo instance for StatsService (legacyVARepo is scoped to initPlatform)
+	legacyVARepoForStats := repositories.NewVAGormRepository(a.Infra.DB)
+	legacyVAConfigSvc := common.NewVAConfigService(legacyVARepoForStats, legacyCacheSvc)
+
+	// Initialize StatsService
+	statsSvc := pilots.NewStatsService(
+		a.Infra.DB,
+		legacyCacheSvc,
+		configRepo,
+		a.Platform.UsersRepo,
+		legacyVAConfigSvc,
+		syncRepo,
+	)
+	logging.Debug("Stats service initialized")
+
 	// Initialize dashboard service and handler
-	dashboardSvc := dashboard.NewService(eventSvc, pirepRepo, a.Infra.DB)
+	dashboardSvc := dashboard.NewService(eventSvc, pirepRepo, statsSvc, a.Infra.DB)
 	dashboardHandler := dashboard.NewHandler(a.Infra.TemplateRenderer, dashboardSvc)
 
 	// Initialize handlers
 	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc, pilotRepo, a.Platform.VAConfigSvc)
-	pilotsHandler := pilots.NewHandler(nil, pilotsRegSvc, logbookSvc)
+	pilotsHandler := pilots.NewHandler(statsSvc, pilotsRegSvc, logbookSvc)
 	serversHandler := servers.NewHandler(serversRegSvc)
 
 	// Initialize datasource handler

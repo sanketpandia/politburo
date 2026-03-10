@@ -700,6 +700,8 @@ func getInternalFieldsForSchemaType(schemaType string) []InternalFieldDefinition
 			{Name: "last_activity_cm", DisplayName: "Last Career Mode Activity", Required: false, IsUserVisible: true, Description: "Last activity date"},
 			{Name: "assigned_routes", DisplayName: "Assigned Routes", Required: false, IsUserVisible: true, Description: "Assigned route IDs"},
 			{Name: "aircraft", DisplayName: "Aircraft", Required: false, IsUserVisible: true, Description: "Preferred aircraft"},
+			{Name: "airline", DisplayName: "Airline", Required: false, IsUserVisible: true, Description: "Current airline"},
+			{Name: "last_flown_route", DisplayName: "Last Flown Route", Required: false, IsUserVisible: true, Description: "Last route flown in career mode (e.g., WIII-WIDD)"},
 		}
 	default:
 		return []InternalFieldDefinition{}

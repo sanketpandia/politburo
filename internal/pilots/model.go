@@ -21,11 +21,12 @@ type PilotATSynced struct {
 
 // PilotATSyncedGORM represents a pilot record synced from Airtable (GORM)
 type PilotATSyncedGORM struct {
-	ID         string `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
-	ATID       string `gorm:"column:at_id;type:varchar(20);not null"`
-	Callsign   string `gorm:"column:callsign;type:varchar(20)"`
-	Registered bool   `gorm:"column:registered;default:false"`
-	ServerID   string `gorm:"column:server_id;type:uuid"`
+	ID         string     `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
+	ATID       string     `gorm:"column:at_id;type:varchar(20);not null"`
+	Callsign   string     `gorm:"column:callsign;type:varchar(20)"`
+	Registered bool       `gorm:"column:registered;default:false"`
+	ServerID   string     `gorm:"column:server_id;type:uuid"`
+	PilotType  PilotType  `gorm:"column:pilot_type;type:pilot_type;default:'regular'"`
 }
 
 // TableName specifies the table name for GORM
@@ -129,13 +130,14 @@ type RecentPIREP struct {
 
 // MembershipWithAirtable represents user VA membership with Airtable linkage
 type MembershipWithAirtable struct {
-	UserID          string  `db:"user_id"`
-	DiscordID       string  `db:"discord_id"`
-	IFCommunityID   string  `db:"if_community_id"`
-	AirtablePilotID *string `db:"airtable_pilot_id"`
-	Callsign        string  `db:"callsign"`
-	Role            string  `db:"role"`
-	VAName          string  `db:"va_name"`
+	UserID            string  `db:"user_id"`
+	DiscordID         string  `db:"discord_id"`
+	IFCommunityID     string  `db:"if_community_id"`
+	AirtablePilotID   *string `db:"airtable_pilot_id"`
+	CareerModePilotID *string `db:"career_mode_pilot_id"`
+	Callsign          string  `db:"callsign"`
+	Role              string  `db:"role"`
+	VAName            string  `db:"va_name"`
 }
 
 // PilotStatusResponse represents a pilot search result from Airtable

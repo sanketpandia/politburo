@@ -22,6 +22,9 @@ type EntitySchema struct {
 	Enabled           bool            `json:"enabled"`
 	Fields            []FieldMapping  `json:"fields"`
 	LastModifiedField string          `json:"last_modified_field,omitempty"`
+	
+	// Career mode specific configuration
+	CareerModeFlightMode *string `json:"career_mode_flight_mode,omitempty"` // Flight mode to filter PIREPs for last flown route
 }
 
 // FieldMapping maps an internal field to an external provider field

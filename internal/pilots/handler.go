@@ -108,39 +108,49 @@ func (h *Handler) PilotStatus() http.HandlerFunc {
 	}
 }
 
-// // GetPilotStats handles GET /api/v1/pilot/stats
-// // Returns comprehensive pilot statistics from the configured data provider
-// func (h *Handler) GetPilotStats() http.HandlerFunc {
-// 	return func(w http.ResponseWriter, r *http.Request) {
-// 		initTime := time.Now()
+// GetPilotStats handles GET /api/v1/pilot/stats
+// Returns comprehensive pilot statistics from the configured data provider
+func (h *Handler) GetPilotStats() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
 
-// 		// Get claims from context
-// 		claims := auth.GetUserClaims(r.Context())
-// 		if claims == nil {
-// 			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
-// 			return
-// 		}
+		// Get claims from context
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized: missing claims", http.StatusUnauthorized)
+			return
+		}
 
-// 		userDiscordID := claims.DiscordUserID()
-// 		vaDiscordServerID := claims.DiscordServerID()
-// 		vaUUID := claims.ServerID()
+		userDiscordID := claims.DiscordUserID()
+		vaUUID := claims.ServerID()
 
-// 		// Validate VA exists
-// 		if vaDiscordServerID == "" {
-// 			common.RespondError(w, initTime, fmt.Errorf("not in a VA Server"), "Virtual airline not found", http.StatusNotFound)
-// 			return
-// 		}
+		// Validate we have required IDs
+		if userDiscordID == "" {
+			httpdto.WriteError(w, initTime, "MISSING_DISCORD_ID", "Discord user ID not found in claims", http.StatusBadRequest)
+			return
+		}
 
-// 		// Fetch pilot stats (returns standardized mapped data)
-// 		stats, err := h.statsSvc.GetPilotStats(r.Context(), userDiscordID, vaUUID)
-// 		if err != nil {
-// 			h.handlePilotStatsError(w, initTime, err)
-// 			return
-// 		}
+		if vaUUID == "" {
+			httpdto.WriteError(w, initTime, "MISSING_VA_ID", "VA ID not found in claims", http.StatusBadRequest)
+			return
+		}
 
-// 		common.RespondSuccess(w, initTime, "Pilot stats fetched successfully", stats)
-// 	}
-// }
+		// Fetch pilot stats (returns standardized mapped data)
+		stats, err := h.statsSvc.GetPilotStats(r.Context(), userDiscordID, vaUUID)
+		if err != nil {
+			h.handlePilotStatsError(w, initTime, err)
+			return
+		}
+
+		// Check if stats response is empty (no data found)
+		if stats == nil || (stats.GameStats == nil && stats.ProviderData == nil && stats.CareerModeData == nil) {
+			httpdto.WriteError(w, initTime, "NO_STATS_FOUND", "No pilot statistics found. Make sure you're registered with /register and have connected your VA account!", http.StatusNotFound)
+			return
+		}
+
+		httpdto.WriteSuccess(w, initTime, stats, http.StatusOK)
+	}
+}
 
 // handleRegistrationError maps registration service errors to appropriate HTTP responses
 func (h *Handler) handleRegistrationError(w http.ResponseWriter, initTime time.Time, err error) {

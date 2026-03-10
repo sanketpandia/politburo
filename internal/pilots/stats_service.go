@@ -15,6 +15,7 @@ import (
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/sync"
 	"log"
+	"math"
 	"time"
 
 	"gorm.io/gorm"
@@ -59,6 +60,7 @@ func (s *StatsService) getUserMembership(ctx context.Context, userDiscordID, vaI
 			u.discord_id,
 			u.if_community_id,
 			vur.airtable_pilot_id,
+			vur.career_mode_pilot_id,
 			vur.callsign,
 			vur.role,
 			va.name as va_name
@@ -141,18 +143,38 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	fullCallsign := callsignPrefix + membership.Callsign
 	fmt.Printf("Searching for pilot with callsign: %s (prefix: %s, base: %s)\n", fullCallsign, callsignPrefix, membership.Callsign)
 
-	// Step 5: Get active Airtable config for VA
-	config, configData, err := s.getActiveAirtableConfig(ctx, vaID)
+	// Step 5: Get pilot schema config by type (separate config row)
+	pilotConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pilot")
 	if err != nil {
-		return nil, err
+		return nil, &StatsError{
+			Code:    constants.ErrCodeConfigNotFound,
+			Message: "Failed to get pilot config",
+			Err:     err,
+		}
 	}
 
-	// Step 6: Get pilot schema from config
-	pilotSchema := configData.GetSchemaByType("pilot")
-	if pilotSchema == nil {
+	if pilotConfig == nil {
+		return nil, &StatsError{
+			Code:    constants.ErrCodeConfigNotFound,
+			Message: "Pilot schema not found in configuration",
+		}
+	}
+
+	// Step 6: Parse pilot schema directly from config_data
+	var pilotSchema dtos.EntitySchema
+	bytes, err := json.Marshal(pilotConfig.ConfigData)
+	if err != nil {
 		return nil, &StatsError{
 			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Pilot schema not found in configuration",
+			Message: "Failed to marshal pilot config data",
+			Err:     err,
+		}
+	}
+	if err := json.Unmarshal(bytes, &pilotSchema); err != nil {
+		return nil, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to parse pilot schema",
+			Err:     err,
 		}
 	}
 
@@ -177,17 +199,53 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	filterFormula := fmt.Sprintf("{%s} = '%s'", callsignFieldName, fullCallsign)
 	fmt.Printf("Airtable filter formula: %s\n", filterFormula)
 
-	// Step 9: Fetch from Airtable using filter
-	// Convert dtos.EntitySchema to platformVA.EntitySchema
-	var vaPilotSchema *platformVA.EntitySchema = convertDTOsEntitySchema(pilotSchema)
-	creds, err := getCredentialsFromConfig(configData)
-	if err != nil {
+	// Step 9: Get credentials config separately
+	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
+	if err != nil || credentialsConfig == nil {
 		return nil, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to extract credentials from config",
+			Code:    constants.ErrCodeConfigNotFound,
+			Message: "Failed to get credentials config",
 			Err:     err,
 		}
 	}
+
+	// Parse credentials from config_data
+	var credsData struct {
+		APIKey       string            `json:"api_key"`
+		BaseID       string            `json:"base_id"`
+		SyncSettings dtos.SyncSettings `json:"sync_settings"`
+	}
+	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
+	if err != nil {
+		return nil, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to marshal credentials config",
+			Err:     err,
+		}
+	}
+	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
+		return nil, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to parse credentials config",
+			Err:     err,
+		}
+	}
+
+	// Build credentials
+	creds := &platformVA.ProviderCredentials{
+		APIKey: credsData.APIKey,
+		BaseID: credsData.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          credsData.SyncSettings.BatchSize,
+			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
+		},
+	}
+
+	// Step 10: Fetch from Airtable using filter
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	var vaPilotSchema *platformVA.EntitySchema = convertDTOsEntitySchema(&pilotSchema)
 	ctx = context.WithValue(ctx, "provider_credentials", creds)
 	filters := &providers.SyncFilters{
 		FilterFormula: filterFormula,
@@ -240,10 +298,10 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 		Role:            membership.Role,
 		RawFields:       record.Fields,
 		Metadata: PilotStatusMetadata{
-			SchemaVersion: configData.Version,
+			SchemaVersion: fmt.Sprintf("%d", pilotConfig.ConfigVersion),
 			FetchedAt:     time.Now().Format(time.RFC3339),
 			VAName:        membership.VAName,
-			ConfigActive:  config.IsActive,
+			ConfigActive:  pilotConfig.IsActive,
 		},
 	}
 
@@ -368,19 +426,41 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 // fetchProviderData fetches and transforms data from the configured provider
 // Returns: (providerData, rawFields, cached, error)
 func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaID string) (*ProviderPilotData, map[string]interface{}, bool, error) {
-	// Get active config
-	_, configData, err := s.getActiveAirtableConfig(ctx, vaID)
+	// Get pilot schema config by type (separate config row)
+	pilotConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pilot")
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigNotFound,
+			Message: "Failed to get pilot config",
+			Err:     err,
+		}
 	}
 
-	// Get pilot schema
-	pilotSchema := configData.GetSchemaByType("pilot")
-	if pilotSchema == nil {
+	if pilotConfig == nil {
+		return nil, nil, false, nil // No pilot config - optional data
+	}
+
+	// Parse pilot schema directly from config_data (it's stored as EntitySchema, not wrapped)
+	var pilotSchema dtos.EntitySchema
+	bytes, err := json.Marshal(pilotConfig.ConfigData)
+	if err != nil {
 		return nil, nil, false, &StatsError{
 			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Pilot schema not found in configuration",
+			Message: "Failed to marshal pilot config data",
+			Err:     err,
 		}
+	}
+	if err := json.Unmarshal(bytes, &pilotSchema); err != nil {
+		return nil, nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to parse pilot schema",
+			Err:     err,
+		}
+	}
+
+	// Check if enabled
+	if !pilotSchema.Enabled {
+		return nil, nil, false, nil // Schema disabled - optional data
 	}
 
 	// Get user's airtable_pilot_id
@@ -389,11 +469,10 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 		return nil, nil, false, err
 	}
 
+	// Check if airtable_pilot_id exists - if not, return nil (optional data)
 	if membership.AirtablePilotID == nil || *membership.AirtablePilotID == "" {
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodePilotAirtableIDMissing,
-			Message: "Pilot not synced with Airtable",
-		}
+		log.Printf("[fetchProviderData] No airtable_pilot_id for user %s in VA %s - skipping provider data fetch", userDiscordID, vaID)
+		return nil, nil, false, nil // Return nil, nil, false, nil - no error, just no data
 	}
 
 	airtablePilotID := *membership.AirtablePilotID
@@ -409,33 +488,73 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	}
 
 	log.Printf("[fetchProviderData] Fetching from Airtable for pilot %s in VA %s", airtablePilotID, vaID)
-	// Fetch from provider
-	// Convert dtos.EntitySchema to platformVA.EntitySchema
-	vaPilotSchema := convertDTOsEntitySchema(pilotSchema)
-	creds, err := getCredentialsFromConfig(configData)
-	if err != nil {
+	
+	// Get credentials config separately
+	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
+	if err != nil || credentialsConfig == nil {
 		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to extract credentials from config",
+			Code:    constants.ErrCodeConfigNotFound,
+			Message: "Failed to get credentials config",
 			Err:     err,
 		}
 	}
+
+	// Parse credentials from config_data
+	var credsData struct {
+		APIKey       string            `json:"api_key"`
+		BaseID       string            `json:"base_id"`
+		SyncSettings dtos.SyncSettings `json:"sync_settings"`
+	}
+	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
+	if err != nil {
+		return nil, nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to marshal credentials config",
+			Err:     err,
+		}
+	}
+	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
+		return nil, nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to parse credentials config",
+			Err:     err,
+		}
+	}
+
+	// Build credentials
+	creds := &platformVA.ProviderCredentials{
+		APIKey: credsData.APIKey,
+		BaseID: credsData.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          credsData.SyncSettings.BatchSize,
+			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
+		},
+	}
+
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	vaPilotSchema := convertDTOsEntitySchema(&pilotSchema)
 	ctx = context.WithValue(ctx, "provider_credentials", creds)
 	pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, airtablePilotID, vaPilotSchema)
 	if err != nil {
 		// Check if it's a provider error
 		if provErr, ok := err.(*providers.ProviderError); ok {
-			return nil, nil, false, &StatsError{
-				Code:    provErr.Code,
-				Message: provErr.Message,
-				Err:     err,
+			// Only fail for authentication errors - for other errors, return nil (optional data)
+			if provErr.Code == constants.ErrCodeInvalidAPIKey {
+				return nil, nil, false, &StatsError{
+					Code:    provErr.Code,
+					Message: provErr.Message,
+					Err:     err,
+				}
 			}
+			// For other errors (record not found, network issues, etc.), return nil (optional data)
+			log.Printf("[fetchProviderData] Failed to fetch pilot %s: %v - treating as optional", airtablePilotID, err)
+			return nil, nil, false, nil
 		}
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: constants.GetErrorMessage(constants.ErrCodeNetworkError),
-			Err:     err,
-		}
+		// Non-provider error - return nil (optional data)
+		log.Printf("[fetchProviderData] Error fetching pilot %s: %v - treating as optional", airtablePilotID, err)
+		return nil, nil, false, nil
 	}
 
 	// Log raw fields from Airtable
@@ -451,7 +570,7 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	}
 
 	// Transform to standardized response
-	providerData := s.transformToStandardizedFields(pilotRecord.RawFields, pilotSchema)
+	providerData := s.transformToStandardizedFields(pilotRecord.RawFields, &pilotSchema)
 
 	// Log transformed data
 	log.Printf("[fetchProviderData] Transformed provider data:")
@@ -462,6 +581,29 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	s.cache.Set(cacheKey, providerData, 10*time.Minute)
 
 	return providerData, pilotRecord.RawFields, false, nil
+}
+
+// formatTimeSeconds converts seconds to HH:MM format
+func formatTimeSeconds(seconds interface{}) string {
+	var secs int
+	switch v := seconds.(type) {
+	case float64:
+		secs = int(math.Round(v))
+	case int:
+		secs = v
+	case int64:
+		secs = int(v)
+	default:
+		return fmt.Sprintf("%v", seconds)
+	}
+	hours := secs / 3600
+	mins := (secs % 3600) / 60
+	return fmt.Sprintf("%02d:%02d", hours, mins)
+}
+
+// isTimeField checks if a field should be treated as a time field (in seconds)
+func isTimeField(field dtos.FieldMapping) bool {
+	return field.DataType == "time" || (field.DisplayFormat != nil && *field.DisplayFormat == "duration")
 }
 
 // transformToStandardizedFields maps raw provider data to standardized API response
@@ -475,11 +617,10 @@ func (s *StatsService) transformToStandardizedFields(
 	}
 
 	for _, field := range schema.Fields {
-		// TODO: Re-enable this check once schema is properly configured
-		// Skip non-visible fields
-		// if !field.IsUserVisible {
-		// 	continue
-		// }
+		// Skip non-visible fields (only show fields marked as user-visible)
+		if !field.IsUserVisible {
+			continue
+		}
 
 		// Get value from raw data using the provider field name
 		value, exists := rawFields[field.AirtableName]
@@ -487,15 +628,43 @@ func (s *StatsService) transformToStandardizedFields(
 			continue
 		}
 
-		// Map to standardized field based on display_name or internal_name
-		displayOrInternalName := field.DisplayName
-		if displayOrInternalName == "" {
-			displayOrInternalName = field.InternalName
+		// Check if this is a time field and format it
+		if isTimeField(field) {
+			formattedTime := formatTimeSeconds(value)
+			value = formattedTime
 		}
 
-		switch displayOrInternalName {
+		// Map to standardized field based on internal_name (not display_name)
+		internalName := field.InternalName
+
+		// Normalize arrays to top 6 items
+		if arr, ok := value.([]interface{}); ok {
+			if len(arr) > 6 {
+				value = arr[:6]
+			}
+		} else if arr, ok := value.([]string); ok {
+			if len(arr) > 6 {
+				value = arr[:6]
+			}
+		}
+
+		switch internalName {
 		case "flight_hours":
-			data.FlightHours = &value
+			// For time fields, value is already formatted as string - convert to interface{}
+			var iface interface{}
+			if isTimeField(field) {
+				iface = value // Already formatted as string
+			} else {
+				// Handle different number types
+				if v, ok := value.(float64); ok {
+					iface = v
+				} else if v, ok := value.(int); ok {
+					iface = float64(v)
+				} else {
+					iface = value
+				}
+			}
+			data.FlightHours = &iface
 
 		case "rank":
 			if v, ok := value.(string); ok {
@@ -538,125 +707,258 @@ func (s *StatsService) transformToStandardizedFields(
 
 		default:
 			// Non-standard field - add to additional_fields
-			if field.DisplayName != "" {
-				// Use the display_name as the key
-				data.AdditionalFields[field.DisplayName] = value
-			} else {
-				// If no display_name, use internal_name
-				data.AdditionalFields[field.InternalName] = value
+			// Use display_name if available, otherwise internal_name
+			fieldKey := field.DisplayName
+			if fieldKey == "" {
+				fieldKey = field.InternalName
 			}
+			data.AdditionalFields[fieldKey] = value
 		}
 	}
 
 	return data
 }
 
-// fetchCareerModeData fetches career mode data using callsign matching
+// fetchCareerModeData fetches career mode data using stored ID (no fallback to callsign)
 func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, vaID string) (*CareerModeData, bool, error) {
-	// Get active config
-	_, configData, err := s.getActiveAirtableConfig(ctx, vaID)
+	// Get career mode schema config by type (separate config row)
+	careerModeConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "career_mode")
 	if err != nil {
-		return nil, false, err
+		return nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigNotFound,
+			Message: "Failed to get career mode config",
+			Err:     err,
+		}
 	}
 
-	// Get career mode schema
-	careerModeSchema := configData.GetSchemaByType("career_mode")
-	if careerModeSchema == nil {
+	if careerModeConfig == nil {
 		// Career mode not configured - this is not an error
-		return nil, false, fmt.Errorf("career mode schema not configured")
+		return nil, false, nil
 	}
 
-	// Get user's callsign for matching
+	// Parse career mode schema directly from config_data (it's stored as EntitySchema, not wrapped)
+	var careerModeSchema dtos.EntitySchema
+	bytes, err := json.Marshal(careerModeConfig.ConfigData)
+	if err != nil {
+		return nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to marshal career mode config data",
+			Err:     err,
+		}
+	}
+	if err := json.Unmarshal(bytes, &careerModeSchema); err != nil {
+		return nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to parse career mode schema",
+			Err:     err,
+		}
+	}
+
+	// Check if enabled
+	if !careerModeSchema.Enabled {
+		return nil, false, nil // Schema disabled - optional data
+	}
+
+	// Get user's membership (includes career_mode_pilot_id)
 	membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
 	if err != nil {
 		return nil, false, err
 	}
 
-	// Get callsign prefix from VA config
-	callsignPrefix, ok := s.vaConfigService.GetConfigVal(ctx, vaID, common.ConfigKeyAirtableCallsignColumnPrefix)
-	if !ok {
-		callsignPrefix = ""
-	}
-
-	// Construct full callsign
-	fullCallsign := callsignPrefix + membership.Callsign
-
-	// Get the callsign field name from schema
-	var callsignFieldName string
-	for _, field := range careerModeSchema.Fields {
-		if field.InternalName == "callsign" {
-			callsignFieldName = field.AirtableName
-			break
-		}
-	}
-
-	if callsignFieldName == "" {
+	// Get credentials config separately
+	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
+	if err != nil || credentialsConfig == nil {
 		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Callsign field not found in career mode schema",
-		}
-	}
-
-	// Build Airtable filter formula
-	filterFormula := fmt.Sprintf("{%s} = '%s'", callsignFieldName, fullCallsign)
-	log.Printf("[fetchCareerModeData] Filter formula: %s", filterFormula)
-
-	// Fetch from Airtable using filter
-	// Convert dtos.EntitySchema to platformVA.EntitySchema
-	vaCareerModeSchema := convertDTOsEntitySchema(careerModeSchema)
-	creds, err := getCredentialsFromConfig(configData)
-	if err != nil {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to extract credentials from config",
+			Code:    constants.ErrCodeConfigNotFound,
+			Message: "Failed to get credentials config",
 			Err:     err,
 		}
 	}
-	ctx = context.WithValue(ctx, "provider_credentials", creds)
-	filters := &providers.SyncFilters{
-		FilterFormula: filterFormula,
-		Limit:         1,
+
+	// Parse credentials from config_data
+	var credsData struct {
+		APIKey       string            `json:"api_key"`
+		BaseID       string            `json:"base_id"`
+		SyncSettings dtos.SyncSettings `json:"sync_settings"`
+	}
+	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
+	if err != nil {
+		return nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to marshal credentials config",
+			Err:     err,
+		}
+	}
+	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
+		return nil, false, &StatsError{
+			Code:    constants.ErrCodeConfigMalformed,
+			Message: "Failed to parse credentials config",
+			Err:     err,
+		}
 	}
 
-	recordSet, err := s.airtableProvider.FetchRecords(ctx, vaCareerModeSchema, filters)
-	if err != nil {
-		if provErr, ok := err.(*providers.ProviderError); ok {
+	// Build credentials
+	creds := &platformVA.ProviderCredentials{
+		APIKey: credsData.APIKey,
+		BaseID: credsData.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          credsData.SyncSettings.BatchSize,
+			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
+		},
+	}
+
+	// Convert dtos.EntitySchema to platformVA.EntitySchema
+	vaCareerModeSchema := convertDTOsEntitySchema(&careerModeSchema)
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
+
+	var recordFields map[string]interface{}
+	var recordID string
+
+	// Check if we have a stored career mode pilot ID
+	if membership.CareerModePilotID != nil && *membership.CareerModePilotID != "" {
+		// Use stored ID - faster and more reliable
+		log.Printf("[fetchCareerModeData] Using stored career mode pilot ID: %s", *membership.CareerModePilotID)
+		pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, *membership.CareerModePilotID, vaCareerModeSchema)
+		if err != nil {
+			if provErr, ok := err.(*providers.ProviderError); ok {
+				// Only fail for authentication errors - fallback to callsign matching for everything else
+				if provErr.Code == constants.ErrCodeInvalidAPIKey {
+					return nil, false, &StatsError{
+						Code:    provErr.Code,
+						Message: provErr.Message,
+						Err:     err,
+					}
+				}
+				// For other errors (record not found, network issues, etc.), fallback to callsign matching
+				log.Printf("[fetchCareerModeData] Failed to fetch by ID (%s), falling back to callsign matching: %v", provErr.Code, err)
+				// Fall through to callsign matching below
+			} else {
+				// Non-provider error - fallback to callsign matching
+				log.Printf("[fetchCareerModeData] Failed to fetch by ID, falling back to callsign matching: %v", err)
+				// Fall through to callsign matching below
+			}
+		} else {
+			// Successfully fetched by ID
+			recordFields = pilotRecord.RawFields
+			recordID = pilotRecord.ProviderID
+		}
+	}
+
+	// Fallback to callsign matching if ID not set or fetch by ID failed
+	if recordFields == nil {
+		log.Printf("[fetchCareerModeData] Using callsign matching (fallback)")
+
+		// Get callsign prefix from VA config
+		callsignPrefix, ok := s.vaConfigService.GetConfigVal(ctx, vaID, common.ConfigKeyAirtableCallsignColumnPrefix)
+		if !ok {
+			callsignPrefix = ""
+		}
+
+		// Construct full callsign
+		fullCallsign := callsignPrefix + membership.Callsign
+
+		// Get the callsign field name from schema
+		var callsignFieldName string
+		for _, field := range careerModeSchema.Fields {
+			if field.InternalName == "callsign" {
+				callsignFieldName = field.AirtableName
+				break
+			}
+		}
+
+		if callsignFieldName == "" {
 			return nil, false, &StatsError{
-				Code:    provErr.Code,
-				Message: provErr.Message,
+				Code:    constants.ErrCodeConfigMalformed,
+				Message: "Callsign field not found in career mode schema",
+			}
+		}
+
+		// Build Airtable filter formula
+		filterFormula := fmt.Sprintf("{%s} = '%s'", callsignFieldName, fullCallsign)
+		log.Printf("[fetchCareerModeData] Filter formula: %s", filterFormula)
+
+		filters := &providers.SyncFilters{
+			FilterFormula: filterFormula,
+			Limit:         1,
+		}
+
+		recordSet, err := s.airtableProvider.FetchRecords(ctx, vaCareerModeSchema, filters)
+		if err != nil {
+			if provErr, ok := err.(*providers.ProviderError); ok {
+				return nil, false, &StatsError{
+					Code:    provErr.Code,
+					Message: provErr.Message,
+					Err:     err,
+				}
+			}
+			return nil, false, &StatsError{
+				Code:    constants.ErrCodeNetworkError,
+				Message: constants.GetErrorMessage(constants.ErrCodeNetworkError),
 				Err:     err,
 			}
 		}
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: constants.GetErrorMessage(constants.ErrCodeNetworkError),
-			Err:     err,
-		}
-	}
 
-	// Check if we found a record
-	if len(recordSet.Records) == 0 {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodePilotNotFoundInAirtable,
-			Message: fmt.Sprintf("No career mode record found for callsign: %s", fullCallsign),
+		// Check if we found a record
+		if len(recordSet.Records) == 0 {
+			return nil, false, &StatsError{
+				Code:    constants.ErrCodePilotNotFoundInAirtable,
+				Message: fmt.Sprintf("No career mode record found for callsign: %s", fullCallsign),
+			}
 		}
-	}
 
-	record := recordSet.Records[0]
+		record := recordSet.Records[0]
+		recordFields = record.Fields
+		recordID = record.ID
+	}
 
 	// Log raw fields from Airtable
-	log.Printf("[fetchCareerModeData] Raw fields from Airtable:")
-	rawJSON, _ := json.MarshalIndent(record.Fields, "", "  ")
+	log.Printf("[fetchCareerModeData] Raw fields from Airtable (Record ID: %s):", recordID)
+	rawJSON, _ := json.MarshalIndent(recordFields, "", "  ")
 	log.Printf("%s", string(rawJSON))
 
 	// Transform to standardized response
-	careerModeData := s.transformCareerModeFields(record.Fields, careerModeSchema)
-
-	// Fetch and enrich last_career_mode_flight with route data from route_at_synced
-	if careerModeData.LastCareerModePIREP != nil {
-		routeName := s.fetchAndTransformLastCareerModePIREP(ctx, vaID, *careerModeData.LastCareerModePIREP)
-		if routeStr, ok := routeName.(string); ok {
-			careerModeData.LastCareerModeFlight = &routeStr
+	careerModeData := s.transformCareerModeFields(recordFields, &careerModeSchema)
+	
+	// Resolve last_flown_route if it contains a PIREP ID
+	// If LastCareerModePIREP is set but LastCareerModeFlight is not, it means we need to fetch the route
+	if careerModeData.LastCareerModePIREP != nil && careerModeData.LastCareerModeFlight == nil {
+		log.Printf("[fetchCareerModeData] Resolving last_flown_route from PIREP ID")
+		route := s.fetchRouteFromPIREPID(ctx, vaID, *careerModeData.LastCareerModePIREP)
+		if route != "" {
+			careerModeData.LastCareerModeFlight = &route
+			log.Printf("[fetchCareerModeData] Successfully resolved route from PIREP: %s", route)
+		} else {
+			log.Printf("[fetchCareerModeData] Failed to resolve route from PIREP ID, trying fallback: query by flight_mode and callsign")
+			// Fallback: Query by flight_mode="Career Mode" and callsign if available
+			// Get callsign from membership or from career mode data
+			membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
+			if err == nil && membership != nil {
+				// Try to get callsign from membership or from career mode data
+				callsign := membership.Callsign
+				if callsign == "" && careerModeData.AdditionalFields != nil {
+					if callsignVal, ok := careerModeData.AdditionalFields["Callsign"]; ok {
+						if cs, ok := callsignVal.(string); ok {
+							callsign = cs
+						}
+					}
+				}
+				
+				if callsign != "" {
+					route = s.fetchLastCareerModeRouteByCallsign(ctx, vaID, callsign, &careerModeSchema)
+					if route != "" {
+						careerModeData.LastCareerModeFlight = &route
+						log.Printf("[fetchCareerModeData] Successfully resolved route from fallback query: %s", route)
+					} else {
+						log.Printf("[fetchCareerModeData] Failed to resolve route from fallback query")
+					}
+				} else {
+					log.Printf("[fetchCareerModeData] Cannot use fallback: callsign not available")
+				}
+			} else {
+				log.Printf("[fetchCareerModeData] Cannot use fallback: membership not available")
+			}
 		}
 	}
 
@@ -678,24 +980,71 @@ func (s *StatsService) transformCareerModeFields(
 	}
 
 	for _, field := range schema.Fields {
+		// Skip non-visible fields (only show fields marked as user-visible)
+		if !field.IsUserVisible {
+			continue
+		}
+
 		// Get value from raw data using the provider field name
 		value, exists := rawFields[field.AirtableName]
 		if !exists {
 			continue
 		}
 
-		// Map to standardized field based on display_name or internal_name
-		displayOrInternalName := field.DisplayName
-		if displayOrInternalName == "" {
-			displayOrInternalName = field.InternalName
+		// Check if this is a time field and format it
+		if isTimeField(field) {
+			formattedTime := formatTimeSeconds(value)
+			value = formattedTime
 		}
 
-		switch displayOrInternalName {
+		// Map to standardized field based on internal_name (not display_name)
+		internalName := field.InternalName
+
+		// Normalize arrays to top 6 items
+		if arr, ok := value.([]interface{}); ok {
+			if len(arr) > 6 {
+				value = arr[:6]
+			}
+		} else if arr, ok := value.([]string); ok {
+			if len(arr) > 6 {
+				value = arr[:6]
+			}
+		}
+
+		switch internalName {
 		case "total_cm_hours":
-			data.TotalCMHours = &value
+			// For time fields, value is already formatted as string - convert to interface{}
+			var iface interface{}
+			if isTimeField(field) {
+				iface = value // Already formatted as string
+			} else {
+				// Handle different number types
+				if v, ok := value.(float64); ok {
+					iface = v
+				} else if v, ok := value.(int); ok {
+					iface = float64(v)
+				} else {
+					iface = value
+				}
+			}
+			data.TotalCMHours = &iface
 
 		case "required_hours_to_next":
-			data.RequiredHoursToNext = &value
+			// For time fields, value is already formatted as string - convert to interface{}
+			var iface interface{}
+			if isTimeField(field) {
+				iface = value // Already formatted as string
+			} else {
+				// Handle different number types
+				if v, ok := value.(float64); ok {
+					iface = v
+				} else if v, ok := value.(int); ok {
+					iface = float64(v)
+				} else {
+					iface = value
+				}
+			}
+			data.RequiredHoursToNext = &iface
 
 		case "last_activity_cm":
 			if v, ok := value.(string); ok {
@@ -721,75 +1070,395 @@ func (s *StatsService) transformCareerModeFields(
 			data.LastCareerModePIREP = &value
 
 		case "last_flown_route":
-			if v, ok := value.(string); ok {
-				data.LastFlownRoute = &v
+			// Map last_flown_route to LastCareerModeFlight for API response
+			// If the value is a PIREP ID (array or string starting with "rec"), fetch route from pirep_at_synced
+			log.Printf("[transformCareerModeFields] Mapping last_flown_route: value=%v, type=%T", value, value)
+			
+			// Check if this is a PIREP ID that needs to be resolved
+			var pirepATID string
+			switch v := value.(type) {
+			case []interface{}:
+				// Array of PIREP IDs (Airtable linked records)
+				if len(v) > 0 {
+					if id, ok := v[0].(string); ok && len(id) > 3 && id[:3] == "rec" {
+						pirepATID = id
+					}
+				}
+			case []string:
+				if len(v) > 0 && len(v[0]) > 3 && v[0][:3] == "rec" {
+					pirepATID = v[0]
+				}
+			case string:
+				// Handle string representation of array like "[rectwoPzdedmaZuFE]"
+				if len(v) > 2 && v[0] == '[' && v[len(v)-1] == ']' {
+					// Extract ID from string array format
+					id := v[1 : len(v)-1]
+					if len(id) > 3 && id[:3] == "rec" {
+						pirepATID = id
+					}
+				} else if len(v) > 3 && v[:3] == "rec" {
+					// Direct PIREP ID
+					pirepATID = v
+				} else {
+					// It's already a route string
+					data.LastCareerModeFlight = &v
+					log.Printf("[transformCareerModeFields] last_flown_route is already a route string: %s", v)
+					continue
+				}
+			}
+			
+			// If we found a PIREP ID, fetch the route from pirep_at_synced
+			if pirepATID != "" {
+				log.Printf("[transformCareerModeFields] Detected PIREP ID in last_flown_route, fetching route from pirep_at_synced: %s", pirepATID)
+				// Note: We need vaID and ctx to fetch from DB, but we don't have them in transformCareerModeFields
+				// So we'll store the PIREP ID and resolve it after transformation
+				// Store as interface{} so we can resolve it later
+				data.LastCareerModePIREP = &value
+				log.Printf("[transformCareerModeFields] Stored PIREP ID for later resolution: %s", pirepATID)
+			} else {
+				// Not a PIREP ID, treat as direct route string
+				if str := fmt.Sprintf("%v", value); str != "" {
+					data.LastCareerModeFlight = &str
+					log.Printf("[transformCareerModeFields] Using last_flown_route as direct route string: %s", str)
+				}
 			}
 
 		default:
 			// Non-standard field - add to additional_fields
-			if field.DisplayName != "" {
-				data.AdditionalFields[field.DisplayName] = value
-			} else {
-				data.AdditionalFields[field.InternalName] = value
+			// Use display_name if available, otherwise internal_name
+			fieldKey := field.DisplayName
+			if fieldKey == "" {
+				fieldKey = field.InternalName
 			}
+			data.AdditionalFields[fieldKey] = value
 		}
 	}
 
 	return data
 }
 
-// fetchAndTransformLastCareerModePIREP fetches the route name from the route_at_synced table
-// The last_career_mode_pirep contains AT IDs that are direct references to routes
+// getKeys returns a slice of keys from a map
+func getKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// fetchLastCareerModeRouteByCallsign fetches the most recent career mode route by callsign and flight_mode
+func (s *StatsService) fetchLastCareerModeRouteByCallsign(ctx context.Context, vaID string, callsign string, careerModeSchema *dtos.EntitySchema) string {
+	log.Printf("[fetchLastCareerModeRouteByCallsign] Fetching last career mode route for callsign: %s", callsign)
+
+	// Get flight mode from schema config (if configured)
+	flightModeFilter := "Career Mode" // Default to "Career Mode"
+	if careerModeSchema.CareerModeFlightMode != nil && *careerModeSchema.CareerModeFlightMode != "" {
+		flightModeFilter = *careerModeSchema.CareerModeFlightMode
+		log.Printf("[fetchLastCareerModeRouteByCallsign] Using configured flight mode: %s", flightModeFilter)
+	}
+
+	type PirepSynced struct {
+		Route         string     `gorm:"column:route"`
+		ATCreatedTime *time.Time `gorm:"column:at_created_time"`
+	}
+
+	var pirep PirepSynced
+	query := s.gormDB.WithContext(ctx).
+		Table("pirep_at_synced").
+		Where("server_id = ?", vaID).
+		Where("flight_mode = ?", flightModeFilter).
+		Where("route IS NOT NULL AND route != ''").
+		Where("pilot_callsign = ?", callsign) // Only match records with matching callsign
+
+	err := query.
+		Order("at_created_time DESC NULLS LAST").
+		First(&pirep).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			log.Printf("[fetchLastCareerModeRouteByCallsign] No PIREP found for callsign: %s, flight_mode: %s", callsign, flightModeFilter)
+		} else {
+			log.Printf("[fetchLastCareerModeRouteByCallsign] Error fetching PIREP: %v", err)
+		}
+		return ""
+	}
+
+	if pirep.Route == "" {
+		log.Printf("[fetchLastCareerModeRouteByCallsign] Route not found in PIREP for callsign: %s", callsign)
+		return ""
+	}
+
+	log.Printf("[fetchLastCareerModeRouteByCallsign] Successfully fetched route: %s", pirep.Route)
+	return pirep.Route
+}
+
+// fetchRouteFromPIREPID fetches the route from pirep_at_synced using a PIREP AT ID
+// The pirepIDData can be an array, string, or other format containing the PIREP ID
+func (s *StatsService) fetchRouteFromPIREPID(ctx context.Context, vaID string, pirepIDData interface{}) string {
+	// Extract the first AT ID from the data (can be array or single value)
+	var pirepATID string
+
+	switch v := pirepIDData.(type) {
+	case []interface{}:
+		// Array of PIREP IDs (Airtable linked records)
+		if len(v) > 0 {
+			if id, ok := v[0].(string); ok {
+				pirepATID = id
+			}
+		}
+	case []string:
+		if len(v) > 0 {
+			pirepATID = v[0]
+		}
+	case string:
+		// Handle string representation of array like "[rectwoPzdedmaZuFE]"
+		if len(v) > 2 && v[0] == '[' && v[len(v)-1] == ']' {
+			// Extract ID from string array format
+			id := v[1 : len(v)-1]
+			if len(id) > 3 && id[:3] == "rec" {
+				pirepATID = id
+			}
+		} else if len(v) > 3 && v[:3] == "rec" {
+			pirepATID = v
+		}
+	default:
+		log.Printf("[fetchRouteFromPIREPID] Unexpected type for PIREP ID: %T", pirepIDData)
+		return ""
+	}
+
+	// If no AT ID found, return empty
+	if pirepATID == "" {
+		log.Printf("[fetchRouteFromPIREPID] No PIREP AT ID found in data: %v", pirepIDData)
+		return ""
+	}
+
+	log.Printf("[fetchRouteFromPIREPID] Fetching route from PIREP with AT ID: %s", pirepATID)
+
+	// Fetch the PIREP record from pirep_at_synced table
+	type PirepSynced struct {
+		Route string `gorm:"column:route"`
+	}
+	var pirep PirepSynced
+	err := s.gormDB.WithContext(ctx).
+		Table("pirep_at_synced").
+		Where("at_id = ? AND server_id = ?", pirepATID, vaID).
+		First(&pirep).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			log.Printf("[fetchRouteFromPIREPID] PIREP not found in synced table with AT ID: %s, trying Airtable", pirepATID)
+			// Fallback: Fetch directly from Airtable
+			return s.fetchRouteFromAirtablePIREP(ctx, vaID, pirepATID)
+		} else {
+			log.Printf("[fetchRouteFromPIREPID] Error fetching PIREP: %v", err)
+		}
+		return ""
+	}
+
+	if pirep.Route == "" {
+		log.Printf("[fetchRouteFromPIREPID] Route not found in PIREP with AT ID: %s", pirepATID)
+		return ""
+	}
+
+	log.Printf("[fetchRouteFromPIREPID] Successfully fetched route: %s", pirep.Route)
+	return pirep.Route
+}
+
+// fetchRouteFromAirtablePIREP fetches a PIREP record directly from Airtable and extracts the route
+func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID string, pirepATID string) string {
+	log.Printf("[fetchRouteFromAirtablePIREP] Fetching PIREP from Airtable with AT ID: %s", pirepATID)
+
+	// Get PIREP schema config
+	pirepConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pirep")
+	if err != nil || pirepConfig == nil {
+		log.Printf("[fetchRouteFromAirtablePIREP] PIREP schema not configured: %v", err)
+		return ""
+	}
+
+	// Parse PIREP schema
+	var pirepSchema dtos.EntitySchema
+	bytes, err := json.Marshal(pirepConfig.ConfigData)
+	if err != nil {
+		log.Printf("[fetchRouteFromAirtablePIREP] Failed to marshal PIREP config: %v", err)
+		return ""
+	}
+	if err := json.Unmarshal(bytes, &pirepSchema); err != nil {
+		log.Printf("[fetchRouteFromAirtablePIREP] Failed to parse PIREP schema: %v", err)
+		return ""
+	}
+
+	// Get credentials config
+	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
+	if err != nil || credentialsConfig == nil {
+		log.Printf("[fetchRouteFromAirtablePIREP] Credentials not found: %v", err)
+		return ""
+	}
+
+	// Parse credentials
+	var credsData struct {
+		APIKey       string            `json:"api_key"`
+		BaseID       string            `json:"base_id"`
+		SyncSettings dtos.SyncSettings `json:"sync_settings"`
+	}
+	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
+	if err != nil {
+		log.Printf("[fetchRouteFromAirtablePIREP] Failed to marshal credentials: %v", err)
+		return ""
+	}
+	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
+		log.Printf("[fetchRouteFromAirtablePIREP] Failed to parse credentials: %v", err)
+		return ""
+	}
+
+	// Build credentials
+	creds := &platformVA.ProviderCredentials{
+		APIKey: credsData.APIKey,
+		BaseID: credsData.BaseID,
+		SyncSettings: platformVA.SyncSettings{
+			BatchSize:          credsData.SyncSettings.BatchSize,
+			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
+			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
+			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
+		},
+	}
+
+	// Convert schema and set credentials in context
+	vaPirepSchema := convertDTOsEntitySchema(&pirepSchema)
+	ctx = context.WithValue(ctx, "provider_credentials", creds)
+
+	// Fetch PIREP record from Airtable (using FetchPilotRecord which works for any record type)
+	pirepRecord, err := s.airtableProvider.FetchPilotRecord(ctx, pirepATID, vaPirepSchema)
+	if err != nil {
+		log.Printf("[fetchRouteFromAirtablePIREP] Error fetching PIREP from Airtable: %v", err)
+		return ""
+	}
+
+	// Log the full JSON response
+	log.Printf("[fetchRouteFromAirtablePIREP] PIREP record from Airtable (AT ID: %s):", pirepATID)
+	pirepJSON, _ := json.MarshalIndent(pirepRecord.RawFields, "", "  ")
+	log.Printf("%s", string(pirepJSON))
+
+	// Extract route field from schema
+	routeField := pirepSchema.GetFieldMapping("route")
+	var routeValue interface{}
+	var exists bool
+	
+	if routeField != nil {
+		// Try using schema mapping first
+		routeValue, exists = pirepRecord.RawFields[routeField.AirtableName]
+		if !exists {
+			log.Printf("[fetchRouteFromAirtablePIREP] Route field '%s' (from schema) not found in PIREP record, trying direct field names", routeField.AirtableName)
+		}
+	}
+	
+	// Fallback: Try common route field names directly
+	if !exists {
+		commonRouteNames := []string{"Route", "route", "Route Name", "Route Name (from Route)"}
+		for _, fieldName := range commonRouteNames {
+			if val, ok := pirepRecord.RawFields[fieldName]; ok {
+				routeValue = val
+				exists = true
+				log.Printf("[fetchRouteFromAirtablePIREP] Found route using direct field name: %s", fieldName)
+				break
+			}
+		}
+	}
+	
+	if !exists {
+		log.Printf("[fetchRouteFromAirtablePIREP] Route field not found in PIREP record. Available fields: %v", getKeys(pirepRecord.RawFields))
+		return ""
+	}
+
+	// Convert route value to string
+	var route string
+	switch v := routeValue.(type) {
+	case string:
+		route = v
+	case []interface{}:
+		// Handle array (might be linked records)
+		if len(v) > 0 {
+			if str, ok := v[0].(string); ok {
+				route = str
+			}
+		}
+	default:
+		route = fmt.Sprintf("%v", v)
+	}
+
+	if route == "" {
+		log.Printf("[fetchRouteFromAirtablePIREP] Route is empty in PIREP record")
+		return ""
+	}
+
+	log.Printf("[fetchRouteFromAirtablePIREP] Successfully extracted route from Airtable: %s", route)
+	return route
+}
+
+// DEPRECATED: fetchLastCareerModeFlight is no longer used.
+// Last flown route is now fetched directly from the career mode Airtable record
+// via the "last_flown_route" field mapping in the schema configuration.
+
+// fetchAndTransformLastCareerModePIREP fetches the route name from the pirep_at_synced table
+// The last_career_mode_pirep contains PIREP AT IDs (not route AT IDs)
 // Returns just the route name as a string
+// DEPRECATED: Use fetchLastCareerModeFlight instead which filters by flight mode
 func (s *StatsService) fetchAndTransformLastCareerModePIREP(
 	ctx context.Context,
 	vaID string,
 	pirepATIDData interface{},
 ) interface{} {
 	// Extract the first AT ID from the data (can be array or single value)
-	var routeATID string
+	var pirepATID string
 
 	switch v := pirepATIDData.(type) {
 	case []interface{}:
 		if len(v) > 0 {
 			if id, ok := v[0].(string); ok {
-				routeATID = id
+				pirepATID = id
 			}
 		}
 	case []string:
 		if len(v) > 0 {
-			routeATID = v[0]
+			pirepATID = v[0]
 		}
 	case string:
 		// In case it's a single string
-		routeATID = v
+		pirepATID = v
 	default:
-		log.Printf("[fetchAndTransformLastCareerModePIREP] Unexpected type for route AT ID: %T", pirepATIDData)
+		log.Printf("[fetchAndTransformLastCareerModePIREP] Unexpected type for PIREP AT ID: %T", pirepATIDData)
 		return pirepATIDData // Return original data if we can't parse it
 	}
 
 	// If no AT ID found, return original data
-	if routeATID == "" {
-		log.Printf("[fetchAndTransformLastCareerModePIREP] No route AT ID found")
+	if pirepATID == "" {
+		log.Printf("[fetchAndTransformLastCareerModePIREP] No PIREP AT ID found")
 		return pirepATIDData
 	}
 
-	log.Printf("[fetchAndTransformLastCareerModePIREP] Fetching route with AT ID: %s", routeATID)
+	log.Printf("[fetchAndTransformLastCareerModePIREP] Fetching PIREP with AT ID: %s", pirepATID)
 
-	// Fetch the route record from route_at_synced table
-	route, err := s.syncRepo.FindRouteByATID(ctx, vaID, routeATID)
+	// Fetch the PIREP record from pirep_at_synced table
+	type PirepSynced struct {
+		Route string `gorm:"column:route"`
+	}
+	var pirep PirepSynced
+	err := s.gormDB.WithContext(ctx).
+		Table("pirep_at_synced").
+		Where("at_id = ? AND server_id = ?", pirepATID, vaID).
+		First(&pirep).Error
+
 	if err != nil {
-		log.Printf("[fetchAndTransformLastCareerModePIREP] Error fetching route: %v", err)
+		log.Printf("[fetchAndTransformLastCareerModePIREP] Error fetching PIREP: %v", err)
 		return pirepATIDData // Return original data on error
 	}
 
-	if route == nil {
-		log.Printf("[fetchAndTransformLastCareerModePIREP] Route not found for AT ID: %s", routeATID)
-		return pirepATIDData // Return original data if not found
+	if pirep.Route == "" {
+		log.Printf("[fetchAndTransformLastCareerModePIREP] Route not found in PIREP with AT ID: %s", pirepATID)
+		return pirepATIDData // Return original data if route is empty
 	}
 
-	log.Printf("[fetchAndTransformLastCareerModePIREP] Successfully fetched route: %s", route.Route)
-	return route.Route
+	log.Printf("[fetchAndTransformLastCareerModePIREP] Successfully fetched route: %s", pirep.Route)
+	return pirep.Route
 }
 
 // fetchRecentPIREPs fetches the last 5 recent PIREPs from the synced data

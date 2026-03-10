@@ -18,6 +18,9 @@ type SchemaConfig struct {
 	Enabled           bool           `json:"enabled"`
 	LastModifiedField string         `json:"last_modified_field,omitempty"`
 	Fields            []FieldMapping `json:"fields"`
+	
+	// Career mode specific configuration
+	CareerModeFlightMode *string `json:"career_mode_flight_mode,omitempty"` // Flight mode to filter PIREPs for last flown route
 }
 
 // EntitySchema defines how to sync a specific entity type
@@ -27,6 +30,9 @@ type EntitySchema struct {
 	Enabled           bool           `json:"enabled"`
 	Fields            []FieldMapping `json:"fields"`
 	LastModifiedField string         `json:"last_modified_field,omitempty"`
+	
+	// Career mode specific configuration
+	CareerModeFlightMode *string `json:"career_mode_flight_mode,omitempty"` // Flight mode to filter PIREPs for last flown route
 }
 
 // FieldMapping maps an internal field to an external provider field
@@ -162,12 +168,17 @@ func MarshalSchemaConfig(schema *SchemaConfig) (JSONB, error) {
 // ToEntitySchema converts SchemaConfig to EntitySchema
 // This is useful when you need EntitySchema for provider methods
 func (s *SchemaConfig) ToEntitySchema(entityType string) *EntitySchema {
-	return &EntitySchema{
+	entitySchema := &EntitySchema{
 		EntityType:        entityType,
 		TableName:         s.TableName,
 		Enabled:           s.Enabled,
 		LastModifiedField: s.LastModifiedField,
 		Fields:            s.Fields,
 	}
+	// Copy career mode flight mode if this is a career mode schema
+	if entityType == "career_mode" {
+		entitySchema.CareerModeFlightMode = s.CareerModeFlightMode
+	}
+	return entitySchema
 }
 
