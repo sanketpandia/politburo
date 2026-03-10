@@ -22,11 +22,11 @@ import (
 
 // TourPirepResult is the success payload returned by tour PIREP submission.
 type TourPirepResult struct {
-	PirepID   string `json:"pirep_id"`
-	TourID    string `json:"tour_id"`
-	LegID     string `json:"leg_id"`
-	LegNumber int    `json:"leg_number"`
-	Route     string `json:"route"`
+	PirepID    string `json:"pirep_id"`
+	Aircraft   string `json:"aircraft"`
+	Livery     string `json:"livery"`
+	FlightTime string `json:"flight_time"` // Formatted as "HH:MM" after multiplier
+	RouteName  string `json:"route_name"`  // The route name that was filed with
 }
 
 // TourSubmitError is a structured error returned by TourPirepService.Submit.
@@ -42,14 +42,14 @@ func (e *TourSubmitError) Error() string { return e.Message }
 // TourPirepService handles tour PIREP submission business logic.
 // All dependencies are injected via the constructor (created once at startup).
 type TourPirepService struct {
-	vaSvc          *platformVA.Service
-	vaConfigSvc    *platformVA.ConfigService
-	usersRepo      *users.Repository
-	eventsSvc      *events.Service
-	syncRepo       *sync.Repository
-	redisCache     *cache.RedisCacheService
+	vaSvc            *platformVA.Service
+	vaConfigSvc      *platformVA.ConfigService
+	usersRepo        *users.Repository
+	eventsSvc        *events.Service
+	syncRepo         *sync.Repository
+	redisCache       *cache.RedisCacheService
 	airtableProvider *providers.AirtableProvider
-	configRepo     *repositories.DataProviderConfigRepo
+	configRepo       *repositories.DataProviderConfigRepo
 }
 
 // NewTourPirepService creates a new TourPirepService with all dependencies.
@@ -236,12 +236,16 @@ func (s *TourPirepService) Submit(
 	}
 
 	logging.Info("Tour PIREP submit: successfully submitted to Airtable", "pirep_id", pirepID)
+
+	// Format flight time from seconds to "HH:MM"
+	flightTimeFormatted := formatSecondsToHHMM(flightTimeSeconds)
+
 	return &TourPirepResult{
-		PirepID:   pirepID,
-		TourID:    activeTour.ID,
-		LegID:     matchedLeg.ID,
-		LegNumber: matchedLeg.LegNumber,
-		Route:     flightRoute,
+		PirepID:    pirepID,
+		Aircraft:   aircraftName,
+		Livery:     liveryName,
+		FlightTime: flightTimeFormatted,
+		RouteName:  flightRoute, // The route name that was filed with (e.g., "KJFK-EGLL")
 	}, nil
 }
 
@@ -597,6 +601,13 @@ func parseFlightTimeToSeconds(ft string) int {
 	hours, _ := strconv.Atoi(parts[0])
 	minutes, _ := strconv.Atoi(parts[1])
 	return (hours * 3600) + (minutes * 60)
+}
+
+// formatSecondsToHHMM converts total seconds to "HH:MM" format.
+func formatSecondsToHHMM(seconds int) string {
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	return fmt.Sprintf("%02d:%02d", hours, minutes)
 }
 
 // extractMultiplier reads the multiplier from an event leg's AdditionalData.
