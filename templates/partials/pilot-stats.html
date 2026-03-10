@@ -14,7 +14,7 @@
                 {{if .PilotStats.GameStats.FlightTime}}
                 <div class="pilot-stats-field">
                     <span class="pilot-stats-label">Flight Time:</span>
-                    <span class="pilot-stats-value">{{.PilotStats.GameStats.FlightTime}}s</span>
+                    <span class="pilot-stats-value">{{formatDuration .PilotStats.GameStats.FlightTime}}</span>
                 </div>
                 {{end}}
                 {{if .PilotStats.GameStats.OnlineFlights}}
