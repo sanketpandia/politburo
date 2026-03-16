@@ -84,6 +84,7 @@ func (r *VAUserRoleRepository) GetAllByVAID(ctx context.Context, vaID string) ([
 	err := r.db.WithContext(ctx).
 		Preload("User").
 		Where("va_id = ? AND is_active = ?", vaID, true).
+		Order("callsign ASC").
 		Find(&roles).Error
 
 	if err != nil {
