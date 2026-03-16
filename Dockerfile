@@ -49,6 +49,7 @@ COPY --from=builder /app/templates ./templates
 RUN test -f /app/templates/layouts/base.html || (echo "Missing /app/templates/layouts/base.html" && exit 1)
 # Copy static files
 COPY --from=builder /app/static ./static
+COPY --from=builder /app/favicon.ico ./favicon.ico
 
 # expose your port
 EXPOSE 8080
