@@ -75,6 +75,12 @@ func NewRouter(application *app.App) http.Handler {
 	})
 	logging.Info("Static file server configured", "path", staticDir, "route", "/static/*")
 
+	// Serve favicon.ico from project root
+	faviconPath := resolveProjectPath("favicon.ico")
+	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, faviconPath)
+	})
+
 	// Health check endpoint
 	r.Get("/healthCheck", api.HealthCheckHandler(
 		application.Infra.DB,

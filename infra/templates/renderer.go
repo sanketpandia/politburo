@@ -214,11 +214,11 @@ func (r *Renderer) RenderStandalone(w http.ResponseWriter, templateName string, 
 	resolvedLayoutPath := resolvePath(r.LayoutPath)
 	// Replace base.html with error.html for error pages
 	errorLayoutPath := strings.Replace(resolvedLayoutPath, "base.html", "error.html", 1)
-	
+
 	// Load page template
 	resolvedBasePath := resolvePath(r.BasePath)
 	templatePath := filepath.Join(resolvedBasePath, templateName)
-	
+
 	// Verify files exist
 	files := []string{errorLayoutPath, templatePath}
 	for _, file := range files {
