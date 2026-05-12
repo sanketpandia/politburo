@@ -1,49 +1,77 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"infinite-experiment/politburo/infra/db"
+	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/internal/app"
 	"infinite-experiment/politburo/internal/routes"
 )
 
-// Vizburo UI Service
-// Runs on port 3000 by default
-// Serves flight routes visualization with theme support
-// Shares Redis cache and PostgreSQL with Politburo API for distributed load
+// Vizburo UI service — serves the HTMX+Tailwind dashboard on a separate port.
+// Shares PostgreSQL, Redis, and all DI-wired dependencies with the main API server.
 func main() {
 	log.SetOutput(os.Stdout)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Connect to DB with GORM
-	host := os.Getenv("PG_HOST")
-	port := os.Getenv("PG_PORT")
-	user := os.Getenv("PG_USER")
-	dbname := os.Getenv("PG_DB")
-	password := os.Getenv("PG_PASSWORD")
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbname)
+	cfg := app.LoadConfig()
 
-	if _, err := db.InitPostgresORM(dsn); err != nil {
-		log.Fatalf("❌ Failed to connect to Postgres: %v", err)
+	if err := logging.Init(cfg.AppEnv); err != nil {
+		log.Fatalf("failed to initialize logging: %v", err)
 	}
-	log.Println("✅ Connected to Postgres!")
+	defer logging.Close()
 
-	upSince := time.Now()
+	application, err := app.New(cfg)
+	if err != nil {
+		logging.Error("Failed to initialize application", "error", err)
+		log.Fatalf("failed to initialize application: %v", err)
+	}
 
-	// Initialize router with Chi (same router as API, includes UI and API routes)
-	router := routes.RegisterRoutes(upSince)
+	router := routes.NewRouter(application)
 
-	// Get port from environment or use default 3000
 	vizburoPort := os.Getenv("VIZBURO_PORT")
 	if vizburoPort == "" {
 		vizburoPort = "3000"
 	}
 
-	listenAddr := ":" + vizburoPort
-	log.Println("🚀 Vizburo UI Service starting on " + listenAddr)
-	log.Fatal(http.ListenAndServe(listenAddr, router))
+	srv := &http.Server{
+		Addr:         ":" + vizburoPort,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		logging.Info("Vizburo UI starting", "address", srv.Addr)
+		log.Printf("Vizburo UI listening on %s", srv.Addr)
+		serverErr <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
+		logging.Error("Vizburo server error", "error", err)
+		log.Fatalf("server error: %v", err)
+	case sig := <-shutdown:
+		logging.Info("Shutdown signal received", "signal", sig.String())
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logging.Error("Vizburo HTTP server shutdown error", "error", err)
+	}
+	application.Shutdown(shutdownCtx)
+	logging.Info("Vizburo shutdown complete")
 }
