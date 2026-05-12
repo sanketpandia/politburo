@@ -11,7 +11,6 @@ import (
 	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
-	"infinite-experiment/politburo/internal/workers"
 	"log"
 	"math"
 	"regexp"
@@ -338,29 +337,9 @@ func (svc *Service) GetUserFlights(ifcID string, page int, sID string) (*dtos.Fl
 			WorldType:  rec.WorldType,
 			Username:   username,
 		}
-		// Use combo key: sessionId_flightId for direct retrieval
-		cacheKey := string(constants.CachePrefixFlightHistory) + sessionID + "_" + rec.ID
-
-		log.Printf("[GetUserFlights] Flight %s on server '%s' maps to session ID: %s (cache key: %s)", rec.ID, rec.Server, sessionID, cacheKey)
-
-		log.Printf("Checking queue eligibility:\n origin: %s, dest: %s, time: %f, time since: %v, time: %v",
-			rec.DestinationAirport, rec.OriginAirport, rec.TotalTime, time.Since(rec.Created), rec.Created)
-		if rec.OriginAirport != "" && rec.DestinationAirport != "" && rec.TotalTime > 0 && time.Since(rec.Created) <= 72*time.Hour {
-			log.Printf("[DEBUG] Attempting to send to LogbookQueue: flightID=%s, sessionID=%s, queue_addr=%p", rec.ID, sessionID, workers.LogbookQueue)
-			select {
-			case workers.LogbookQueue <- workers.LogbookRequest{FlightId: rec.ID, Flight: rec, SessionId: sessionID, CacheKey: cacheKey}:
-				log.Printf("[DEBUG] Sent to LogbookQueue successfully: flightID=%s, sessionID=%s", rec.ID, sessionID)
-				dto.MapUrl = fmt.Sprintf("http://%s%s", "localhost:8081?i=", rec.ID)
-				//dto.MapUrl = ""
-			default:
-				log.Printf("[DEBUG] Skipping send to LogbookQueue: flightID=%s, Origin=%s, Dest=%s, TotalTime=%f, AgeHours=%.2f",
-					rec.ID, rec.OriginAirport, rec.DestinationAirport, rec.TotalTime, time.Since(rec.Created).Hours())
-				dto.MapUrl = ""
-
-			}
-		} else {
-			dto.MapUrl = ""
-		}
+		// LogbookQueue sends removed — the worker that drained this channel
+		// (workers.LogbookWorker) was never started and the package is being deleted.
+		dto.MapUrl = ""
 		response.Records = append(response.Records, dto)
 
 	}
