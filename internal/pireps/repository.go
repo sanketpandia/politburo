@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"infinite-experiment/politburo/infra/logging"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -21,7 +22,7 @@ func NewRepository(db *gorm.DB) *Repository {
 // Upsert inserts or updates a PIREP record from Airtable
 // ON CONFLICT (server_id, at_id) DO UPDATE
 func (r *Repository) Upsert(ctx context.Context, pirep *PirepATSynced) error {
-	return r.db.WithContext(ctx).
+	if err := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "server_id"},
@@ -32,7 +33,11 @@ func (r *Repository) Upsert(ctx context.Context, pirep *PirepATSynced) error {
 				"aircraft", "livery", "route_at_id", "pilot_at_id", "at_created_time", "updated_at",
 			}),
 		}).
-		Create(pirep).Error
+		Create(pirep).Error; err != nil {
+		logging.Error("Failed to upsert PIREP", "at_id", pirep.ATID, "va_id", pirep.ServerID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // FindByATID finds a PIREP by VA ID and Airtable ID

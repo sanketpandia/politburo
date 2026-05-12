@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"infinite-experiment/politburo/infra/logging"
 )
 
 // Service handles business logic for events
@@ -172,6 +174,8 @@ func (s *Service) CreateEvent(ctx context.Context, vaID, createdByID string, req
 		return nil, fmt.Errorf("failed to create event: %w", err)
 	}
 
+	logging.Info("Event created", "va_id", vaID, "event_id", event.ID, "name", event.Name, "status", event.Status)
+
 	// Reload to get all fields populated
 	return s.repo.GetByID(ctx, event.ID)
 }
@@ -215,6 +219,7 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, updatedByID string, 
 		return nil, fmt.Errorf("failed to update event: %w", err)
 	}
 
+	logging.Info("Event updated", "event_id", eventID)
 	return s.repo.GetByID(ctx, eventID)
 }
 
@@ -229,7 +234,11 @@ func (s *Service) DeleteEvent(ctx context.Context, eventID string) error {
 		return fmt.Errorf("event not found")
 	}
 
-	return s.repo.Delete(ctx, eventID)
+	if err := s.repo.Delete(ctx, eventID); err != nil {
+		return err
+	}
+	logging.Info("Event deleted", "event_id", eventID)
+	return nil
 }
 
 // GetEvent retrieves a single event by ID
@@ -334,6 +343,7 @@ func (s *Service) UpdateEventStatus(ctx context.Context, eventID, updatedByID, s
 		return nil, fmt.Errorf("failed to update event status: %w", err)
 	}
 
+	logging.Info("Event status updated", "event_id", eventID, "status", status)
 	return s.repo.GetByID(ctx, eventID)
 }
 
@@ -365,6 +375,7 @@ func (s *Service) CreateEventLeg(ctx context.Context, eventID, createdByID strin
 		return nil, fmt.Errorf("failed to create leg: %w", err)
 	}
 
+	logging.Info("Event leg created", "event_id", eventID, "leg_id", leg.ID, "leg_number", leg.LegNumber)
 	return s.repo.GetLegByID(ctx, leg.ID)
 }
 
@@ -403,6 +414,7 @@ func (s *Service) UpdateEventLeg(ctx context.Context, legID, updatedByID string,
 		return nil, fmt.Errorf("failed to update leg: %w", err)
 	}
 
+	logging.Info("Event leg updated", "leg_id", legID)
 	return s.repo.GetLegByID(ctx, legID)
 }
 
@@ -431,6 +443,7 @@ func (s *Service) UpdateEventLegAdditionalData(ctx context.Context, legID, updat
 		return nil, fmt.Errorf("failed to update leg additional data: %w", err)
 	}
 
+	logging.Debug("Event leg additional data updated", "leg_id", legID)
 	return s.repo.GetLegByID(ctx, legID)
 }
 
@@ -441,7 +454,11 @@ func (s *Service) DeleteEventLeg(ctx context.Context, legID string) error {
 		return fmt.Errorf("leg not found: %w", err)
 	}
 
-	return s.repo.DeleteLeg(ctx, legID)
+	if err := s.repo.DeleteLeg(ctx, legID); err != nil {
+		return err
+	}
+	logging.Info("Event leg deleted", "leg_id", legID)
+	return nil
 }
 
 // GetEventLegs retrieves all legs for an event

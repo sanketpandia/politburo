@@ -10,7 +10,6 @@ import (
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -128,7 +127,7 @@ func (h *Handler) GetFlightFromCache() http.HandlerFunc {
 		initTime := time.Now()
 
 		flightID := r.URL.Query().Get("i")
-		log.Printf("API CALLED: %s", flightID)
+		logging.Debug("GetFlightFromCache called", "flight_id", flightID)
 
 		if flightID == "" {
 			common.RespondError(w, initTime, nil, "Missing required flight ID", http.StatusBadRequest)
@@ -152,7 +151,7 @@ func (h *Handler) GetUserFlightsFromCache() http.HandlerFunc {
 		initTime := time.Now()
 
 		userID := r.URL.Query().Get("u")
-		log.Printf("API CALLED: %s", userID)
+		logging.Debug("GetUserFlightsFromCache called", "user_id", userID)
 
 		if userID == "" {
 			common.RespondError(w, initTime, nil, "Missing required flight ID", http.StatusBadRequest)

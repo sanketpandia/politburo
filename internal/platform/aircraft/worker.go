@@ -2,11 +2,11 @@ package aircraft
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/liveapi"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/constants"
 )
 
@@ -56,20 +56,20 @@ func (w *Worker) syncAircraftLiveriesTask() {
 	// Fetch liveries from Infinite Flight API
 	resp, _, err := w.api.GetAircraftLiveries()
 	if err != nil {
-		log.Printf("Error while fetching liveries from IF API: %s", err.Error())
+		logging.Error("Failed to fetch liveries from IF API", "error", err)
 		return
 	}
 
 	// Check for API errors
 	if resp.ErrorCode != 0 {
-		log.Printf("Error from IF API: errorCode=%d", resp.ErrorCode)
+		logging.Error("IF API returned error code", "error_code", resp.ErrorCode)
 		return
 	}
 
 	// Load existing liveries from database into map for change detection
 	existingLiveries, err := w.liveryRepo.GetLiveryMap(ctx)
 	if err != nil {
-		log.Printf("Error while loading existing liveries from database: %s", err.Error())
+		logging.Error("Failed to load existing liveries from database", "error", err)
 		return
 	}
 
@@ -113,14 +113,14 @@ func (w *Worker) syncAircraftLiveriesTask() {
 
 	if len(toUpsert) > 0 {
 		if err := w.liveryRepo.UpsertBatch(ctx, toUpsert); err != nil {
-			log.Printf("Error while upserting liveries: %s", err.Error())
+			logging.Error("Failed to upsert liveries", "error", err)
 			return
 		}
 	}
 
 	if len(removedIDs) > 0 {
 		if err := w.liveryRepo.MarkInactive(ctx, removedIDs); err != nil {
-			log.Printf("Error while marking liveries inactive: %s", err.Error())
+			logging.Error("Failed to mark liveries inactive", "error", err)
 			return
 		}
 	}
@@ -128,19 +128,18 @@ func (w *Worker) syncAircraftLiveriesTask() {
 	// Warm cache if changes detected (as per user requirement)
 	if hasChanges {
 		if err := w.liverySvc.WarmCache(ctx); err != nil {
-			log.Printf("Error while warming livery cache: %s", err.Error())
+			logging.Error("Failed to warm livery cache", "error", err)
 		}
 	}
 
 	elapsed := time.Since(startTime)
-	log.Printf(
-		"Livery sync completed in %v: %d added, %d updated, %d removed (total in API: %d, in DB: %d)",
-		elapsed,
-		addedCount,
-		updatedCount,
-		len(removedIDs),
-		len(resp.Liveries),
-		len(existingLiveries),
+	logging.Info("Livery sync completed",
+		"duration", elapsed,
+		"added", addedCount,
+		"updated", updatedCount,
+		"removed", len(removedIDs),
+		"api_total", len(resp.Liveries),
+		"db_total", len(existingLiveries),
 	)
 }
 

@@ -2,8 +2,8 @@ package pilots
 
 import (
 	"context"
-	"log"
 
+	"infinite-experiment/politburo/infra/logging"
 	gormlib "gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -49,8 +49,13 @@ func (r *Repository) Upsert(ctx context.Context, pilot *PilotATSyncedGORM) error
 	if isUpdate {
 		action = "UPDATE"
 	}
-	log.Printf("[PilotRepo] Upsert %s - RowsAffected: %d, ATID: %s, Callsign: %s, ServerID: %s",
-		action, result.RowsAffected, pilot.ATID, pilot.Callsign, pilot.ServerID)
+	logging.Debug("Pilot upsert",
+		"action", action,
+		"rows_affected", result.RowsAffected,
+		"at_id", pilot.ATID,
+		"callsign", pilot.Callsign,
+		"server_id", pilot.ServerID,
+	)
 
 	return nil
 }

@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 
+	"infinite-experiment/politburo/infra/logging"
 	gormdb "gorm.io/gorm"
 )
 
@@ -58,6 +59,9 @@ func (r *Repository) GetByID(ctx context.Context, eventID string) (*Event, error
 		Where("id = ?", eventID).
 		First(&event).Error
 	if err != nil {
+		if err != gormdb.ErrRecordNotFound {
+			logging.Error("Failed to get event by ID", "event_id", eventID, "error", err)
+		}
 		return nil, err
 	}
 	return &event, nil
@@ -140,6 +144,9 @@ func (r *Repository) GetLegByID(ctx context.Context, legID string) (*EventLeg, e
 		Where("id = ?", legID).
 		First(&leg).Error
 	if err != nil {
+		if err != gormdb.ErrRecordNotFound {
+			logging.Error("Failed to get event leg by ID", "leg_id", legID, "error", err)
+		}
 		return nil, err
 	}
 	return &leg, nil

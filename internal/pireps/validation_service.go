@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/models/dtos"
 )
@@ -68,8 +69,10 @@ func (s *FlightModeValidationService) validateExactMatch(currentRoute string, al
 		}
 	}
 
-	return &ValidationResult{
-		Valid:    false,
-		ErrorMsg: fmt.Sprintf("Current route %s not in allowed routes for this mode", currentRoute),
-	}
+	msg := fmt.Sprintf("Current route %s not in allowed routes for this mode", currentRoute)
+	logging.Info("Flight mode validation failed",
+		"rule", "exact_match",
+		"current_route", currentRoute,
+	)
+	return &ValidationResult{Valid: false, ErrorMsg: msg}
 }

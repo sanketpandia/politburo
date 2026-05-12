@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
+
+	"infinite-experiment/politburo/infra/logging"
 
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/internal/auth"
@@ -114,21 +115,30 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		prefix, _ := h.config.GetConfigVal(r.Context(), vaGorm.ID, common.ConfigKeyCallsignPrefix)
 		suffix, _ := h.config.GetConfigVal(r.Context(), vaGorm.ID, common.ConfigKeyCallsignSuffix)
 
-		log.Printf("[GetPirepConfig] User callsign: %s, VA prefix: %s, VA suffix: %s", userCallsign, prefix, suffix)
+		logging.Debug("GetPirepConfig: user context",
+			"callsign", userCallsign,
+			"va_prefix", prefix,
+			"va_suffix", suffix,
+		)
 
 		// Get VA live flights
 		vaFlights, err := h.flightsSvc.GetVALiveFlights(r.Context(), vaGorm.ID)
 		if err != nil {
-			log.Printf("[GetPirepConfig] Error fetching VA live flights: %v", err)
-			// If we can't get live flights, continue with empty flight data
+			logging.Warn("GetPirepConfig: failed to fetch VA live flights, continuing with empty set",
+				"va_id", vaGorm.ID,
+				"error", err,
+			)
 			vaFlights = &[]dtos.LiveFlight{}
 		}
 
-		log.Printf("[GetPirepConfig] Fetched %d live flights for VA %s", len(*vaFlights), vaGorm.ID)
+		logging.Debug("GetPirepConfig: fetched live flights", "va_id", vaGorm.ID, "count", len(*vaFlights))
 
 		// Find the user's current flight
 		expectedCallsignPattern := prefix + userCallsign + suffix
-		log.Printf("[GetPirepConfig] Looking for flight matching pattern: %s (or just number: %s)", expectedCallsignPattern, userCallsign)
+		logging.Debug("GetPirepConfig: looking for flight",
+			"pattern", expectedCallsignPattern,
+			"callsign", userCallsign,
+		)
 
 		flight := &common.FlightData{
 			Callsign:    userCallsign,
@@ -148,7 +158,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 			suffix,
 		)
 		if err != nil {
-			log.Printf("[GetPirepConfig] No matching flight found: %v", err)
+			logging.Debug("GetPirepConfig: no matching live flight found", "error", err)
 			common.RespondError(w, initTime, fmt.Errorf("no live flight found"), "You are not currently flying. Please join a flight before filing a PIREP.", http.StatusNotFound)
 			return
 		}
@@ -210,13 +220,12 @@ func (h *Handler) Submit() http.HandlerFunc {
 			return
 		}
 
-		// Log the incoming PIREP request
-		requestJSON, _ := json.MarshalIndent(submitRequest, "", "  ")
-		log.Printf("[PirepHandler] Received PIREP submission request:\nMode: %s\nUser: %s\nVA: %s\nRequest:\n%s\n",
-			submitRequest.Mode,
-			claims.DiscordUserID(),
-			vaDiscordServerID,
-			string(requestJSON))
+		// Log the incoming PIREP request at debug level — contains user data, not suitable for Info.
+		logging.Debug("PIREP submission received",
+			"mode", submitRequest.Mode,
+			"discord_user_id", claims.DiscordUserID(),
+			"va_discord_server_id", vaDiscordServerID,
+		)
 
 		// Get user and their current flight for livery mapping
 		discordID := claims.DiscordUserID()
