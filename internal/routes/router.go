@@ -10,8 +10,8 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
-	"infinite-experiment/politburo/internal/api"
 	"infinite-experiment/politburo/internal/app"
+	"infinite-experiment/politburo/internal/platform/health"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/middleware"
@@ -82,7 +82,7 @@ func NewRouter(application *app.App) http.Handler {
 	})
 
 	// Health check endpoint
-	r.Get("/healthCheck", api.HealthCheckHandler(
+	r.Get("/healthCheck", health.HealthCheckHandler(
 		application.Infra.DB,
 		application.Infra.RedisCache,
 		application.UpSince,
