@@ -189,13 +189,13 @@ API errors: `http.Error()` or `httpdto.RespondError`. No panics. DB retries only
 
 ## Known Technical Debt (as of May 2026)
 
-**Dead code — pending deletion:**
-- `internal/api/` — all files except `health.go` are dead (world tour handlers not in router, dependencies.go uses global db.PgDB, deprecated stubs are comment-only). Move `HealthCheckHandler` out of this package and delete it.
-- `internal/workers/` — entirely superseded by domain-package workers. `InitWorkers()` is never called.
-- `internal/jobs/` — superseded by domain-package jobs (`sessions/`, `va_routes/`, etc.). Not registered in new path.
-- `internal/services/*.go.old` — two `.go.old` files should be deleted.
-- `structured-skipping-valley.md` — draft planning doc, not code.
-- `cmd/vizburo/main.go` — broken (calls undefined `routes.RegisterRoutes`).
+**Dead code — resolved (May 2026):**
+- `internal/api/` — deleted. `HealthCheckHandler` relocated to `internal/platform/health/`.
+- `internal/workers/` — deleted. Dead LogbookQueue sends removed from callers first.
+- `internal/jobs/` — deleted. Only caller was `internal/api/debug.go` (also deleted).
+- `internal/services/*.go.old` — deleted.
+- `structured-skipping-valley.md` — deleted.
+- `cmd/vizburo/main.go` — fixed; now wired to `app.New` + `routes.NewRouter`.
 
 **Partially migrated legacy packages:**
 - `internal/services/` — `world_tour_service.go`, `flights_service.go`, `at_sync_service.go`, `flight_modes_config_service.go` still exist. Some are still imported. Migrate to domain packages.
@@ -212,7 +212,7 @@ API errors: `http.Error()` or `httpdto.RespondError`. No panics. DB retries only
 
 **Not yet implemented:**
 - `GET /api/v1/pireps/config` — returns 501 stub inline in router
-- Test compilation errors: `internal/api/user_registration_v2_test.go`, `internal/services/registration_service_v2_test.go`
+- Test compilation errors: `internal/services/registration_service_v2_test.go` (SQLite migration syntax error; `internal/api/user_registration_v2_test.go` was deleted with the package)
 
 ## Environment Variables
 
