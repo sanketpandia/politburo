@@ -37,6 +37,19 @@
     --sidebar-width: 72px;
     --fab-size: 56px;
     --fab-item-size: 45px;
+
+    /* Sunset / Warning LED palette — standalone error & auth pages */
+    --err-bg: #0d0f13;
+    --err-surface: #14161b;
+    --err-ink: #e7e4dc;
+    --err-ink-soft: #94a3b8;
+    --err-ink-mute: #64748b;
+    --err-accent: #f0c674;
+    --err-warn: #d9b261;
+    --err-danger: #d97766;
+    --err-ok: #8fc28a;
+    --err-border: #2a2d35;
+    --err-line-soft: #1e293b;
 }
 
 /* --- 2. BASE RESET & TYPOGRAPHY --- */

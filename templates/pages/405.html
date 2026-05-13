@@ -24,8 +24,15 @@
     letter-spacing: 0.05em;
   }
 
-  .err-mute {
-    color: var(--err-ink-mute);
+  .err-warn {
+    color: var(--err-warn);
+  }
+
+  .err-h1 {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 600;
+    font-size: 1.875rem;
+    color: var(--err-ink);
   }
 
   .err-body {
@@ -35,15 +42,6 @@
     line-height: 1.6;
     color: var(--err-ink-soft);
     max-width: 520px;
-  }
-
-  .err-stars {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    font-weight: 600;
-    font-size: 4rem;
-    color: var(--err-accent);
-    letter-spacing: 0.5rem;
-    line-height: 1;
   }
 
   .err-btn-row {
@@ -78,17 +76,6 @@
     filter: brightness(1.1);
   }
 
-  .err-btn-ghost {
-    background: transparent;
-    border: 1px solid var(--err-border);
-    color: var(--err-ink-soft);
-  }
-
-  .err-btn-ghost:hover {
-    border-color: var(--err-ink-soft);
-    color: var(--err-ink);
-  }
-
   .err-footer {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     font-weight: 400;
@@ -105,35 +92,24 @@
   .err-footer a:hover {
     color: var(--err-accent);
   }
-
-  @media (max-width: 480px) {
-    .err-btn-row {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .err-stars {
-      font-size: 2.75rem;
-    }
-  }
 </style>
 {{end}}
 
 {{define "content"}}
-<main class="err-page" id="error-404-page">
+<main class="err-page" id="error-405-page">
   <div class="err-stack">
-    <span class="err-mono err-mute">404 · not found</span>
-    <h1 class="err-stars">★ ★ ★</h1>
-    <p class="err-body">
-      This page hasn't been built. Or it was — and the comrades retired it.
-    </p>
+    <span class="err-mono err-warn">405 · method not allowed</span>
+    <h1 class="err-h1">Wrong door</h1>
+    <p class="err-body">That request method isn't supported here.</p>
     <div class="err-btn-row">
-      <a href="/dashboard" class="err-btn err-btn-primary">← dashboard</a>
-      <a href="https://github.com/infinite-experiment/issues" class="err-btn err-btn-ghost">open an issue on github</a>
+      <button type="button" id="err-back-btn" class="err-btn err-btn-primary">← back</button>
     </div>
   </div>
   <footer class="err-footer">
     ★ <a href="https://github.com/infinite-experiment">github.com/infinite-experiment</a>
   </footer>
 </main>
+<script>
+  document.getElementById('err-back-btn').addEventListener('click', () => history.back());
+</script>
 {{end}}
