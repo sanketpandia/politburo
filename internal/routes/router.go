@@ -352,7 +352,7 @@ func handleMethodNotAllowed(templateRenderer *templates.Renderer) http.HandlerFu
 		data := map[string]interface{}{
 			"PageTitle": "Method Not Allowed",
 		}
-		if err := templateRenderer.RenderStandalone(w, "pages/404.html", data); err != nil {
+		if err := templateRenderer.RenderStandalone(w, "pages/405.html", data); err != nil {
 			logging.Error("Failed to render 405 page", "error", err)
 		}
 	}

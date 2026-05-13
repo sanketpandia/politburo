@@ -546,7 +546,7 @@ func (a *App) initFeatures() error {
 		a.Platform.UsersSvc,
 		authSvcAdapter,
 	)
-	authHandler := auth.NewHandler(authSvc)
+	authHandler := auth.NewHandler(authSvc, a.Infra.TemplateRenderer)
 	logging.Debug("Auth handler initialized")
 
 	// Initialize livery mappings handler

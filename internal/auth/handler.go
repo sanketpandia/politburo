@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/platform/httpdto"
 
 	"github.com/go-chi/chi/v5"
@@ -16,13 +17,15 @@ import (
 
 // Handler provides HTTP handlers for authentication endpoints
 type Handler struct {
-	svc *Service
+	svc      *Service
+	renderer *templates.Renderer
 }
 
 // NewHandler creates a new auth handler
-func NewHandler(svc *Service) *Handler {
+func NewHandler(svc *Service, renderer *templates.Renderer) *Handler {
 	return &Handler{
-		svc: svc,
+		svc:      svc,
+		renderer: renderer,
 	}
 }
 
@@ -62,9 +65,9 @@ func (h *Handler) TokenLogin() http.HandlerFunc {
 		// Extract token from query parameter
 		token := r.URL.Query().Get("token")
 
-		// No token provided - return error (UI rendering handled separately)
+		// No token provided — render expired state with empty token prefix.
 		if token == "" {
-			http.Error(w, "Token required", http.StatusBadRequest)
+			h.renderExpired(w, "")
 			return
 		}
 
@@ -72,7 +75,8 @@ func (h *Handler) TokenLogin() http.HandlerFunc {
 		result, err := h.svc.CreateSessionFromToken(r.Context(), token)
 		if err != nil {
 			logging.Error("Failed to create session from token", "error", err)
-			http.Error(w, fmt.Sprintf("Invalid or expired token: %v", err), http.StatusUnauthorized)
+			logging.Warn("Auth login rendered expired state", "token_prefix", shortToken(token))
+			h.renderExpired(w, shortToken(token))
 			return
 		}
 
@@ -232,6 +236,30 @@ func (h *Handler) VerifyGodMode() http.HandlerFunc {
 
 		httpdto.WriteSuccess(w, initTime, map[string]bool{"is_god": isGod}, http.StatusOK)
 	}
+}
+
+// renderExpired renders the auth-login page in its expired/invalid state.
+// tokenShort is the first 6 characters of the token (or empty string when no token was provided).
+func (h *Handler) renderExpired(w http.ResponseWriter, tokenShort string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	data := map[string]interface{}{
+		"PageTitle":    "Sign-in link expired",
+		"TokenExpired": true,
+		"TokenShort":   tokenShort,
+	}
+	if err := h.renderer.RenderStandalone(w, "pages/auth-login.html", data); err != nil {
+		logging.Error("Failed to render auth-login page", "error", err)
+		http.Error(w, "Sign-in unavailable", http.StatusInternalServerError)
+	}
+}
+
+// shortToken returns the first 6 characters of t, or t itself if t is shorter.
+func shortToken(t string) string {
+	if len(t) > 6 {
+		return t[:6]
+	}
+	return t
 }
 
 // DestroySessionsByIFCId handles POST /api/v1/admin/sessions/destroy/{ifc_id}
