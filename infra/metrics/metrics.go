@@ -47,6 +47,14 @@ type MetricsRegistry struct {
 
 	// Webhook Delivery Metrics
 	WebhooksDeliveredTotal prometheus.CounterVec // Labels: webhook_target, status
+
+	// Watermill Messaging Metrics
+	WatermillHandlerDuration prometheus.HistogramVec // Labels: handler_name
+	WatermillHandlerErrors   prometheus.CounterVec   // Labels: handler_name
+	WatermillPoisonTotal     prometheus.CounterVec   // Labels: handler_name
+
+	// Rate Limit Rejected Metrics (requests rejected before reaching the provider)
+	RateLimitRejectedTotal prometheus.CounterVec // Labels: provider, va_id
 }
 
 // NewMetricsRegistry initializes and returns a new MetricsRegistry with all metrics
@@ -243,6 +251,37 @@ func NewMetricsRegistry() *MetricsRegistry {
 				Help: "Total number of webhook delivery attempts",
 			},
 			[]string{"webhook_target", "status"},
+		),
+
+		WatermillHandlerDuration: *promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "politburo_watermill_handler_duration_seconds",
+				Help:    "Watermill message handler processing time in seconds",
+				Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			},
+			[]string{"handler_name"},
+		),
+		WatermillHandlerErrors: *promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "politburo_watermill_handler_errors_total",
+				Help: "Total number of watermill handler errors before poison-queue routing",
+			},
+			[]string{"handler_name"},
+		),
+		WatermillPoisonTotal: *promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "politburo_watermill_poison_total",
+				Help: "Total number of messages routed to the poison queue",
+			},
+			[]string{"handler_name"},
+		),
+
+		RateLimitRejectedTotal: *promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "politburo_rate_limit_rejected_total",
+				Help: "Total number of requests rejected by the rate limiter before reaching the provider",
+			},
+			[]string{"provider", "va_id"},
 		),
 	}
 }

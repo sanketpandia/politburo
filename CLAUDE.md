@@ -76,6 +76,7 @@ Horizontal infrastructure packages — no business logic:
 | `infra/scheduler` | Cron job scheduler |
 | `infra/templates` | Go HTML template renderer (layouts + partials) |
 | `infra/providers` | Live API and Airtable provider wrappers |
+| `infra/messaging` | Watermill router, publisher, subscriber wrappers; topic constants; zap logger adapter |
 
 ### Platform Layer (`internal/platform/`)
 
@@ -174,8 +175,16 @@ func (h *Handler) GetFoo() http.HandlerFunc { return func(w http.ResponseWriter,
 ```
 
 ### HTTP Responses
-- API JSON: `internal/platform/httpdto/response.go` — `RespondSuccess`, `RespondError`
+- API JSON: `internal/platform/httpdto/response.go` — `WriteSuccess`, `WriteError`, `WriteValidationError`
 - UI HTML: `templates.Renderer.Render(w, "pages/foo.html", data)` or `RenderStandalone`
+
+### Watermill Handler Pattern
+Handlers are registered via `pireps.RegisterPirepHandlers(router, subscriber, handler)`. Each handler:
+1. Sets `msg.Metadata.Set("handler_name", HandlerName)` as first line (for MetricsMiddleware).
+2. Returns `nil, nil` to ACK (success or intentionally skipped).
+3. Returns a non-nil error to NACK → retry → poison queue after 3 retries.
+Middleware stack (outer→inner): `PoisonQueueMiddleware → MetricsMiddleware`.
+Order matters: MetricsMiddleware is inner so it sees the real error before PoisonQueue suppresses it.
 
 ### Cache Keys (Redis)
 - `game:live:session:{id}` — IF session data (24h)
@@ -210,9 +219,11 @@ API errors: `http.Error()` or `httpdto.RespondError`. No panics. DB retries only
 - `internal/vaadmin/handler.go` (790 lines) → split by feature area
 - `internal/pireps/service.go` (746 lines) → split core and enrichment
 
-**Not yet implemented:**
-- `GET /api/v1/pireps/config` — returns 501 stub inline in router
-- Test compilation errors: `internal/services/registration_service_v2_test.go` (SQLite migration syntax error; `internal/api/user_registration_v2_test.go` was deleted with the package)
+**Watermill dual-write:** PIREP sync job publishes to both old Redis queue (`pirep:sync:<va_id>`) and new watermill topic (`wm:pirep:sync`). Both consumers run side-by-side. After bake period, delete `internal/pireps/queue_worker.go` and remove PIREP worker from `RegisterWorkers`.
+
+**Test compilation errors:** `internal/services/registration_service_v2_test.go` (SQLite migration syntax error; `internal/api/user_registration_v2_test.go` was deleted with the package).
+
+**comrade-bot pending deletions:** `src/commands/SyncUserHandler.ts` and `src/commands/ConfigurePilotRoleHandler.ts` are stubbed (exports only) pending physical `rm`; all router references removed.
 
 ## Environment Variables
 

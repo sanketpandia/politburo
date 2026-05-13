@@ -9,6 +9,7 @@ import (
 	"infinite-experiment/politburo/infra/db"
 	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/messaging"
 	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/infra/queue"
@@ -17,6 +18,7 @@ import (
 	"infinite-experiment/politburo/infra/security"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
+	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/dashboard"
 	"infinite-experiment/politburo/internal/datasource"
@@ -34,12 +36,15 @@ import (
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/servers"
+	"infinite-experiment/politburo/internal/services"
 	"infinite-experiment/politburo/internal/sync"
 	vaRoutes "infinite-experiment/politburo/internal/va_routes"
 	"infinite-experiment/politburo/internal/vaadmin"
 	"infinite-experiment/politburo/internal/webhooks"
 	"os"
 
+	watermillmessage "github.com/ThreeDotsLabs/watermill/message"
+	watermillredis "github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	goredis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -66,6 +71,11 @@ type InfraDeps struct {
 	Scheduler        *scheduler.Scheduler
 	TemplateRenderer *templates.Renderer
 	SyncContainer    *sync.Container
+
+	// Watermill messaging
+	WatermillPublisher  *watermillredis.Publisher
+	WatermillSubscriber *watermillredis.Subscriber
+	WatermillRouter     *watermillmessage.Router
 }
 
 // PlatformDeps holds all platform-layer repositories and services
@@ -97,16 +107,18 @@ type FeatureDeps struct {
 	ServersRegSvc         *servers.RegistrationService
 
 	// Handlers
+	AuthHandler           *auth.Handler
 	DashboardHandler      *dashboard.Handler
-	MembershipsHandler   *membershipsFeature.Handler
-	PilotsHandler        *pilots.Handler
-	ServersHandler       *servers.Handler
-	VAAdminHandler       *vaadmin.Handler
-	EventsHandler        *events.Handler
-	DatasourceHandler    *datasource.Handler
+	MembershipsHandler    *membershipsFeature.Handler
+	PilotsHandler         *pilots.Handler
+	PirepHandler          *pireps.Handler
+	ServersHandler        *servers.Handler
+	VAAdminHandler        *vaadmin.Handler
+	EventsHandler         *events.Handler
+	DatasourceHandler     *datasource.Handler
 	LiveryMappingsHandler *liverymappings.Handler
-	TourPirepHandler     *pireps.TourHandler
-	WebhooksHandler     *webhooks.Handler
+	TourPirepHandler      *pireps.TourHandler
+	WebhooksHandler       *webhooks.Handler
 
 	// Providers
 	LiveAPIProvider *providers.LiveAPIProvider
@@ -212,6 +224,28 @@ func (a *App) initInfra() error {
 	)
 	logging.Info("Template renderer initialized")
 
+	// Initialize watermill publisher (Redis Stream)
+	zapLog := logging.GetLogger().Desugar()
+	wmPublisher, err := messaging.NewPublisher(redisClient, zapLog)
+	if err != nil {
+		return fmt.Errorf("failed to initialize watermill publisher: %w", err)
+	}
+	logging.Info("Watermill publisher initialized")
+
+	// Initialize watermill subscriber for PIREP sync consumer group
+	wmSubscriber, err := messaging.NewSubscriber(redisClient, "pirep-handlers", "politburo-1", zapLog)
+	if err != nil {
+		return fmt.Errorf("failed to initialize watermill subscriber: %w", err)
+	}
+	logging.Info("Watermill subscriber initialized")
+
+	// Initialize watermill router with metrics + poison-queue middleware stack
+	wmRouter, err := messaging.NewRouter(metricsReg, wmPublisher, zapLog)
+	if err != nil {
+		return fmt.Errorf("failed to initialize watermill router: %w", err)
+	}
+	logging.Info("Watermill router initialized")
+
 	a.Infra = InfraDeps{
 		DB:               pgDB,
 		RedisClient:      redisClient,
@@ -223,6 +257,10 @@ func (a *App) initInfra() error {
 		LiveAPI:          liveAPI,
 		Scheduler:        sched,
 		TemplateRenderer: templateRenderer,
+
+		WatermillPublisher:  wmPublisher,
+		WatermillSubscriber: wmSubscriber,
+		WatermillRouter:     wmRouter,
 	}
 
 	logging.Info("Infrastructure layer initialized")
@@ -397,7 +435,18 @@ func (a *App) initFeatures() error {
 		a.Infra.RedisQueue,
 		a.Infra.MetricsReg,
 	)
+	// Wire watermill publisher for dual-write to TopicPirepSync.
+	if a.Infra.WatermillPublisher != nil {
+		pirepSyncJob.SetPublisher(a.Infra.WatermillPublisher)
+	}
 	logging.Debug("PIREP sync job initialized")
+
+	// Initialize watermill PIREP messaging handler and register with the router.
+	pirepMsgHandler := pireps.NewMessagingHandler(a.Infra.DB, a.Platform.VARepo, pirepRepo)
+	if a.Infra.WatermillRouter != nil && a.Infra.WatermillSubscriber != nil {
+		pireps.RegisterPirepHandlers(a.Infra.WatermillRouter, a.Infra.WatermillSubscriber, pirepMsgHandler)
+	}
+	logging.Debug("PIREP watermill handler registered")
 
 	// Initialize PIREP queue worker (if queue enabled)
 	var pirepQueueWorker *pireps.QueueWorker
@@ -436,7 +485,7 @@ func (a *App) initFeatures() error {
 
 	// Initialize handlers
 	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc, pilotRepo, a.Platform.VAConfigSvc)
-	pilotsHandler := pilots.NewHandler(statsSvc, pilotsRegSvc, logbookSvc)
+	pilotsHandler := pilots.NewHandler(statsSvc, pilotsRegSvc, logbookSvc, a.Platform.UsersSvc)
 	serversHandler := servers.NewHandler(serversRegSvc)
 
 	// Initialize datasource handler
@@ -456,6 +505,49 @@ func (a *App) initFeatures() error {
 	)
 	tourPirepHandler := pireps.NewTourHandler(tourPirepSvc)
 	logging.Debug("Tour PIREP handler initialized")
+
+	// Initialize full PIREP handler (GetConfig + Submit endpoints).
+	legacyUserRepo := repositories.NewUserRepositoryGORM(a.Infra.DB)
+	legacyVARepoForPirep := repositories.NewVAGormRepository(a.Infra.DB)
+	legacyLiveAPISvc := common.NewLiveAPIService()
+	pirepValidator := pireps.NewFlightModeValidationService(legacyLiveAPISvc, legacyCacheSvc)
+	dataProviderConfigSvc := services.NewDataProviderConfigService(configRepo, legacyCacheSvc)
+	pirepSvc := pireps.NewService(
+		legacyUserRepo,
+		pilotRepo,
+		syncRepo,
+		a.Platform.AircraftRepo,
+		configRepo,
+		airtableProvider,
+		pirepValidator,
+		legacyCacheSvc,
+		flightsSvc,
+		legacyVAConfigSvc,
+		dataProviderConfigSvc,
+	)
+	pirepHandler := pireps.NewHandler(
+		legacyUserRepo,
+		legacyVARepoForPirep,
+		legacyCacheSvc,
+		legacyLiveAPISvc,
+		flightsSvc,
+		legacyVAConfigSvc,
+		pirepSvc,
+		pirepValidator,
+	)
+	logging.Debug("Full PIREP handler initialized")
+
+	// Initialize auth handler (used by API routes; avoids constructing it redundantly in router.go).
+	authSvcAdapter := &appVAServiceAdapter{svc: a.Platform.VASvc}
+	authSvc := auth.NewService(
+		a.Infra.SessionSvc,
+		a.Infra.URLSigner,
+		a.Platform.ClaimsRepo,
+		a.Platform.UsersSvc,
+		authSvcAdapter,
+	)
+	authHandler := auth.NewHandler(authSvc)
+	logging.Debug("Auth handler initialized")
 
 	// Initialize livery mappings handler
 	liveryMappingsHandler := liverymappings.NewHandler(a.Platform.AircraftRepo, a.Platform.VAConfigSvc, a.Infra.TemplateRenderer)
@@ -477,15 +569,17 @@ func (a *App) initFeatures() error {
 		MembershipsFeatureSvc: membershipsFeatureSvc,
 		PilotsRegSvc:          pilotsRegSvc,
 		ServersRegSvc:         serversRegSvc,
+		AuthHandler:           authHandler,
 		DashboardHandler:      dashboardHandler,
 		MembershipsHandler:    membershipsHandler,
 		PilotsHandler:         pilotsHandler,
+		PirepHandler:          pirepHandler,
 		ServersHandler:        serversHandler,
 		VAAdminHandler:        vaAdminHandler,
 		EventsHandler:         eventsHandler,
 		DatasourceHandler:     datasourceHandler,
 		LiveryMappingsHandler: liveryMappingsHandler,
-		TourPirepHandler:     tourPirepHandler,
+		TourPirepHandler:      tourPirepHandler,
 		LiveAPIProvider:       liveAPIProvider,
 		PilotSyncJob:          pilotSyncJob,
 		PirepSyncJob:          pirepSyncJob,
@@ -504,6 +598,20 @@ func (a *App) Shutdown(ctx context.Context) {
 	logging.Info("Shutting down application")
 
 	// Shutdown in reverse order of initialization
+
+	// Stop watermill router (closes subscriber connections and drains handlers)
+	if a.Infra.WatermillRouter != nil {
+		if err := a.Infra.WatermillRouter.Close(); err != nil {
+			logging.Error("Failed to close watermill router", "error", err)
+		}
+	}
+
+	// Close watermill publisher
+	if a.Infra.WatermillPublisher != nil {
+		if err := a.Infra.WatermillPublisher.Close(); err != nil {
+			logging.Error("Failed to close watermill publisher", "error", err)
+		}
+	}
 
 	// Stop scheduler (waits for running jobs)
 	if a.Infra.Scheduler != nil {
@@ -535,4 +643,24 @@ func (a *App) Shutdown(ctx context.Context) {
 	}
 
 	logging.Info("Application shutdown complete")
+}
+
+// appVAServiceAdapter adapts *va.Service to the auth.VAService interface.
+// Defined here to keep the auth handler construction inside app.go without
+// creating a cycle: auth does not import va, so this thin bridge is needed.
+type appVAServiceAdapter struct {
+	svc *va.Service
+}
+
+// GetByDiscordServerID implements auth.VAService.
+func (a *appVAServiceAdapter) GetByDiscordServerID(ctx context.Context, discordServerID string) (auth.VAInfo, error) {
+	v, err := a.svc.GetByDiscordServerID(ctx, discordServerID)
+	if err != nil {
+		return auth.VAInfo{}, err
+	}
+	return auth.VAInfo{
+		ID:   v.ID,
+		Name: v.Name,
+		Code: v.Code,
+	}, nil
 }

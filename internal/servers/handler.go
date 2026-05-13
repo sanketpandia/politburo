@@ -1,14 +1,13 @@
 package servers
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+	"infinite-experiment/politburo/internal/platform/validation"
 )
 
 type Handler struct {
@@ -36,25 +35,19 @@ func (h *Handler) InitServer() http.HandlerFunc {
 		discordUserID := claims.DiscordUserID()
 		discordServerID := claims.DiscordServerID()
 
-		// 2. Parse request body
+		// 2. Decode and validate request body
 		var req InitServerRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			logging.Warn("Invalid request body", "error", err)
+		if decodeErr, ve := validation.DecodeAndValidate(r, &req); decodeErr != nil {
+			logging.Warn("Invalid request body", "error", decodeErr)
 			httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid request body", http.StatusBadRequest)
 			return
-		}
-
-		// 3. Validate required fields
-		if req.VACode == "" {
-			httpdto.WriteError(w, initTime, "MISSING_FIELD", "VA code is required", http.StatusBadRequest)
+		} else if ve != nil {
+			httpdto.WriteValidationError(w, initTime, ve)
 			return
 		}
 
-		if req.VAName == "" {
-			httpdto.WriteError(w, initTime, "MISSING_FIELD", "VA name is required", http.StatusBadRequest)
-			return
-		}
-
+		// The callsign-config constraint is not expressible as a single-field validate
+		// tag because it requires at least one of two fields — enforce it explicitly.
 		if req.CallsignPrefix == "" && req.CallsignSuffix == "" {
 			httpdto.WriteError(w, initTime, "INVALID_CALLSIGN_CONFIG",
 				"At least one callsign pattern (prefix or suffix) is required", http.StatusBadRequest)
@@ -63,8 +56,8 @@ func (h *Handler) InitServer() http.HandlerFunc {
 
 		logging.Info("Server initialization request", "discord_server_id", discordServerID, "va_code", req.VACode)
 
-		// 4. Call service
-		result, err := h.regSvc.InitServer(
+		// 3. Call service
+		result, svcErr := h.regSvc.InitServer(
 			r.Context(),
 			discordServerID,
 			discordUserID,
@@ -74,9 +67,9 @@ func (h *Handler) InitServer() http.HandlerFunc {
 			req.CallsignSuffix,
 		)
 
-		if err != nil {
-			logging.Error("Failed to initialize server", "error", err, "discord_server_id", discordServerID)
-			h.handleInitServerError(w, initTime, err)
+		if svcErr != nil {
+			logging.Error("Failed to initialize server", "error", svcErr, "discord_server_id", discordServerID)
+			httpdto.WriteError(w, initTime, svcErr.Code, svcErr.Message, svcErr.StatusCode)
 			return
 		}
 
@@ -85,32 +78,3 @@ func (h *Handler) InitServer() http.HandlerFunc {
 	}
 }
 
-func (h *Handler) handleInitServerError(w http.ResponseWriter, initTime time.Time, err error) {
-	if errors.Is(err, ErrServerAlreadyRegistered) {
-		httpdto.WriteError(w, initTime, "SERVER_ALREADY_REGISTERED",
-			"This Discord server is already registered as a VA", http.StatusConflict)
-		return
-	}
-
-	if errors.Is(err, ErrUserNotRegistered) {
-		httpdto.WriteError(w, initTime, "USER_NOT_REGISTERED",
-			"You must register as a user before initializing a server", http.StatusBadRequest)
-		return
-	}
-
-	if errors.Is(err, ErrInvalidCallsignConfig) {
-		httpdto.WriteError(w, initTime, "INVALID_CALLSIGN_CONFIG",
-			"At least one callsign pattern (prefix or suffix) is required", http.StatusBadRequest)
-		return
-	}
-
-	if errors.Is(err, ErrVACreationFailed) {
-		httpdto.WriteError(w, initTime, "VA_CREATION_FAILED",
-			"Failed to create virtual airline", http.StatusInternalServerError)
-		return
-	}
-
-	// Default: internal server error
-	httpdto.WriteError(w, initTime, "INTERNAL_ERROR",
-		"An unexpected error occurred during server initialization", http.StatusInternalServerError)
-}

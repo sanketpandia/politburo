@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill/message"
 	"gorm.io/gorm"
 
 	"infinite-experiment/politburo/infra/cache"
@@ -26,6 +27,7 @@ type PirepSyncJob struct {
 	airtableProvider *providers.AirtableProvider
 	redisQueue       *queue.RedisQueueService // Redis queue for async processing
 	useQueue         bool                     // Whether to use queue-based processing
+	publisher        message.Publisher        // Watermill publisher for dual-write; may be nil
 	metrics          *metrics.MetricsRegistry
 }
 
@@ -50,6 +52,13 @@ func NewPirepSyncJob(
 		useQueue:         redisQueue != nil,
 		metrics:          metricsReg,
 	}
+}
+
+// SetPublisher wires a watermill Publisher for dual-write. When set, each
+// Airtable record is also published to TopicPirepSync in addition to the
+// existing Redis queue path. A nil publisher is silently ignored.
+func (j *PirepSyncJob) SetPublisher(pub message.Publisher) {
+	j.publisher = pub
 }
 
 // Run executes the PIREP sync job for all active VAs with Airtable enabled
@@ -217,6 +226,21 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 				if j.metrics != nil {
 					j.metrics.QueueEnqueuedTotal.WithLabelValues("pirep_queue", "pirep").Add(float64(len(queueItems)))
 					j.metrics.SyncJobRecordsProcessed.WithLabelValues("pirep_sync_job", "airtable", "pirep", vaID, "enqueued").Add(float64(len(queueItems)))
+				}
+			}
+
+			// Dual-write: also publish each item to the watermill topic so the
+			// new consumer group can process it independently of the Redis queue path.
+			if j.publisher != nil {
+				for _, qi := range queueItems {
+					if err := PublishPirepItem(ctx, j.publisher, qi); err != nil {
+						logging.Error("PIREP sync: failed to publish to watermill topic",
+							"va_id", vaID,
+							"record_id", qi.AirtableRecordID,
+							"error", err,
+						)
+						// Non-fatal: watermill path is additive; log and continue.
+					}
 				}
 			}
 		} else {

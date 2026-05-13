@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/liveapi"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
-	"log"
 	"math"
 	"regexp"
 	"strings"
@@ -258,7 +258,7 @@ func (svc *Service) GetUserFlights(ifcID string, page int, sID string) (*dtos.Fl
 		username = *userStats.DiscourseUsername
 	}
 
-	log.Printf("[GetUserFlights] Fetching flights for IFC ID: %s, User ID: %s", ifcID, uId)
+	logging.Debug("GetUserFlights: fetching flights", "ifc_id", ifcID, "user_id", uId)
 
 	flts, err := svc.getUserFlightsCached(uId, page)
 
@@ -278,10 +278,10 @@ func (svc *Service) GetUserFlights(ifcID string, page int, sID string) (*dtos.Fl
 	if err == nil && sessions != nil {
 		for _, session := range *sessions {
 			serverSessionMap[session.Name] = session.ID
-			log.Printf("[GetUserFlights] Mapped session: %s → %s", session.Name, session.ID)
+			logging.Debug("GetUserFlights: mapped session", "session_name", session.Name, "session_id", session.ID)
 		}
 	} else {
-		log.Printf("[GetUserFlights] Warning: Could not fetch sessions: %v", err)
+		logging.Warn("GetUserFlights: could not fetch sessions", "error", err)
 	}
 
 	// Populate pagination metadata from Live API response
@@ -355,8 +355,7 @@ func (svc *Service) UpdateUserFlightsCache(uId string, historyDto *dtos.FlightHi
 	histCacheKey := fmt.Sprintf("FH_%s_page_%d", uId, page)
 	svc.Cache.Set(histCacheKey, historyDto, fltTTL)
 
-	log.Printf("[UpdateUserFlightsCache] Cached flight history for user %s, page %d with %d records, key=%s",
-		uId, historyDto.PageNo, len(historyDto.Records), histCacheKey)
+	logging.Debug("Cached flight history", "user_id", uId, "page", historyDto.PageNo, "records", len(historyDto.Records), "key", histCacheKey)
 
 	// Also cache flight summaries for quick lookups and pagination metadata
 	sumCacheKey := fmt.Sprintf("%s%s", constants.CachePrefixUserFlights, uId)
@@ -372,7 +371,7 @@ func (svc *Service) UpdateUserFlightsCache(uId string, historyDto *dtos.FlightHi
 	}
 	svc.Cache.Set(sumCacheKey, summaries, fltTTL)
 
-	log.Printf("[UpdateUserFlightsCache] Cached %d flight summaries for user %s", len(summaries), uId)
+	logging.Debug("Cached flight summaries", "user_id", uId, "count", len(summaries))
 }
 
 func (svc *Service) mapToLiveFlight(resp *liveapi.FlightsResponse, sId string) *[]dtos.LiveFlight {
@@ -389,7 +388,7 @@ func (svc *Service) mapToLiveFlight(resp *liveapi.FlightsResponse, sId string) *
 		lastReport, err := parseLiveAPITime(flt.LastReport)
 
 		if err != nil {
-			fmt.Printf("Couldn't parse to time: %s", flt.LastReport)
+			logging.Debug("Could not parse flight last report time", "last_report", flt.LastReport)
 		}
 
 		uname := flt.Username
@@ -467,13 +466,13 @@ func (svc *Service) GetLiveFlights(sId string) (*[]dtos.LiveFlight, error) {
 	})
 
 	if err != nil {
-		fmt.Printf("\nError while fetching live flights: %v", err)
+		logging.Error("Failed to fetch live flights", "error", err)
 		return nil, err
 	}
 
 	flts, ok := val.([]dtos.LiveFlight)
 	if !ok {
-		fmt.Printf("\nError while parsing flights")
+		logging.Error("Failed to parse live flights from cache")
 		return nil, errors.New("unable to fetch live flights")
 	}
 
@@ -486,20 +485,15 @@ func (svc *Service) getFPLCacheKey(ifSid string, flightId string) string {
 
 func (svc *Service) GetFlightPlan(ifSid string, flightId string) (*dtos.FlightPlanResponse, error) {
 	cacheKey := svc.getFPLCacheKey(ifSid, flightId)
-	// log.Printf("\n\nGet FPL called. cacheKey: %s", cacheKey)
 	val, err := svc.Cache.GetOrSet(cacheKey, 5*time.Minute, func() (any, error) {
-		// log.Printf("\nFetching FPL. cacheKey: %s", cacheKey)
-
 		fpl, _, err := svc.ApiService.GetFlightPlan(ifSid, flightId)
 		if err != nil {
-			log.Printf("Failed to fetch FPL: %v", err)
+			logging.Error("Failed to fetch flight plan", "session_id", ifSid, "flight_id", flightId, "error", err)
 			return nil, err
 		}
 
 		// Convert liveapi.FlightPlanResponse to dtos.FlightPlanResponse
 		converted := convertFlightPlanResponse(fpl)
-		// log.Printf("\nFetched FPL. Waypoints: %d", len(converted.Waypoints))
-
 		return converted, nil
 	})
 	if err != nil {
@@ -511,7 +505,6 @@ func (svc *Service) GetFlightPlan(ifSid string, flightId string) (*dtos.FlightPl
 	if !ok {
 		return nil, fmt.Errorf("failed to unmarshal FPL")
 	}
-	// log.Printf("Fetched FPL with waypoints %d for %s", len(fpl.Waypoints), fpl.FlightID)
 	return &fpl, nil
 }
 
@@ -575,7 +568,7 @@ func (svc *Service) GetFlightRoute(ifSid string, flightId string) (string, strin
 		if wl > 1 {
 			x := wayp[0]
 			y := wayp[wl-1]
-			// log.Printf("\nFiltering waypoints. Length: %d, First: %s, Last: %s", len(fpl.Waypoints), x, y)
+
 
 			if len(x) == 4 {
 				org = x
@@ -591,10 +584,9 @@ func (svc *Service) GetFlightRoute(ifSid string, flightId string) (string, strin
 }
 
 func (svc *Service) enrichFlightData(flts *[]dtos.LiveFlight) *[]dtos.LiveFlight {
-	start := time.Now() // ← start timer
+	start := time.Now()
 	defer func() {
-		log.Printf("enriched %d flights in %v",
-			len(*flts), time.Since(start))
+		logging.Debug("Flight data enriched", "count", len(*flts), "duration", time.Since(start))
 	}()
 	grp, sem := errgroup.Group{}, make(chan struct{}, maxRouteWorkers)
 
@@ -633,7 +625,7 @@ func (svc *Service) GetVALiveFlights(ctx context.Context, vaId string) (*[]dtos.
 
 	live_flt, err := svc.GetLiveFlights(sId)
 	if err != nil {
-		fmt.Printf("No live flights found with error: %v", err)
+		logging.Error("No live flights found", "session_id", sId, "error", err)
 		return nil, err
 	}
 
@@ -856,12 +848,19 @@ func (svc *Service) FindUserCurrentFlight(
 		matchesFullPattern := (lfPrefix == callsignPrefix) && (lfVar == userCallsign) && (lfSuffix == callsignSuffix)
 		matchesNumber := lfVar == userCallsign || lfVar == (callsignPrefix+userCallsign+callsignSuffix)
 
-		log.Printf("[FindUserCurrentFlight] Checking flight: callsign=%s (prefix=%s, var=%s, suffix=%s) - fullPattern=%v, matchesNumber=%v",
-			lf.Callsign, lfPrefix, lfVar, lfSuffix, matchesFullPattern, matchesNumber)
+		logging.Debug("FindUserCurrentFlight: checking flight",
+			"callsign", lf.Callsign,
+			"prefix", lfPrefix, "var", lfVar, "suffix", lfSuffix,
+			"full_pattern_match", matchesFullPattern, "number_match", matchesNumber,
+		)
 
 		if matchesFullPattern || matchesNumber {
-			log.Printf("[FindUserCurrentFlight] Found matching flight! Callsign=%s, Aircraft=%s, Livery=%s, Route=%s-%s, Alt=%dft, Speed=%dkts",
-				lf.Callsign, lf.Aircraft, lf.Livery, lf.Origin, lf.Destination, lf.AltitudeFt, lf.SpeedKts)
+			logging.Debug("FindUserCurrentFlight: match found",
+				"callsign", lf.Callsign,
+				"aircraft", lf.Aircraft,
+				"livery", lf.Livery,
+				"route", fmt.Sprintf("%s-%s", lf.Origin, lf.Destination),
+			)
 			return &lf, nil
 		}
 	}
@@ -907,20 +906,20 @@ func GetVALiveFlightsDTOs(redisCache *cache.RedisCacheService, vaID string) ([]V
 		flightKey := cache.LiveFlightKey(flightID)
 		flightVal, found := redisCache.Get(flightKey)
 		if !found {
-			log.Printf("Flight not found in cache: %s", flightID)
+			logging.Debug("Flight not found in cache", "flight_id", flightID)
 			continue
 		}
 
 		// Convert cached value to CompleteFlight
 		jsonBytes, err := json.Marshal(flightVal)
 		if err != nil {
-			log.Printf("Failed to marshal cached flight %s: %v", flightID, err)
+			logging.Error("Failed to marshal cached flight", "flight_id", flightID, "error", err)
 			continue
 		}
 
 		var flight CompleteFlight
 		if err := json.Unmarshal(jsonBytes, &flight); err != nil {
-			log.Printf("Failed to unmarshal cached flight %s: %v", flightID, err)
+			logging.Error("Failed to unmarshal cached flight", "flight_id", flightID, "error", err)
 			continue
 		}
 

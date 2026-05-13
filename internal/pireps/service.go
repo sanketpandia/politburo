@@ -19,8 +19,8 @@ import (
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/sync"
-	"log"
 )
 
 // DataProviderConfigServiceInterface interface to avoid import cycle with services package
@@ -90,9 +90,7 @@ func (s *Service) SubmitPirep(
 	vaConfig *gormModels.VA,
 	userClaims auth.UserClaims,
 ) (*dtos.PirepSubmitResponse, error) {
-	// Log the incoming request
-	requestJSON, _ := json.MarshalIndent(request, "", "  ")
-	log.Printf("[PirepService] Received PIREP submission:\n%s\n", string(requestJSON))
+	logging.Debug("PIREP submission received", "mode", request.Mode)
 
 	// STEP 1: VALIDATE MODE EXISTS AND IS ENABLED
 	modeConfig, err := s.getModeConfig(vaConfig, request.Mode)
@@ -205,7 +203,7 @@ func (s *Service) SubmitPirep(
 		suffix,
 	)
 	if err != nil {
-		log.Printf("[PirepService] Warning: Could not fetch current flight data: %v", err)
+		logging.Warn("PIREP service: could not fetch current flight data", "mode", request.Mode, "error", err)
 		// Not a hard failure - we can still submit PIREP with provided liveryID
 	} else if currentFlight != nil {
 		flightData = &FlightData{
@@ -231,14 +229,14 @@ func (s *Service) SubmitPirep(
 		if mappings, err := s.resolveLiveryMapping(ctx, vaConfig.ID, flightData.LiveryID); err == nil && mappings != nil {
 			if a, ok := mappings["aircraft"]; ok && a != "" {
 				aircraft = a
-				log.Printf("[PirepService] Resolved aircraft from livery mapping: %s", aircraft)
+				logging.Debug("PIREP: resolved aircraft from livery mapping", "aircraft", aircraft)
 			}
 			if al, ok := mappings["airline"]; ok && al != "" {
 				airline = al
-				log.Printf("[PirepService] Resolved airline from livery mapping: %s", airline)
+				logging.Debug("PIREP: resolved airline from livery mapping", "airline", airline)
 			}
 		} else {
-			log.Printf("[PirepService] Could not resolve livery mapping for livery_id %s: %v", flightData.LiveryID, err)
+			logging.Warn("PIREP: could not resolve livery mapping", "livery_id", flightData.LiveryID, "error", err)
 		}
 	}
 
@@ -275,16 +273,14 @@ func (s *Service) SubmitPirep(
 	)
 
 	// STEP 8: SUBMIT TO AIRTABLE
-	// Log the complete PIREP object before submission
-	pirepJSON, _ := json.MarshalIndent(pirepObj, "", "  ")
-	log.Printf("[PirepService] Submitting PIREP to Airtable:\n%s\n", string(pirepJSON))
+	logging.Debug("PIREP: submitting to Airtable", "va_id", vaConfig.ID)
 
 	// Set provider config in context for provider to use
 	ctx = context.WithValue(ctx, "provider_config", configData)
 
 	pirepID, err := s.submitToAirtable(ctx, pirepObj, pirepSchema)
 	if err != nil {
-		log.Printf("[PirepService] Airtable submission error: %v", err)
+		logging.Error("PIREP: Airtable submission error", "va_id", vaConfig.ID, "error", err)
 		return &dtos.PirepSubmitResponse{
 			Success:      false,
 			ErrorType:    "airtable_error",
@@ -292,7 +288,7 @@ func (s *Service) SubmitPirep(
 		}, nil
 	}
 
-	log.Printf("[PirepService] PIREP filed successfully: %s", pirepID)
+	logging.Info("PIREP filed successfully", "pirep_id", pirepID, "va_id", vaConfig.ID)
 	return &dtos.PirepSubmitResponse{
 		Success: true,
 		Message: "PIREP filed successfully",
@@ -419,7 +415,7 @@ func (s *Service) buildPirepObject(
 	for _, field := range pirepSchema.Fields {
 		if field.BotMetadata {
 			botMetadataFieldName = field.AirtableName
-			log.Printf("\nField name: %s", botMetadataFieldName)
+			logging.Debug("PIREP: found bot metadata field", "field_name", botMetadataFieldName)
 			break
 		}
 	}
@@ -518,7 +514,7 @@ func (s *Service) resolveLiveryMapping(ctx context.Context, vaID string, liveryI
 			if airline, ok := mappingData["airline"].(string); ok {
 				result["airline"] = airline
 			}
-			log.Printf("[PirepService] Livery mapping cache hit for %s:%s", vaID, liveryID)
+			logging.Debug("PIREP: livery mapping cache hit", "va_id", vaID, "livery_id", liveryID)
 			return result, nil
 		}
 	}
@@ -526,13 +522,13 @@ func (s *Service) resolveLiveryMapping(ctx context.Context, vaID string, liveryI
 	// Not in cache, query database
 	mappings, err := s.liveryMappingRepo.GetMappingsByLivery(ctx, vaID, liveryID)
 	if err != nil {
-		log.Printf("[PirepService] Error fetching livery mappings: %v", err)
+		logging.Error("PIREP: failed to fetch livery mappings", "va_id", vaID, "livery_id", liveryID, "error", err)
 		return nil, err
 	}
 
 	// Cache the result with 24-hour TTL
 	s.cache.Set(cacheKey, mappings, 24*time.Hour)
-	log.Printf("[PirepService] Livery mapping cached for %s:%s", vaID, liveryID)
+	logging.Debug("PIREP: livery mapping cached", "va_id", vaID, "livery_id", liveryID)
 
 	return mappings, nil
 }
@@ -698,8 +694,7 @@ func (s *Service) submitToAirtable(
 	pirepObj map[string]interface{},
 	pirepSchema *dtos.EntitySchema,
 ) (string, error) {
-	log.Printf("[PirepService] Submitting PIREP to Airtable via provider")
-	log.Printf("[PirepService] Table: %s, Fields: %v", pirepSchema.TableName, pirepObj)
+	logging.Debug("PIREP: submitting record via provider", "table", pirepSchema.TableName)
 
 	// Convert dtos.EntitySchema to platformVA.EntitySchema for provider
 	vaPirepSchema := convertDTOsEntitySchema(pirepSchema)
@@ -710,7 +705,7 @@ func (s *Service) submitToAirtable(
 		return "", fmt.Errorf("failed to submit record via provider: %w", err)
 	}
 
-	log.Printf("[PirepService] Record submitted successfully: %s", recordID)
+	logging.Debug("PIREP: record submitted", "record_id", recordID)
 	return recordID, nil
 }
 

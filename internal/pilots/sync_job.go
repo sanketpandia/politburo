@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/infra/queue"
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
-	"log"
 	"strings"
 	"time"
 
@@ -62,7 +62,7 @@ func (j *SyncJob) Name() string {
 // Run executes the pilot sync job for all active VAs with Airtable enabled
 func (j *SyncJob) Run(ctx context.Context) error {
 	start := time.Now()
-	log.Printf("[PilotSyncJob] Starting pilot sync at %s", start.Format(time.RFC3339))
+	logging.Info("Pilot sync job starting")
 
 	// Get all VAs that have active Airtable configs (use DISTINCT to avoid duplicates)
 	var vaIDs []string
@@ -73,16 +73,16 @@ func (j *SyncJob) Run(ctx context.Context) error {
 		Pluck("va_id", &vaIDs).Error
 
 	if err != nil {
-		log.Printf("[PilotSyncJob] Error fetching active VAs: %v", err)
+		logging.Error("Pilot sync: failed to fetch active VAs", "error", err)
 		return fmt.Errorf("failed to fetch active VAs: %w", err)
 	}
 
 	if len(vaIDs) == 0 {
-		log.Printf("[PilotSyncJob] No VAs with active Airtable configs found")
+		logging.Info("Pilot sync: no VAs with active Airtable configs")
 		return nil
 	}
 
-	log.Printf("[PilotSyncJob] Found %d VAs with active Airtable configs", len(vaIDs))
+	logging.Info("Pilot sync: VAs with active configs", "count", len(vaIDs))
 
 	// Sync pilots for each VA
 	totalProcessed := 0
@@ -90,7 +90,7 @@ func (j *SyncJob) Run(ctx context.Context) error {
 		// Sync regular pilots
 		processed, err := j.SyncVAPilots(ctx, vaID)
 		if err != nil {
-			log.Printf("[PilotSyncJob] Error syncing pilots for VA %s: %v", vaID, err)
+			logging.Error("Pilot sync: failed to sync VA pilots", "va_id", vaID, "error", err)
 			// Continue with other VAs even if one fails
 			continue
 		}
@@ -99,7 +99,7 @@ func (j *SyncJob) Run(ctx context.Context) error {
 		// Sync career mode pilots
 		cmProcessed, err := j.SyncVACareerModePilots(ctx, vaID)
 		if err != nil {
-			log.Printf("[PilotSyncJob] Error syncing career mode pilots for VA %s: %v", vaID, err)
+			logging.Error("Pilot sync: failed to sync career mode pilots", "va_id", vaID, "error", err)
 			// Continue even if career mode sync fails
 		} else {
 			totalProcessed += cmProcessed
@@ -107,11 +107,9 @@ func (j *SyncJob) Run(ctx context.Context) error {
 	}
 
 	if j.useQueue {
-		log.Printf("[PilotSyncJob] Completed pilot sync in %s. Total pilots enqueued: %d",
-			time.Since(start).Truncate(time.Millisecond), totalProcessed)
+		logging.Info("Pilot sync completed", "duration", time.Since(start).Truncate(time.Millisecond), "enqueued", totalProcessed)
 	} else {
-		log.Printf("[PilotSyncJob] Completed pilot sync in %s. Total pilots synced: %d",
-			time.Since(start).Truncate(time.Millisecond), totalProcessed)
+		logging.Info("Pilot sync completed", "duration", time.Since(start).Truncate(time.Millisecond), "synced", totalProcessed)
 	}
 
 	return nil
@@ -120,7 +118,7 @@ func (j *SyncJob) Run(ctx context.Context) error {
 // SyncVAPilots syncs pilots for a specific VA (exported for manual triggering)
 func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	start := time.Now()
-	log.Printf("[PilotSyncJob] Syncing pilots for VA %s", vaID)
+	logging.Info("Pilot sync: syncing VA pilots", "va_id", vaID)
 
 	// Get credentials config for this VA
 	credentialsConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
@@ -129,7 +127,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	}
 
 	if credentialsConfig == nil {
-		log.Printf("[PilotSyncJob] No active credentials config found for VA %s", vaID)
+		logging.Info("Pilot sync: no active credentials config", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -163,7 +161,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	}
 
 	if pilotConfig == nil {
-		log.Printf("[PilotSyncJob] No pilot schema configured for VA %s", vaID)
+		logging.Info("Pilot sync: no pilot schema configured", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -174,8 +172,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 		return 0, fmt.Errorf("failed to marshal pilot config data: %w", err)
 	}
 
-	// Debug: Log raw config data before parsing
-	log.Printf("[PilotSyncJob] VA %s: Raw pilot config data: %s", vaID, string(bytes))
+	logging.Debug("Pilot sync: raw pilot config data", "va_id", vaID)
 
 	if err := json.Unmarshal(bytes, &pilotSchema); err != nil {
 		return 0, fmt.Errorf("failed to parse pilot schema: %w", err)
@@ -186,9 +183,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 		pilotSchema.EntityType = "pilot"
 	}
 
-	// Debug: Log parsed schema values and raw JSON
-	log.Printf("[PilotSyncJob] VA %s: Parsed pilot schema - Enabled: %v, TableName: %s, Fields: %d", vaID, pilotSchema.Enabled, pilotSchema.TableName, len(pilotSchema.Fields))
-	log.Printf("[PilotSyncJob] VA %s: Raw config JSON: %s", vaID, string(bytes))
+	logging.Debug("Pilot sync: parsed pilot schema", "va_id", vaID, "enabled", pilotSchema.Enabled, "table", pilotSchema.TableName, "fields", len(pilotSchema.Fields))
 
 	// Check if enabled field exists in raw JSON (workaround for potential JSON parsing issue)
 	var rawData map[string]interface{}
@@ -197,21 +192,21 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 			if enabledBool, ok := enabledVal.(bool); ok {
 				// Override with value from raw JSON if different
 				if enabledBool != pilotSchema.Enabled {
-					log.Printf("[PilotSyncJob] VA %s: Enabled field mismatch - raw JSON: %v, parsed: %v, using raw value", vaID, enabledBool, pilotSchema.Enabled)
+					logging.Debug("Pilot sync: enabled field mismatch in JSON, using raw value", "va_id", vaID, "raw", enabledBool, "parsed", pilotSchema.Enabled)
 					pilotSchema.Enabled = enabledBool
 				}
 			}
 		} else {
 			// enabled field missing - default to true if schema has fields configured
 			if len(pilotSchema.Fields) > 0 {
-				log.Printf("[PilotSyncJob] VA %s: Enabled field missing in JSON, defaulting to true (has %d fields)", vaID, len(pilotSchema.Fields))
+				logging.Debug("Pilot sync: enabled field missing in JSON, defaulting to true", "va_id", vaID, "field_count", len(pilotSchema.Fields))
 				pilotSchema.Enabled = true
 			}
 		}
 	}
 
 	if !pilotSchema.Enabled {
-		log.Printf("[PilotSyncJob] Pilot schema is disabled for VA %s", vaID)
+		logging.Info("Pilot sync: schema disabled", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -224,7 +219,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 		}
 	}
 	if !hasCallsignField {
-		log.Printf("[PilotSyncJob] Pilot schema for VA %s is missing required 'callsign' field mapping. Please configure field mappings in the datasource settings.", vaID)
+		logging.Error("Pilot sync: schema missing required callsign field mapping", "va_id", vaID)
 		return 0, fmt.Errorf("pilot schema missing required 'callsign' field mapping")
 	}
 
@@ -235,24 +230,24 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 		Where("id = ?", vaID).
 		Pluck("name", &vaName)
 
-	log.Printf("[PilotSyncJob] VA: %s (%s), Table: %s", vaName, vaID, pilotSchema.TableName)
+	logging.Info("Pilot sync: VA details", "va_name", vaName, "va_id", vaID, "table", pilotSchema.TableName)
 
 	// Get last sync timestamp for incremental sync
 	lastModified, err := j.getLastSyncTimestamp(ctx, vaID)
 	if err != nil {
-		log.Printf("[PilotSyncJob] VA %s: Error getting last sync timestamp: %v. Doing full sync.", vaName, err)
+		logging.Warn("Pilot sync: failed to get last sync timestamp, doing full sync", "va_id", vaID, "error", err)
 		lastModified = nil
 	}
 
 	if lastModified != nil {
-		log.Printf("[PilotSyncJob] VA %s: Incremental sync from %s", vaName, *lastModified)
+		logging.Info("Pilot sync: incremental sync", "va_id", vaID, "since", *lastModified)
 	} else {
-		log.Printf("[PilotSyncJob] VA %s: Full sync (no previous sync timestamp)", vaName)
+		logging.Info("Pilot sync: full sync (no prior timestamp)", "va_id", vaID)
 	}
 
 	// Check if schema has last_modified_field configured
 	if lastModified != nil && pilotSchema.LastModifiedField == "" {
-		log.Printf("[PilotSyncJob] VA %s: Warning - no last_modified_field configured in schema, cannot filter by date. Doing full sync.", vaName)
+		logging.Warn("Pilot sync: no last_modified_field configured, doing full sync", "va_id", vaID)
 		lastModified = nil
 	}
 
@@ -278,7 +273,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	} else {
 		apiKeyMasked = "***"
 	}
-	log.Printf("[PilotSyncJob] VA %s: Extracted credentials - BaseID: %s, APIKey: %s", vaID, creds.BaseID, apiKeyMasked)
+	logging.Debug("Pilot sync: credentials extracted", "va_id", vaID, "base_id", creds.BaseID, "api_key", apiKeyMasked)
 
 	// Set credentials in context for provider
 	ctx = context.WithValue(ctx, "provider_credentials", creds)
@@ -295,7 +290,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	// If using queue, ensure consumer group exists
 	if j.useQueue {
 		if err := j.redisQueue.CreateConsumerGroup(ctx, streamName, "pilot-workers"); err != nil {
-			log.Printf("[PilotSyncJob] VA %s: Warning - failed to create consumer group: %v", vaName, err)
+			logging.Warn("Pilot sync: failed to create consumer group", "va_id", vaID, "error", err)
 			// Continue anyway - group might already exist
 		}
 	}
@@ -316,7 +311,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 			return 0, fmt.Errorf("failed to fetch records (page %d): %w", pageCount, err)
 		}
 
-		log.Printf("[PilotSyncJob] VA %s: Fetched page %d with %d records", vaName, pageCount, len(recordSet.Records))
+		logging.Debug("Pilot sync: fetched page", "va_id", vaID, "page", pageCount, "count", len(recordSet.Records))
 
 		if j.useQueue {
 			// Queue-based processing: Enqueue batch to Redis
@@ -328,11 +323,11 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 					Fields:           record.Fields,
 					Schema:           queueSchema,
 				})
-				log.Printf("[PilotSyncJob] VA %s: Enqueueing pilot - ATID: %s", vaName, record.ID)
+				logging.Debug("Pilot sync: enqueueing pilot", "va_id", vaID, "at_id", record.ID)
 			}
 
 			if err := j.redisQueue.EnqueuePilotBatch(ctx, streamName, queueItems); err != nil {
-				log.Printf("[PilotSyncJob] VA %s: Error enqueuing batch: %v", vaName, err)
+				logging.Error("Pilot sync: failed to enqueue batch", "va_id", vaID, "error", err)
 				errorCount += len(queueItems)
 			} else {
 				enqueuedCount += len(queueItems)
@@ -346,7 +341,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 			// Direct processing: Process immediately (streaming)
 			for _, record := range recordSet.Records {
 				if err := j.upsertPilot(ctx, vaID, record.ID, record.Fields, vaPilotSchema); err != nil {
-					log.Printf("[PilotSyncJob] VA %s: Error upserting record: %v", vaName, err)
+					logging.Error("Pilot sync: failed to upsert record", "va_id", vaID, "record_id", record.ID, "error", err)
 					errorCount++
 					continue
 				}
@@ -361,22 +356,30 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 	}
 
 	if j.useQueue {
-		log.Printf("[PilotSyncJob] VA %s: Completed in %s. Enqueued: %d, Errors: %d",
-			vaName, time.Since(start).Truncate(time.Millisecond), enqueuedCount, errorCount)
-		log.Printf("[PilotSyncJob] VA %s: Queue: %s - Workers will process items asynchronously", vaName, streamName)
+		logging.Info("Pilot sync: VA queue-mode completed",
+			"va_id", vaID,
+			"duration", time.Since(start).Truncate(time.Millisecond),
+			"enqueued", enqueuedCount,
+			"errors", errorCount,
+			"stream", streamName,
+		)
 		// Record sync history after successful enqueue
 		if enqueuedCount > 0 {
 			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventPilotsAT); err != nil {
-				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
+				logging.Warn("Pilot sync: failed to record sync history", "va_id", vaID, "error", err)
 			}
 		}
 	} else {
-		log.Printf("[PilotSyncJob] VA %s: Completed in %s. Synced: %d, Errors: %d",
-			vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
+		logging.Info("Pilot sync: VA direct-mode completed",
+			"va_id", vaID,
+			"duration", time.Since(start).Truncate(time.Millisecond),
+			"synced", syncedCount,
+			"errors", errorCount,
+		)
 		// Record sync history after direct processing
 		if syncedCount > 0 {
 			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventPilotsAT); err != nil {
-				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
+				logging.Warn("Pilot sync: failed to record sync history", "va_id", vaID, "error", err)
 			}
 		}
 	}
@@ -391,7 +394,7 @@ func (j *SyncJob) SyncVAPilots(ctx context.Context, vaID string) (int, error) {
 // SyncVACareerModePilots syncs career mode pilots for a specific VA
 func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int, error) {
 	start := time.Now()
-	log.Printf("[PilotSyncJob] Syncing career mode pilots for VA %s", vaID)
+	logging.Info("Pilot sync: syncing VA career mode pilots", "va_id", vaID)
 
 	// Get credentials config for this VA
 	credentialsConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
@@ -400,7 +403,7 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 	}
 
 	if credentialsConfig == nil {
-		log.Printf("[PilotSyncJob] No active credentials config found for VA %s", vaID)
+		logging.Info("Pilot sync: no active credentials config for career mode", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -433,7 +436,7 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 	}
 
 	if careerModeConfig == nil {
-		log.Printf("[PilotSyncJob] No career mode schema configured for VA %s", vaID)
+		logging.Info("Pilot sync: no career mode schema configured", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -455,7 +458,7 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 
 	// Check if enabled
 	if !careerModeSchema.Enabled {
-		log.Printf("[PilotSyncJob] Career mode schema is disabled for VA %s", vaID)
+		logging.Info("Pilot sync: career mode schema disabled", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -468,7 +471,7 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 		}
 	}
 	if !hasCallsignField {
-		log.Printf("[PilotSyncJob] Career mode schema for VA %s is missing required 'callsign' field mapping", vaID)
+		logging.Error("Pilot sync: career mode schema missing callsign field mapping", "va_id", vaID)
 		return 0, fmt.Errorf("career mode schema missing required 'callsign' field mapping")
 	}
 
@@ -479,24 +482,24 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 		Where("id = ?", vaID).
 		Pluck("name", &vaName)
 
-	log.Printf("[PilotSyncJob] VA: %s (%s), Career Mode Table: %s", vaName, vaID, careerModeSchema.TableName)
+	logging.Info("Pilot sync: career mode details", "va_name", vaName, "va_id", vaID, "table", careerModeSchema.TableName)
 
 	// Get last sync timestamp for incremental sync (using career mode specific event)
 	lastModified, err := j.getLastSyncTimestampForEvent(ctx, vaID, platformVA.SyncEventCareerModePilotsAT)
 	if err != nil {
-		log.Printf("[PilotSyncJob] VA %s: Error getting last career mode sync timestamp: %v. Doing full sync.", vaName, err)
+		logging.Warn("Pilot sync: error getting last career mode sync timestamp, doing full sync", "va_id", vaID, "error", err)
 		lastModified = nil
 	}
 
 	if lastModified != nil {
-		log.Printf("[PilotSyncJob] VA %s: Incremental career mode sync from %s", vaName, *lastModified)
+		logging.Info("Pilot sync: incremental career mode sync", "va_id", vaID, "since", *lastModified)
 	} else {
-		log.Printf("[PilotSyncJob] VA %s: Full career mode sync (no previous sync timestamp)", vaName)
+		logging.Info("Pilot sync: full career mode sync (no previous sync timestamp)", "va_id", vaID)
 	}
 
 	// Check if schema has last_modified_field configured
 	if lastModified != nil && careerModeSchema.LastModifiedField == "" {
-		log.Printf("[PilotSyncJob] VA %s: Warning - no last_modified_field configured in career mode schema, cannot filter by date. Doing full sync.", vaName)
+		logging.Warn("Pilot sync: no last_modified_field in career mode schema, doing full sync", "va_id", vaID)
 		lastModified = nil
 	}
 
@@ -530,7 +533,7 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 	// If using queue, ensure consumer group exists
 	if j.useQueue {
 		if err := j.redisQueue.CreateConsumerGroup(ctx, streamName, "pilot-workers"); err != nil {
-			log.Printf("[PilotSyncJob] VA %s: Warning - failed to create consumer group: %v", vaName, err)
+			logging.Warn("Pilot sync: failed to create consumer group", "va_id", vaID, "error", err)
 		}
 	}
 
@@ -550,7 +553,7 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 			return 0, fmt.Errorf("failed to fetch career mode records (page %d): %w", pageCount, err)
 		}
 
-		log.Printf("[PilotSyncJob] VA %s: Fetched career mode page %d with %d records", vaName, pageCount, len(recordSet.Records))
+		logging.Debug("Pilot sync: fetched career mode page", "va_id", vaID, "page", pageCount, "count", len(recordSet.Records))
 
 		if j.useQueue {
 			// Queue-based processing: Enqueue batch to Redis
@@ -562,11 +565,11 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 					Fields:           record.Fields,
 					Schema:           queueSchema,
 				})
-				log.Printf("[PilotSyncJob] VA %s: Enqueueing career mode pilot - ATID: %s", vaName, record.ID)
+				logging.Debug("Pilot sync: enqueueing career mode pilot", "va_id", vaID, "at_id", record.ID)
 			}
 
 			if err := j.redisQueue.EnqueuePilotBatch(ctx, streamName, queueItems); err != nil {
-				log.Printf("[PilotSyncJob] VA %s: Error enqueuing career mode batch: %v", vaName, err)
+				logging.Error("Pilot sync: failed to enqueue career mode batch", "va_id", vaID, "error", err)
 				errorCount += len(queueItems)
 			} else {
 				enqueuedCount += len(queueItems)
@@ -580,7 +583,7 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 			// Direct processing: Process immediately
 			for _, record := range recordSet.Records {
 				if err := j.upsertPilot(ctx, vaID, record.ID, record.Fields, vaCareerModeSchema); err != nil {
-					log.Printf("[PilotSyncJob] VA %s: Error upserting career mode record: %v", vaName, err)
+					logging.Error("Pilot sync: failed to upsert career mode record", "va_id", vaID, "record_id", record.ID, "error", err)
 					errorCount++
 					continue
 				}
@@ -595,22 +598,30 @@ func (j *SyncJob) SyncVACareerModePilots(ctx context.Context, vaID string) (int,
 	}
 
 	if j.useQueue {
-		log.Printf("[PilotSyncJob] VA %s: Completed career mode sync in %s. Enqueued: %d, Errors: %d",
-			vaName, time.Since(start).Truncate(time.Millisecond), enqueuedCount, errorCount)
-		log.Printf("[PilotSyncJob] VA %s: Queue: %s - Workers will process items asynchronously", vaName, streamName)
+		logging.Info("Pilot sync: career mode queue-mode completed",
+			"va_id", vaID,
+			"duration", time.Since(start).Truncate(time.Millisecond),
+			"enqueued", enqueuedCount,
+			"errors", errorCount,
+			"stream", streamName,
+		)
 		// Record sync history after successful enqueue (using career mode specific event)
 		if enqueuedCount > 0 {
 			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventCareerModePilotsAT); err != nil {
-				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record career mode sync history: %v", vaName, err)
+				logging.Warn("Pilot sync: failed to record career mode sync history", "va_id", vaID, "error", err)
 			}
 		}
 	} else {
-		log.Printf("[PilotSyncJob] VA %s: Completed career mode sync in %s. Synced: %d, Errors: %d",
-			vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
+		logging.Info("Pilot sync: career mode direct-mode completed",
+			"va_id", vaID,
+			"duration", time.Since(start).Truncate(time.Millisecond),
+			"synced", syncedCount,
+			"errors", errorCount,
+		)
 		// Record sync history after direct processing (using career mode specific event)
 		if syncedCount > 0 {
 			if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventCareerModePilotsAT); err != nil {
-				log.Printf("[PilotSyncJob] VA %s: Warning - failed to record career mode sync history: %v", vaName, err)
+				logging.Warn("Pilot sync: failed to record career mode sync history", "va_id", vaID, "error", err)
 			}
 		}
 	}
@@ -652,7 +663,7 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 	if schema.EntityType == "career_mode" {
 		pilotType = PilotTypeCareerMode
 	}
-	log.Printf("[PilotSyncJob] Upserting pilot - ATID: %s, Callsign: %s, ServerID: %s, Type: %s", airtableRecordID, callsign, vaID, pilotType)
+	logging.Debug("Pilot sync: upserting pilot", "at_id", airtableRecordID, "callsign", callsign, "va_id", vaID, "type", pilotType)
 	pilotATSynced := &PilotATSyncedGORM{
 		ATID:       airtableRecordID,
 		Callsign:   callsign,
@@ -679,14 +690,13 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			// Pilot not found in database - this is expected for pilots who haven't registered yet
-			log.Printf("[PilotSyncJob] Callsign %s not found in VA %s - pilot may not be registered yet", callsign, vaID)
+			// Pilot not found in database - expected for pilots who haven't registered yet
+			logging.Debug("Pilot sync: callsign not found in VA roles, marking unregistered", "callsign", callsign, "va_id", vaID)
 			// Still upsert into pilot_at_synced with registered=false
 			if err := j.pilotRepo.Upsert(ctx, pilotATSynced); err != nil {
-				log.Printf("[PilotSyncJob] ERROR: Failed to upsert pilot %s (ATID: %s) into pilot_at_synced: %v", callsign, airtableRecordID, err)
+				logging.Error("Pilot sync: failed to upsert pilot (unregistered)", "callsign", callsign, "at_id", airtableRecordID, "error", err)
 				return fmt.Errorf("failed to upsert pilot into pilot_at_synced: %w", err)
 			}
-			log.Printf("[PilotSyncJob] Successfully upserted pilot %s (ATID: %s) into pilot_at_synced with registered=false", callsign, airtableRecordID)
 			return nil
 		}
 		return fmt.Errorf("failed to query existing role: %w", err)
@@ -697,10 +707,10 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 
 	// Upsert into pilot_at_synced
 	if err := j.pilotRepo.Upsert(ctx, pilotATSynced); err != nil {
-		log.Printf("[PilotSyncJob] ERROR: Failed to upsert pilot %s (ATID: %s) into pilot_at_synced: %v", callsign, airtableRecordID, err)
+		logging.Error("Pilot sync: failed to upsert pilot (registered)", "callsign", callsign, "at_id", airtableRecordID, "error", err)
 		return fmt.Errorf("failed to upsert pilot into pilot_at_synced: %w", err)
 	}
-	log.Printf("[PilotSyncJob] Successfully upserted pilot %s (ATID: %s) into pilot_at_synced with registered=true", callsign, airtableRecordID)
+	logging.Debug("Pilot sync: upserted pilot with registered=true", "callsign", callsign, "at_id", airtableRecordID)
 
 	// Update the appropriate pilot ID field based on pilot type
 	updateFields := map[string]interface{}{
@@ -725,9 +735,9 @@ func (j *SyncJob) upsertPilot(ctx context.Context, vaID string, airtableRecordID
 	}
 
 	if pilotType == PilotTypeCareerMode {
-		log.Printf("[PilotSyncJob] Updated career_mode_pilot_id for callsign %s (record: %s)", callsign, airtableRecordID)
+		logging.Debug("Pilot sync: updated career_mode_pilot_id", "callsign", callsign, "at_id", airtableRecordID)
 	} else {
-		log.Printf("[PilotSyncJob] Updated airtable_pilot_id for callsign %s (record: %s)", callsign, airtableRecordID)
+		logging.Debug("Pilot sync: updated airtable_pilot_id", "callsign", callsign, "at_id", airtableRecordID)
 		// Try to link career mode pilot if career mode schema exists (only for regular pilots)
 		j.linkCareerModePilot(ctx, vaID, callsign, existingRole.ID)
 	}
@@ -744,7 +754,7 @@ func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign
 	// Get career mode schema config
 	careerModeConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "career_mode")
 	if err != nil {
-		log.Printf("[PilotSyncJob] Error getting career mode config for VA %s: %v", vaID, err)
+		logging.Error("Pilot sync: error getting career mode config for linking", "va_id", vaID, "error", err)
 		return
 	}
 
@@ -757,12 +767,12 @@ func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign
 	var careerModeSchema dtos.EntitySchema
 	bytes, err := json.Marshal(careerModeConfig.ConfigData)
 	if err != nil {
-		log.Printf("[PilotSyncJob] Error marshaling career mode config: %v", err)
+		logging.Error("Pilot sync: error marshaling career mode config for linking", "va_id", vaID, "error", err)
 		return
 	}
 
 	if err := json.Unmarshal(bytes, &careerModeSchema); err != nil {
-		log.Printf("[PilotSyncJob] Error parsing career mode schema: %v", err)
+		logging.Error("Pilot sync: error parsing career mode schema for linking", "va_id", vaID, "error", err)
 		return
 	}
 
@@ -773,14 +783,14 @@ func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign
 
 	// Check if enabled
 	if !careerModeSchema.Enabled {
-		log.Printf("[PilotSyncJob] Career mode schema is disabled for VA %s", vaID)
+		logging.Debug("Pilot sync: career mode schema disabled, skipping link", "va_id", vaID)
 		return
 	}
 
 	// Get credentials config (reuse from regular pilot sync context)
 	credentialsConfig, err := j.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
 	if err != nil || credentialsConfig == nil {
-		log.Printf("[PilotSyncJob] Error getting credentials for career mode linking: %v", err)
+		logging.Error("Pilot sync: error getting credentials for career mode linking", "va_id", vaID, "error", err)
 		return
 	}
 
@@ -791,11 +801,11 @@ func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign
 	}
 	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
 	if err != nil {
-		log.Printf("[PilotSyncJob] Error marshaling credentials: %v", err)
+		logging.Error("Pilot sync: error marshaling credentials for career mode linking", "va_id", vaID, "error", err)
 		return
 	}
 	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
-		log.Printf("[PilotSyncJob] Error parsing credentials: %v", err)
+		logging.Error("Pilot sync: error parsing credentials for career mode linking", "va_id", vaID, "error", err)
 		return
 	}
 
@@ -821,7 +831,7 @@ func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign
 	}
 
 	if callsignFieldName == "" {
-		log.Printf("[PilotSyncJob] Career mode schema missing callsign field mapping")
+		logging.Warn("Pilot sync: career mode schema missing callsign field mapping for linking", "va_id", vaID)
 		return
 	}
 
@@ -841,12 +851,12 @@ func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign
 	// Fetch career mode record
 	recordSet, err := j.airtableProvider.FetchRecords(ctx, vaCareerModeSchema, filters)
 	if err != nil {
-		log.Printf("[PilotSyncJob] Error fetching career mode record for callsign %s: %v", callsign, err)
+		logging.Error("Pilot sync: error fetching career mode record for linking", "callsign", callsign, "va_id", vaID, "error", err)
 		return
 	}
 
 	if len(recordSet.Records) == 0 {
-		log.Printf("[PilotSyncJob] No career mode record found for callsign %s", callsign)
+		logging.Debug("Pilot sync: no career mode record found for callsign", "callsign", callsign, "va_id", vaID)
 		return
 	}
 
@@ -855,11 +865,11 @@ func (j *SyncJob) linkCareerModePilot(ctx context.Context, vaID string, callsign
 	// Update career_mode_pilot_id
 	err = j.pilotRepo.UpdateUserCareerModePilotID(ctx, userRoleID, careerModeRecordID)
 	if err != nil {
-		log.Printf("[PilotSyncJob] Error updating career_mode_pilot_id for callsign %s: %v", callsign, err)
+		logging.Error("Pilot sync: error updating career_mode_pilot_id", "callsign", callsign, "va_id", vaID, "error", err)
 		return
 	}
 
-	log.Printf("[PilotSyncJob] Updated career_mode_pilot_id for callsign %s (record: %s)", callsign, careerModeRecordID)
+	logging.Debug("Pilot sync: linked career mode pilot", "callsign", callsign, "at_id", careerModeRecordID)
 }
 
 // getLastSyncTimestamp gets the most recent sync timestamp for this VA from sync history

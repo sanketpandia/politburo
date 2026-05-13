@@ -4,17 +4,28 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config holds all application configuration loaded from environment variables
 type Config struct {
-	AppEnv    string
-	Debug     bool
-	Port      string
-	PG        PGConfig
-	Redis     RedisConfig
-	InfFlight InfFlightConfig
-	Admin     AdminConfig
+	AppEnv      string
+	Debug       bool
+	Port        string
+	VizburoPort string
+	HTTPServer  HTTPServerConfig
+	PG          PGConfig
+	Redis       RedisConfig
+	InfFlight   InfFlightConfig
+	Admin       AdminConfig
+}
+
+// HTTPServerConfig holds HTTP server timeout configuration
+type HTTPServerConfig struct {
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	IdleTimeout     time.Duration
+	ShutdownTimeout time.Duration
 }
 
 // PGConfig holds PostgreSQL connection configuration
@@ -55,9 +66,16 @@ type AdminConfig struct {
 // LoadConfig reads configuration from environment variables
 func LoadConfig() Config {
 	return Config{
-		AppEnv: getEnv("APP_ENV", "local"),
-		Debug:  getBoolEnv("DEBUG", false),
-		Port:   getEnv("PORT", "8080"),
+		AppEnv:      getEnv("APP_ENV", "local"),
+		Debug:       getBoolEnv("DEBUG", false),
+		Port:        getEnv("PORT", "8080"),
+		VizburoPort: getEnv("VIZBURO_PORT", "3000"),
+		HTTPServer: HTTPServerConfig{
+			ReadTimeout:     getDurationEnv("HTTP_READ_TIMEOUT", 15*time.Second),
+			WriteTimeout:    getDurationEnv("HTTP_WRITE_TIMEOUT", 15*time.Second),
+			IdleTimeout:     getDurationEnv("HTTP_IDLE_TIMEOUT", 60*time.Second),
+			ShutdownTimeout: getDurationEnv("HTTP_SHUTDOWN_TIMEOUT", 30*time.Second),
+		},
 		PG: PGConfig{
 			Host:     getEnv("PG_HOST", "localhost"),
 			Port:     getEnv("PG_PORT", "5432"),
@@ -96,6 +114,17 @@ func getBoolEnv(key string, defaultValue bool) bool {
 		boolVal, err := strconv.ParseBool(value)
 		if err == nil {
 			return boolVal
+		}
+	}
+	return defaultValue
+}
+
+// getDurationEnv gets a duration environment variable with a fallback default value
+func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		d, err := time.ParseDuration(value)
+		if err == nil {
+			return d
 		}
 	}
 	return defaultValue

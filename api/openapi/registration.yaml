@@ -1,0 +1,631 @@
+openapi: "3.0.0"
+info:
+  title: "Registration & Onboarding API"
+  version: "1.0.0"
+  description: |
+    Bot-facing endpoints covering the pilot registration and VA onboarding flow.
+    Consumed by comrade-bot to register pilots, initialise Discord servers as VAs,
+    join memberships, and look up user status.
+
+    All endpoints require authentication via three headers sent by the bot.
+
+servers:
+  - url: /api/v1
+
+security:
+  - ApiKey: []
+    ServerId: []
+    DiscordId: []
+
+paths:
+  /pilots/register:
+    post:
+      operationId: registerPilot
+      summary: Register a pilot with IFC credentials
+      description: |
+        Links a Discord account to an Infinite Flight Community (IFC) account.
+        Verifies the account exists and the supplied last-flight route matches
+        the IFC logbook. Returns a flag indicating whether the server is already
+        set up as a VA (so the bot knows whether to prompt the user to /join).
+      tags: [registration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterPilotRequest"
+      responses:
+        "201":
+          description: Pilot registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterPilotResponse"
+        "400":
+          description: Missing or invalid fields, or last-flight mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing authentication headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: User or IFC ID already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Validation failure (missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationErrorResponse"
+        "500":
+          description: Upstream IFC API or database error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /server/init:
+    post:
+      operationId: initServer
+      summary: Initialise a Discord server as a virtual airline
+      description: |
+        Creates a new VA record linked to the Discord server in X-Server-Id.
+        Requires the calling user to already be registered (/pilots/register).
+        Callsign prefix and suffix define how pilot callsigns are composed
+        (e.g. prefix "IFE" + callsign "123" = "IFE123"). At least one of
+        callsign_prefix or callsign_suffix must be supplied.
+      tags: [registration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InitServerRequest"
+      responses:
+        "201":
+          description: Server initialised and VA created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InitServerResponse"
+        "400":
+          description: Missing fields or invalid callsign configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing authentication headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Discord server already registered as a VA
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Validation failure (missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationErrorResponse"
+        "500":
+          description: Database error during VA creation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /memberships/join:
+    post:
+      operationId: joinMembership
+      summary: Join the VA associated with the current Discord server
+      description: |
+        Creates a membership record linking the authenticated Discord user to the VA
+        resolved from X-Server-Id. The callsign must exist in the VA's linked Airtable
+        base; the bot should surface the Airtable URL in the error message when it
+        does not.
+      tags: [registration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinMembershipRequest"
+      responses:
+        "201":
+          description: Membership created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinMembershipResponse"
+        "400":
+          description: Missing callsign, invalid format, or callsign not found in Airtable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing authentication headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: VA not found for this Discord server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: User is already a member of this VA, or callsign is taken
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Validation failure (missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationErrorResponse"
+        "500":
+          description: Unexpected database error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/status:
+    get:
+      operationId: getUserStatus
+      summary: Get authenticated user's registration and membership status
+      description: |
+        Returns full user detail including all VA affiliations across every server
+        the user belongs to, plus the current-VA membership context derived from
+        the X-Server-Id header. The bot calls this to determine which onboarding
+        steps are still required.
+      tags: [registration]
+      responses:
+        "200":
+          description: User status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStatusResponse"
+        "401":
+          description: Missing authentication headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User record not found (not yet registered)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /signed-link:
+    post:
+      operationId: generateSignedLink
+      summary: Generate a time-limited signed URL for dashboard access
+      description: |
+        Produces a presigned URL that, when visited, creates a browser session
+        for the authenticated Discord user without a password. The bot posts this
+        link so the user can access the Vizburo dashboard from Discord.
+        TTL defaults to 15 minutes if omitted; redirect_to defaults to /dashboard.
+      tags: [registration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSignedLinkRequest"
+      responses:
+        "200":
+          description: Signed link generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateSignedLinkResponse"
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing authentication headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User or VA not found for the given Discord IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Token generation failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Bot API key issued per VA
+    ServerId:
+      type: apiKey
+      in: header
+      name: X-Server-Id
+      description: Discord server (guild) ID — used to resolve the VA context
+    DiscordId:
+      type: apiKey
+      in: header
+      name: X-Discord-Id
+      description: Discord user ID of the caller
+
+  schemas:
+    # ── Shared envelope components ──────────────────────────────────────────
+
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code (e.g. IFC_USER_NOT_FOUND)
+          example: IFC_USER_NOT_FOUND
+        message:
+          type: string
+          description: Human-readable error description
+          example: IFC user not found. Please verify your IFC username.
+
+    ValidationFieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          example: ifc_id
+        message:
+          type: string
+          example: ifc_id is required
+
+    ErrorResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [error]
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    ValidationErrorResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [error]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_FAILED]
+            message:
+              type: string
+            fields:
+              type: array
+              items:
+                $ref: "#/components/schemas/ValidationFieldError"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    # ── /pilots/register ────────────────────────────────────────────────────
+
+    RegisterPilotRequest:
+      type: object
+      required: [ifc_id, last_flight]
+      properties:
+        ifc_id:
+          type: string
+          description: Infinite Flight Community username
+          example: john_doe
+        last_flight:
+          type: string
+          description: |
+            IATA or ICAO route of the pilot's most recent Infinite Flight flight,
+            used to verify ownership of the IFC account (e.g. "KLAX-KSFO").
+          example: KLAX-KSFO
+
+    RegisterPilotData:
+      type: object
+      required: [success, message, is_va_registered]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+          example: Pilot registered successfully
+        is_va_registered:
+          type: boolean
+          description: True when the Discord server is already set up as a VA, indicating the user should proceed to /join.
+
+    RegisterPilotResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          $ref: "#/components/schemas/RegisterPilotData"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    # ── /server/init ────────────────────────────────────────────────────────
+
+    InitServerRequest:
+      type: object
+      required: [va_code, va_name]
+      properties:
+        va_code:
+          type: string
+          description: Short identifier for the VA (e.g. "IFE")
+          example: IFE
+        va_name:
+          type: string
+          description: Full display name of the VA
+          example: Infinite Flight Express
+        callsign_prefix:
+          type: string
+          description: Prefix prepended to each pilot's callsign (e.g. "IFE")
+          example: IFE
+        callsign_suffix:
+          type: string
+          description: Suffix appended to each pilot's callsign. At least one of prefix or suffix is required.
+          example: ""
+
+    InitServerData:
+      type: object
+      required: [success, message, va_code]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+          example: Server initialised successfully
+        va_code:
+          type: string
+          example: IFE
+        va_id:
+          type: string
+          format: uuid
+          description: Internal VA UUID, omitted on failure
+          example: 550e8400-e29b-41d4-a716-446655440000
+
+    InitServerResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          $ref: "#/components/schemas/InitServerData"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    # ── /memberships/join ───────────────────────────────────────────────────
+
+    JoinMembershipRequest:
+      type: object
+      required: [callsign]
+      properties:
+        callsign:
+          type: string
+          description: Pilot's callsign as it appears in the VA's Airtable base
+          example: "123"
+
+    JoinMembershipData:
+      type: object
+      required: [success, message, user_id, va_id, callsign, role]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+          example: Successfully joined the VA
+        user_id:
+          type: string
+          format: uuid
+        va_id:
+          type: string
+          format: uuid
+        callsign:
+          type: string
+          example: "123"
+        role:
+          type: string
+          description: Assigned VA role (e.g. "member", "staff", "admin")
+          example: member
+
+    JoinMembershipResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          $ref: "#/components/schemas/JoinMembershipData"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    # ── /user/status ────────────────────────────────────────────────────────
+
+    VAAffiliation:
+      type: object
+      required: [va_id, va_name, va_code, role, is_active, joined_at]
+      properties:
+        va_id:
+          type: string
+          format: uuid
+        va_name:
+          type: string
+          example: Infinite Flight Express
+        va_code:
+          type: string
+          example: IFE
+        role:
+          type: string
+          example: member
+        is_active:
+          type: boolean
+        joined_at:
+          type: string
+          format: date-time
+        callsign:
+          type: string
+          example: "123"
+
+    CurrentVAStatus:
+      type: object
+      required: [is_member]
+      properties:
+        is_member:
+          type: boolean
+        role:
+          type: string
+          example: member
+        is_active:
+          type: boolean
+        callsign:
+          type: string
+          example: "123"
+
+    UserStatusData:
+      type: object
+      required: [user_id, discord_id, if_community_id, is_active, created_at, affiliations]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        discord_id:
+          type: string
+          example: "123456789012345678"
+        if_community_id:
+          type: string
+          description: IFC username
+          example: john_doe
+        if_api_id:
+          type: string
+          description: Infinite Flight Live API user ID, present once the user has flown
+          example: abc123
+        username:
+          type: string
+          example: john_doe
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        affiliations:
+          type: array
+          items:
+            $ref: "#/components/schemas/VAAffiliation"
+        current_va:
+          $ref: "#/components/schemas/CurrentVAStatus"
+
+    UserStatusResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          $ref: "#/components/schemas/UserStatusData"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    # ── /signed-link ────────────────────────────────────────────────────────
+
+    GenerateSignedLinkRequest:
+      type: object
+      properties:
+        redirect_to:
+          type: string
+          description: Path to redirect the user to after login. Defaults to /dashboard.
+          example: /dashboard
+        ttl_minutes:
+          type: integer
+          description: Link validity in minutes. Defaults to 15.
+          minimum: 1
+          maximum: 1440
+          example: 15
+
+    GenerateSignedLinkData:
+      type: object
+      required: [url, expires_in, redirect_to]
+      properties:
+        url:
+          type: string
+          description: Full presigned URL the user should visit to authenticate
+          example: https://dashboard.example.com/auth/login?token=eyJ...
+        expires_in:
+          type: integer
+          description: Seconds until the link expires
+          example: 900
+        redirect_to:
+          type: string
+          example: /dashboard
+
+    GenerateSignedLinkResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          $ref: "#/components/schemas/GenerateSignedLinkData"
+        responseTimeMs:
+          type: integer
+          format: int64

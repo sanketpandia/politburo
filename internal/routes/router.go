@@ -88,8 +88,8 @@ func NewRouter(application *app.App) http.Handler {
 		application.UpSince,
 	))
 
-	// Initialize auth service and handler (used by both API and UI routes)
-	// Use adapter to avoid circular dependency (va package imports auth)
+	// Initialize auth service (used by flights and dashboard link handlers).
+	// The auth handler is wired via application.Features.AuthHandler (constructed in app.go).
 	vaAdapter := &vaServiceAdapter{svc: application.Platform.VASvc}
 	authSvc := auth.NewService(
 		application.Infra.SessionSvc,
@@ -98,10 +98,9 @@ func NewRouter(application *app.App) http.Handler {
 		application.Platform.UsersSvc,
 		vaAdapter,
 	)
-	authHandler := auth.NewHandler(authSvc)
 
 	// Auth routes (public) - token login handler
-	r.Get("/auth/login", authHandler.TokenLogin())
+	r.Get("/auth/login", application.Features.AuthHandler.TokenLogin())
 
 	// API v1 routes with authentication
 	r.Route("/api/v1", func(v1 chi.Router) {
@@ -138,7 +137,7 @@ func NewRouter(application *app.App) http.Handler {
 		v1.Get("/flights/{flight_id}", flights.GetFlightByID(application.Infra.RedisCache))
 
 		// Signed link generation endpoint
-		v1.Post("/signed-link", authHandler.GenerateSignedLink())
+		v1.Post("/signed-link", application.Features.AuthHandler.GenerateSignedLink())
 
 		// Logbook endpoint (staff/admin only)
 		v1.Route("/pilots/{ifc_id}/logbook", func(logbook chi.Router) {
@@ -146,16 +145,18 @@ func NewRouter(application *app.App) http.Handler {
 			logbook.Get("/", application.Features.PilotsHandler.GetUserLogbook())
 		})
 
+		// Self-service logbook: own IFC ID or staff/admin may view any
+		v1.Route("/user/{ifc_id}/flights", func(logbookSelf chi.Router) {
+			logbookSelf.Use(middleware.IsRegisteredMiddleware())
+			logbookSelf.Get("/", application.Features.PilotsHandler.GetUserLogbookSelf())
+		})
+
 		// PIREP endpoints - require registration and membership
 		v1.Route("/pireps", func(pireps chi.Router) {
 			pireps.Use(middleware.IsRegisteredMiddleware())
 			pireps.Use(middleware.IsMemberMiddleware())
-			pireps.Get("/config", func(w http.ResponseWriter, r *http.Request) {
-				logging.Info("PIREP config endpoint called (not yet implemented)")
-				w.WriteHeader(http.StatusNotImplemented)
-				w.Write([]byte(`{"status":"not_implemented","message":"PIREP config endpoint not yet implemented"}`))
-			})
-			pireps.Post("/submit", application.Features.TourPirepHandler.SubmitTourPirep())
+			pireps.Get("/config", application.Features.PirepHandler.GetConfig())
+			pireps.Post("/submit", application.Features.PirepHandler.Submit())
 		})
 
 		// Events endpoints (tours and tour legs) - require registration and membership
@@ -179,6 +180,9 @@ func NewRouter(application *app.App) http.Handler {
 			events.Delete("/{id}/legs/{leg_id}", application.Features.EventsHandler.DeleteEventLeg())
 		})
 
+		// God-mode verification — authenticated scope only (bot checks is_god field, not status code)
+		v1.Get("/admin/verify-god", application.Features.AuthHandler.VerifyGodMode())
+
 		// Admin-only API routes
 		v1.Route("/admin", func(adminAPI chi.Router) {
 			adminAPI.Use(middleware.IsAdminMiddleware())
@@ -195,7 +199,7 @@ func NewRouter(application *app.App) http.Handler {
 			// Session management API
 			adminAPI.Route("/sessions", func(sessions chi.Router) {
 				// Destroy sessions endpoint requires god-mode with key header
-				sessions.With(middleware.IsGodMiddlewareWithKey()).Post("/destroy/{ifc_id}", authHandler.DestroySessionsByIFCId())
+				sessions.With(middleware.IsGodMiddlewareWithKey()).Post("/destroy/{ifc_id}", application.Features.AuthHandler.DestroySessionsByIFCId())
 			})
 
 			// Livery mappings API
@@ -211,7 +215,7 @@ func NewRouter(application *app.App) http.Handler {
 			})
 		})
 
-		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, GET /api/v1/admin/airtable/credentials, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
+		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/user/{ifc_id}/flights, GET /api/v1/pireps/config, POST /api/v1/pireps/submit, GET /api/v1/admin/verify-god, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, GET /api/v1/admin/airtable/credentials, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
 	})
 
 	// Dashboard routes (require authentication)

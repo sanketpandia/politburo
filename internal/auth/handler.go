@@ -215,6 +215,25 @@ func (h *Handler) GenerateSignedLink() http.HandlerFunc {
 	}
 }
 
+// VerifyGodMode handles GET /api/v1/admin/verify-god
+// Returns {"is_god": bool} based on whether the authenticated caller has god-mode access.
+// Always responds 200 — the bot checks the is_god field rather than the status code.
+func (h *Handler) VerifyGodMode() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		claims := GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Missing authentication claims", http.StatusUnauthorized)
+			return
+		}
+
+		isGod := IsGodMode(r)
+
+		httpdto.WriteSuccess(w, initTime, map[string]bool{"is_god": isGod}, http.StatusOK)
+	}
+}
+
 // DestroySessionsByIFCId handles POST /api/v1/admin/sessions/destroy/{ifc_id}
 // Destroys all sessions for a user identified by their IFC ID
 func (h *Handler) DestroySessionsByIFCId() http.HandlerFunc {

@@ -103,35 +103,34 @@ func transformToUserDetailResponse(result *platformMemberships.UserStatusResult)
 	}
 }
 
-// JoinVA allows an authenticated user to join a VA with a callsign
+// JoinVA allows an authenticated user to join a VA with a callsign.
+// On failure it returns a *MembershipError so the handler can respond without
+// a switch dispatch.
 func (s *Service) JoinVA(
 	ctx context.Context,
 	discordUserID string,
 	discordServerID string,
 	callsign string,
-) (*JoinVAResponse, error) {
+) (*JoinVAResponse, *MembershipError) {
 	logging.Info("Processing JoinVA request", "discord_user_id", discordUserID, "callsign", callsign)
 
 	// 1. Validate callsign format (not empty, reasonable length)
-	if callsign == "" {
-		return nil, ErrInvalidCallsign
-	}
-	if len(callsign) > 20 { // Add reasonable length limit
-		return nil, ErrInvalidCallsign
+	if callsign == "" || len(callsign) > 20 {
+		return nil, sentinelToMembershipError(ErrInvalidCallsign)
 	}
 
 	// 2. Get user by Discord ID (uses platform users service)
 	user, err := s.usersSvc.GetByDiscordID(ctx, discordUserID)
 	if err != nil || user == nil {
 		logging.Warn("User not found", "discord_user_id", discordUserID, "error", err)
-		return nil, ErrUserNotFound
+		return nil, sentinelToMembershipError(ErrUserNotFound)
 	}
 
 	// 3. Get VA by Discord server ID (uses platform VA service)
 	va, err := s.vaSvc.GetByDiscordServerID(ctx, discordServerID)
 	if err != nil || va == nil {
 		logging.Warn("VA not found", "discord_server_id", discordServerID, "error", err)
-		return nil, ErrVANotFound
+		return nil, sentinelToMembershipError(ErrVANotFound)
 	}
 
 	// 4. Validate callsign exists in Airtable (pilot_at_synced)
@@ -139,15 +138,14 @@ func (s *Service) JoinVA(
 		pilotSync, err := s.pilotRepo.FindByCallsign(ctx, va.ID, callsign)
 		if err != nil {
 			logging.Error("Failed to check callsign in Airtable", "error", err, "callsign", callsign, "va_id", va.ID)
-			return nil, fmt.Errorf("failed to validate callsign: %w", err)
+			return nil, sentinelToMembershipError(fmt.Errorf("failed to validate callsign: %w", err))
 		}
 
 		if pilotSync == nil {
 			logging.Warn("Callsign not found in Airtable", "callsign", callsign, "va_id", va.ID)
-			return nil, ErrCallsignNotInAirtable
+			return nil, sentinelToMembershipError(ErrCallsignNotInAirtable)
 		}
 
-		// Callsign found in Airtable - proceed with membership creation
 		logging.Info("Callsign validated in Airtable", "callsign", callsign, "va_id", va.ID, "airtable_id", pilotSync.ATID)
 	}
 
@@ -155,19 +153,16 @@ func (s *Service) JoinVA(
 	existingUser, err := s.usersSvc.GetUserByCallsignAndVA(ctx, callsign, va.ID)
 	if err != nil {
 		logging.Error("Failed to check callsign availability", "error", err)
-		return nil, fmt.Errorf("failed to validate callsign: %w", err)
+		return nil, sentinelToMembershipError(fmt.Errorf("failed to validate callsign: %w", err))
 	}
 
 	if existingUser != nil {
-		// Callsign is taken
-		// Check if it's taken by the same user (already a member)
 		if existingUser.UserID == user.ID {
 			logging.Warn("User already has membership with this callsign", "user_id", user.ID, "callsign", callsign)
-			return nil, ErrUserAlreadyMember
+			return nil, sentinelToMembershipError(ErrUserAlreadyMember)
 		}
-		// Callsign is taken by someone else
 		logging.Warn("Callsign already taken", "callsign", callsign, "va_id", va.ID)
-		return nil, ErrCallsignTaken
+		return nil, sentinelToMembershipError(ErrCallsignTaken)
 	}
 
 	// 6. Create new membership (using platform users service)
@@ -176,24 +171,22 @@ func (s *Service) JoinVA(
 	membership, err := s.usersSvc.CreateMembership(ctx, user.ID, va.ID, "pilot", callsign)
 	if err != nil {
 		logging.Error("Failed to create membership", "error", err)
-		return nil, fmt.Errorf("%w: %v", ErrMembershipCreation, err)
+		return nil, sentinelToMembershipError(fmt.Errorf("%w: %v", ErrMembershipCreation, err))
 	}
 
-	// 7. Link to Airtable ID immediately if pilot repo is available and callsign was found
+	// 7. Link to Airtable ID immediately if pilot repo is available and callsign was found.
+	// Failure here is non-fatal; the sync job will catch it.
 	if s.pilotRepo != nil && membership != nil {
 		pilotSync, err := s.pilotRepo.FindByCallsign(ctx, va.ID, callsign)
 		if err == nil && pilotSync != nil {
-			// Update airtable_pilot_id in va_user_roles
 			if linkErr := s.pilotRepo.UpdateUserAirtableID(ctx, membership.ID, pilotSync.ATID); linkErr != nil {
 				logging.Warn("Failed to link Airtable ID immediately", "error", linkErr, "membership_id", membership.ID, "airtable_id", pilotSync.ATID)
-				// Don't fail the membership creation, linking job will catch it later (if it existed)
 			} else {
 				logging.Info("Linked Airtable ID immediately", "membership_id", membership.ID, "airtable_id", pilotSync.ATID)
 			}
 		}
 	}
 
-	// 8. Return success response
 	logging.Info("Membership created successfully", "user_id", user.ID, "va_id", va.ID)
 	return &JoinVAResponse{
 		Success:  true,

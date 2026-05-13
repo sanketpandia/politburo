@@ -1,8 +1,6 @@
 package pilots
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,6 +12,9 @@ import (
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+	"infinite-experiment/politburo/internal/platform/roles"
+	"infinite-experiment/politburo/internal/platform/users"
+	"infinite-experiment/politburo/internal/platform/validation"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -23,14 +24,16 @@ type Handler struct {
 	statsSvc   *StatsService
 	regSvc     *RegistrationService
 	logbookSvc *LogbookService
+	usersSvc   *users.Service
 }
 
 // NewHandler creates a new pilot handler instance
-func NewHandler(statsSvc *StatsService, regSvc *RegistrationService, logbookSvc *LogbookService) *Handler {
+func NewHandler(statsSvc *StatsService, regSvc *RegistrationService, logbookSvc *LogbookService, usersSvc *users.Service) *Handler {
 	return &Handler{
 		statsSvc:   statsSvc,
 		regSvc:     regSvc,
 		logbookSvc: logbookSvc,
+		usersSvc:   usersSvc,
 	}
 }
 
@@ -59,31 +62,21 @@ func (h *Handler) RegisterPilot() http.HandlerFunc {
 			return
 		}
 
-		// 3. Parse request body
+		// 3. Decode and validate request body
 		var req RegisterPilotRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			logging.Warn("Invalid request body", "error", err)
+		if decodeErr, ve := validation.DecodeAndValidate(r, &req); decodeErr != nil {
+			logging.Warn("Invalid request body", "error", decodeErr)
 			httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid request body", http.StatusBadRequest)
 			return
-		}
-
-		// 4. Validate required fields
-		if req.IfcId == "" {
-			logging.Warn("Missing IFC ID in request")
-			httpdto.WriteError(w, initTime, "MISSING_FIELD", "IFC ID is required", http.StatusBadRequest)
-			return
-		}
-
-		if req.LastFlight == "" {
-			logging.Warn("Missing last flight in request")
-			httpdto.WriteError(w, initTime, "MISSING_FIELD", "Last flight is required", http.StatusBadRequest)
+		} else if ve != nil {
+			httpdto.WriteValidationError(w, initTime, ve)
 			return
 		}
 
 		logging.Info("Pilot registration request", "discord_id", discordUserID, "ifc_id", req.IfcId, "server_id", discordServerID)
 
-		// 5. Call service
-		result, err := h.regSvc.RegisterPilot(
+		// 4. Call service
+		result, svcErr := h.regSvc.RegisterPilot(
 			r.Context(),
 			discordUserID,
 			discordServerID,
@@ -91,9 +84,9 @@ func (h *Handler) RegisterPilot() http.HandlerFunc {
 			req.LastFlight,
 		)
 
-		if err != nil {
-			logging.Error("Failed to register pilot", "error", err, "discord_id", discordUserID)
-			h.handleRegistrationError(w, initTime, err)
+		if svcErr != nil {
+			logging.Error("Failed to register pilot", "error", svcErr, "discord_id", discordUserID)
+			httpdto.WriteError(w, initTime, svcErr.Code, svcErr.Message, svcErr.StatusCode)
 			return
 		}
 
@@ -150,38 +143,6 @@ func (h *Handler) GetPilotStats() http.HandlerFunc {
 
 		httpdto.WriteSuccess(w, initTime, stats, http.StatusOK)
 	}
-}
-
-// handleRegistrationError maps registration service errors to appropriate HTTP responses
-func (h *Handler) handleRegistrationError(w http.ResponseWriter, initTime time.Time, err error) {
-	// Check specific error types
-	if errors.Is(err, ErrIFCUserNotFound) {
-		httpdto.WriteError(w, initTime, "IFC_USER_NOT_FOUND", "IFC user not found. Please verify your IFC username.", http.StatusNotFound)
-		return
-	}
-
-	if errors.Is(err, ErrIFCIdAlreadyRegistered) {
-		httpdto.WriteError(w, initTime, "IFC_ID_ALREADY_REGISTERED", "This IFC ID is already registered to another Discord account. Each IFC ID can only be linked to one Discord account.", http.StatusConflict)
-		return
-	}
-
-	if errors.Is(err, ErrNoRecentFlights) {
-		httpdto.WriteError(w, initTime, "NO_RECENT_FLIGHTS", "No recent flights found in your logbook.", http.StatusBadRequest)
-		return
-	}
-
-	if errors.Is(err, ErrFlightMismatch) {
-		httpdto.WriteError(w, initTime, "FLIGHT_MISMATCH", "Last flight verification failed. Please verify your last flight route.", http.StatusBadRequest)
-		return
-	}
-
-	if errors.Is(err, ErrRegistrationFailed) {
-		httpdto.WriteError(w, initTime, "REGISTRATION_FAILED", "Failed to register user. Please try again.", http.StatusInternalServerError)
-		return
-	}
-
-	// Default to internal server error
-	httpdto.WriteError(w, initTime, "INTERNAL_ERROR", "An unexpected error occurred during registration.", http.StatusInternalServerError)
 }
 
 // handlePilotStatsError maps service errors to appropriate HTTP responses
@@ -287,6 +248,67 @@ func (h *Handler) GetUserLogbook() http.HandlerFunc {
 		dto, err := h.logbookSvc.GetUserLogbook(ifcID, page)
 		if err != nil {
 			logging.Warn("Failed to fetch user logbook", "ifc_id", ifcID, "page", page, "error", err)
+			httpdto.WriteError(w, initTime, "FETCH_ERROR", dto.Error, http.StatusInternalServerError)
+			return
+		}
+
+		httpdto.WriteSuccess(w, initTime, dto, http.StatusOK)
+	}
+}
+
+// GetUserLogbookSelf handles GET /api/v1/user/{ifc_id}/flights
+// Returns a paginated logbook for any IFC user. A caller may always view their
+// own logbook. Viewing another user's logbook requires the staff or admin role.
+func (h *Handler) GetUserLogbookSelf() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+
+		ifcID := chi.URLParam(r, "ifc_id")
+		if ifcID == "" {
+			httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid IFC ID", http.StatusBadRequest)
+			return
+		}
+
+		page := 1
+		if qs := r.URL.Query().Get("page"); qs != "" {
+			p, err := strconv.Atoi(qs)
+			if err != nil || p <= 0 {
+				httpdto.WriteError(w, initTime, "INVALID_REQUEST", "Invalid page parameter", http.StatusBadRequest)
+				return
+			}
+			page = p
+		}
+
+		claims := auth.GetUserClaims(r.Context())
+		if claims == nil {
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized: missing claims", http.StatusUnauthorized)
+			return
+		}
+
+		// Self-ownership check: look up the caller's stored IFC ID and compare.
+		// Staff and admin may bypass the ownership check.
+		callerRole := claims.Role()
+		isStaff := callerRole == roles.RoleAirlineManager.String() ||
+			callerRole == roles.RoleAdmin.String() ||
+			auth.IsGodMode(r)
+
+		if !isStaff {
+			discordID := claims.DiscordUserID()
+			caller, err := h.usersSvc.GetByDiscordID(r.Context(), discordID)
+			if err != nil {
+				logging.Error("GetUserLogbookSelf: failed to look up caller", "discord_id", discordID, "error", err)
+				httpdto.WriteError(w, initTime, "INTERNAL_ERROR", "Failed to verify ownership", http.StatusInternalServerError)
+				return
+			}
+			if caller == nil || caller.IFCommunityID != ifcID {
+				httpdto.WriteError(w, initTime, "FORBIDDEN", "You may only view your own logbook", http.StatusForbidden)
+				return
+			}
+		}
+
+		dto, err := h.logbookSvc.GetUserLogbook(ifcID, page)
+		if err != nil {
+			logging.Warn("GetUserLogbookSelf: failed to fetch logbook", "ifc_id", ifcID, "page", page, "error", err)
 			httpdto.WriteError(w, initTime, "FETCH_ERROR", dto.Error, http.StatusInternalServerError)
 			return
 		}
