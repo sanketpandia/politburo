@@ -22,12 +22,12 @@ func RegisterScheduledJobs(application *app.App) error {
 
 	// Session cache job - runs every 5 minutes
 	// Caches all active Infinite Flight sessions/servers to Redis
-	sessionJob := sessions.NewCacheJob(application.Infra.LiveAPI, application.Infra.RedisCache)
+	sessionJob := sessions.NewCacheJob(application.Infra.LiveAPI, application.Infra.RedisCache, application.Infra.MetricsReg)
 	registry.Add(sessionJob, "0 */5 * * * *") // Every 5 minutes
 
 	// Aircraft cache job - runs every hour
 	// Caches aircraft and livery data from Infinite Flight API to Redis
-	aircraftJob := aircraft.NewCacheJob(application.Infra.LiveAPI, application.Infra.RedisCache)
+	aircraftJob := aircraft.NewCacheJob(application.Infra.LiveAPI, application.Infra.RedisCache, application.Infra.MetricsReg)
 	registry.Add(aircraftJob, "0 0 * * * *") // Every hour
 
 	// Flights cache job - runs every minute
@@ -154,6 +154,7 @@ func RegisterWorkers(application *app.App) error {
 			application.Infra.LiveAPI,
 			application.Platform.AircraftRepo,
 			application.Platform.AircraftSvc,
+			application.Infra.MetricsReg,
 		)
 		go func() {
 			aircraftWorker.Start()

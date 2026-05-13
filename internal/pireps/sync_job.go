@@ -3,13 +3,14 @@ package pireps
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/infra/queue"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
@@ -25,6 +26,7 @@ type PirepSyncJob struct {
 	airtableProvider *providers.AirtableProvider
 	redisQueue       *queue.RedisQueueService // Redis queue for async processing
 	useQueue         bool                     // Whether to use queue-based processing
+	metrics          *metrics.MetricsRegistry
 }
 
 // NewPirepSyncJob creates a new PIREP sync job instance
@@ -35,6 +37,7 @@ func NewPirepSyncJob(
 	pirepRepo *Repository,
 	syncRepo *platformVA.SyncRepository,
 	redisQueue *queue.RedisQueueService,
+	metricsReg *metrics.MetricsRegistry,
 ) *PirepSyncJob {
 	return &PirepSyncJob{
 		db:               db,
@@ -44,14 +47,20 @@ func NewPirepSyncJob(
 		syncRepo:         syncRepo,
 		airtableProvider: providers.NewAirtableProvider(cache),
 		redisQueue:       redisQueue,
-		useQueue:         redisQueue != nil, // Use queue if provided
+		useQueue:         redisQueue != nil,
+		metrics:          metricsReg,
 	}
 }
 
 // Run executes the PIREP sync job for all active VAs with Airtable enabled
 func (j *PirepSyncJob) Run(ctx context.Context) error {
 	start := time.Now()
-	log.Printf("[PirepSyncJob] Starting PIREP sync at %s", start.Format(time.RFC3339))
+	logging.Info("PIREP sync job starting")
+	defer func() {
+		if j.metrics != nil {
+			j.metrics.SyncJobDuration.WithLabelValues("pirep_sync_job", "airtable", "pirep").Observe(time.Since(start).Seconds())
+		}
+	}()
 
 	// Get all VAs that have active Airtable configs
 	var vaIDs []string
@@ -61,23 +70,23 @@ func (j *PirepSyncJob) Run(ctx context.Context) error {
 		Pluck("va_id", &vaIDs).Error
 
 	if err != nil {
-		log.Printf("[PirepSyncJob] Error fetching active VAs: %v", err)
+		logging.Error("PIREP sync job: failed to fetch active VAs", "error", err)
 		return fmt.Errorf("failed to fetch active VAs: %w", err)
 	}
 
 	if len(vaIDs) == 0 {
-		log.Printf("[PirepSyncJob] No VAs with active Airtable PIREP configs found")
+		logging.Info("PIREP sync job: no VAs with active Airtable PIREP configs")
 		return nil
 	}
 
-	log.Printf("[PirepSyncJob] Found %d VAs with active Airtable PIREP configs", len(vaIDs))
+	logging.Info("PIREP sync job: VAs with active configs", "count", len(vaIDs))
 
 	// Sync PIREPs for each VA
 	totalSynced := 0
 	for _, vaID := range vaIDs {
 		synced, err := j.SyncVAPireps(ctx, vaID)
 		if err != nil {
-			log.Printf("[PirepSyncJob] Error syncing PIREPs for VA %s: %v", vaID, err)
+			logging.Error("PIREP sync job: failed to sync VA", "va_id", vaID, "error", err)
 			// Continue with other VAs even if one fails
 			continue
 		}
@@ -85,8 +94,7 @@ func (j *PirepSyncJob) Run(ctx context.Context) error {
 		totalSynced += synced
 	}
 
-	log.Printf("[PirepSyncJob] Completed PIREP sync in %s. Total PIREPs synced: %d",
-		time.Since(start).Truncate(time.Millisecond), totalSynced)
+	logging.Info("PIREP sync job completed", "duration", time.Since(start).Truncate(time.Millisecond), "total_synced", totalSynced)
 
 	return nil
 }
@@ -94,7 +102,7 @@ func (j *PirepSyncJob) Run(ctx context.Context) error {
 // SyncVAPireps syncs PIREPs for a specific VA (exported for manual triggering)
 func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, error) {
 	start := time.Now()
-	log.Printf("[PirepSyncJob] Syncing PIREPs for VA %s", vaID)
+	logging.Info("PIREP sync: syncing VA", "va_id", vaID)
 
 	// Get PIREP schema using new platform/va config structure
 	schemaConfig, err := j.vaRepo.GetAirtableSchema(ctx, vaID, "pirep")
@@ -103,12 +111,12 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 	}
 
 	if schemaConfig == nil {
-		log.Printf("[PirepSyncJob] No pirep schema configured for VA %s", vaID)
+		logging.Info("PIREP sync: no schema configured", "va_id", vaID)
 		return 0, nil
 	}
 
 	if !schemaConfig.Enabled {
-		log.Printf("[PirepSyncJob] PIREP schema is disabled for VA %s", vaID)
+		logging.Info("PIREP sync: schema disabled", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -122,7 +130,7 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 	}
 
 	if creds == nil {
-		log.Printf("[PirepSyncJob] No Airtable credentials found for VA %s", vaID)
+		logging.Info("PIREP sync: no Airtable credentials", "va_id", vaID)
 		return 0, nil
 	}
 
@@ -133,25 +141,25 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 		Where("id = ?", vaID).
 		Pluck("name", &vaName)
 
-	log.Printf("[PirepSyncJob] VA: %s (%s), Table: %s, LastModifiedField: %s", vaName, vaID, pirepSchema.TableName, pirepSchema.LastModifiedField)
+	logging.Debug("PIREP sync: schema details", "va_name", vaName, "va_id", vaID, "table", pirepSchema.TableName, "last_modified_field", pirepSchema.LastModifiedField)
 
 	// Check if schema has last_modified_field configured - REQUIRED for incremental sync
 	if pirepSchema.LastModifiedField == "" {
-		log.Printf("[PirepSyncJob] VA %s: Skipping sync - no last_modified_field configured in schema. Incremental sync requires this field.", vaName)
+		logging.Info("PIREP sync: skipping — no last_modified_field configured", "va_id", vaID, "va_name", vaName)
 		return 0, nil
 	}
 
 	// Get last sync timestamp for incremental sync
 	lastModified, err := j.getLastSyncTimestamp(ctx, vaID)
 	if err != nil {
-		log.Printf("[PirepSyncJob] VA %s: Error getting last sync timestamp: %v. Skipping sync.", vaName, err)
+		logging.Error("PIREP sync: failed to get last sync timestamp", "va_id", vaID, "va_name", vaName, "error", err)
 		return 0, nil
 	}
 
 	if lastModified != nil {
-		log.Printf("[PirepSyncJob] VA %s: Incremental sync from %s", vaName, *lastModified)
+		logging.Info("PIREP sync: incremental sync", "va_id", vaID, "since", *lastModified)
 	} else {
-		log.Printf("[PirepSyncJob] VA %s: Full sync (no previous sync timestamp)", vaName)
+		logging.Info("PIREP sync: full sync (no prior timestamp)", "va_id", vaID)
 	}
 
 	// Set credentials in context for provider
@@ -169,7 +177,7 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 	// If using queue, ensure consumer group exists
 	if j.useQueue {
 		if err := j.redisQueue.CreateConsumerGroup(ctx, streamName, "pirep-workers"); err != nil {
-			log.Printf("[PirepSyncJob] VA %s: Warning - failed to create consumer group: %v", vaName, err)
+			logging.Warn("PIREP sync: failed to create consumer group", "va_id", vaID, "error", err)
 			// Continue anyway - group might already exist
 		}
 	}
@@ -187,7 +195,7 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 			return 0, fmt.Errorf("failed to fetch records (page %d): %w", pageCount, err)
 		}
 
-		log.Printf("[PirepSyncJob] VA %s: Fetched page %d with %d records", vaName, pageCount, len(recordSet.Records))
+		logging.Debug("PIREP sync: fetched page", "va_id", vaID, "page", pageCount, "count", len(recordSet.Records))
 
 		if j.useQueue {
 			// Queue-based processing: Enqueue batch to Redis
@@ -202,16 +210,20 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 			}
 
 			if err := j.redisQueue.EnqueuePirepBatch(ctx, streamName, queueItems); err != nil {
-				log.Printf("[PirepSyncJob] VA %s: Error enqueuing batch: %v", vaName, err)
+				logging.Error("PIREP sync: failed to enqueue batch", "va_id", vaID, "error", err)
 				errorCount += len(queueItems)
 			} else {
 				enqueuedCount += len(queueItems)
+				if j.metrics != nil {
+					j.metrics.QueueEnqueuedTotal.WithLabelValues("pirep_queue", "pirep").Add(float64(len(queueItems)))
+					j.metrics.SyncJobRecordsProcessed.WithLabelValues("pirep_sync_job", "airtable", "pirep", vaID, "enqueued").Add(float64(len(queueItems)))
+				}
 			}
 		} else {
 			// Direct processing: Process immediately (streaming)
 			for _, record := range recordSet.Records {
 				if err := j.upsertPirep(ctx, vaID, record.ID, record.Fields, record.CreatedTime, pirepSchema); err != nil {
-					log.Printf("[PirepSyncJob] VA %s: Error upserting record: %v", vaName, err)
+					logging.Error("PIREP sync: failed to upsert record", "va_id", vaID, "record_id", record.ID, "error", err)
 					errorCount++
 					continue
 				}
@@ -237,19 +249,29 @@ func (j *PirepSyncJob) SyncVAPireps(ctx context.Context, vaID string) (int, erro
 			maxTimeStr = maxTime.Format(time.RFC3339)
 		}
 
-		log.Printf("[PirepSyncJob] VA %s: Completed in %s. Enqueued: %d, Errors: %d",
-			vaName, time.Since(start).Truncate(time.Millisecond), enqueuedCount, errorCount)
-		log.Printf("[PirepSyncJob] VA %s: Queue: %s - Queue Length: %d, Pending: %d, Max AT Created Time: %s",
-			vaName, streamName, queueLength, pendingCount, maxTimeStr)
+		logging.Info("PIREP sync: VA queue-mode completed",
+			"va_id", vaID,
+			"duration", time.Since(start).Truncate(time.Millisecond),
+			"enqueued", enqueuedCount,
+			"errors", errorCount,
+			"stream", streamName,
+			"queue_length", queueLength,
+			"pending", pendingCount,
+			"max_at_created_time", maxTimeStr,
+		)
 	} else {
-		log.Printf("[PirepSyncJob] VA %s: Completed in %s. Synced: %d, Errors: %d",
-			vaName, time.Since(start).Truncate(time.Millisecond), syncedCount, errorCount)
+		logging.Info("PIREP sync: VA direct-mode completed",
+			"va_id", vaID,
+			"duration", time.Since(start).Truncate(time.Millisecond),
+			"synced", syncedCount,
+			"errors", errorCount,
+		)
 	}
 
 	// Record successful sync in sync history (only if not using queue or if direct processing)
 	if !j.useQueue {
 		if err := j.syncRepo.RecordSync(ctx, vaID, platformVA.SyncEventPirepsAT); err != nil {
-			log.Printf("[PirepSyncJob] VA %s: Warning - failed to record sync history: %v", vaName, err)
+			logging.Warn("PIREP sync: failed to record sync history", "va_id", vaID, "error", err)
 		}
 	}
 
@@ -472,9 +494,15 @@ func (j *PirepSyncJob) upsertPirep(ctx context.Context, vaID string, airtableRec
 		return fmt.Errorf("failed to upsert PIREP: %w", err)
 	}
 
-	// Log with relevant info
-	log.Printf("[PirepSyncJob] Upserted PIREP: pilot=%s, route=%s, aircraft=%s, livery=%s, mode=%s, time=%.2fh (record: %s)",
-		finalPilotCallsign, route, aircraft, livery, flightMode, getFlightTimeValue(flightTime), airtableRecordID)
+	logging.Debug("PIREP upserted",
+		"record_id", airtableRecordID,
+		"pilot", finalPilotCallsign,
+		"route", route,
+		"aircraft", aircraft,
+		"livery", livery,
+		"mode", flightMode,
+		"flight_time_h", getFlightTimeValue(flightTime),
+	)
 
 	return nil
 }
@@ -517,17 +545,17 @@ func (j *PirepSyncJob) RunScheduled(ctx context.Context, interval time.Duration)
 
 	// Run immediately on start
 	if err := j.Run(ctx); err != nil {
-		log.Printf("[PirepSyncJob] Error in initial run: %v", err)
+		logging.Error("PIREP sync: initial run failed", "error", err)
 	}
 
 	for {
 		select {
 		case <-ticker.C:
 			if err := j.Run(ctx); err != nil {
-				log.Printf("[PirepSyncJob] Error in scheduled run: %v", err)
+				logging.Error("PIREP sync: scheduled run failed", "error", err)
 			}
 		case <-ctx.Done():
-			log.Printf("[PirepSyncJob] Shutting down scheduled sync")
+			logging.Info("PIREP sync: scheduled job shutting down")
 			return
 		}
 	}

@@ -395,6 +395,7 @@ func (a *App) initFeatures() error {
 		pirepRepo,
 		vaSyncRepo,
 		a.Infra.RedisQueue,
+		a.Infra.MetricsReg,
 	)
 	logging.Debug("PIREP sync job initialized")
 
@@ -406,6 +407,7 @@ func (a *App) initFeatures() error {
 			a.Platform.VARepo,
 			pirepRepo,
 			a.Infra.RedisQueue,
+			a.Infra.MetricsReg,
 		)
 		logging.Debug("PIREP queue worker initialized")
 	}
@@ -465,6 +467,7 @@ func (a *App) initFeatures() error {
 		vaWebhookRepo,
 		a.Platform.VARepo,
 		a.Infra.RedisCache,
+		a.Infra.MetricsReg,
 	)
 	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, vaWebhookRepo, liveFlightsWebhookJob, a.Infra.TemplateRenderer)
 

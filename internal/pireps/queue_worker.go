@@ -3,13 +3,14 @@ package pireps
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"gorm.io/gorm"
 
+	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/infra/queue"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 )
@@ -20,6 +21,7 @@ type QueueWorker struct {
 	vaRepo     *platformVA.Repository
 	pirepRepo  *Repository
 	redisQueue *queue.RedisQueueService
+	metrics    *metrics.MetricsRegistry
 	workerID   string
 }
 
@@ -29,12 +31,14 @@ func NewQueueWorker(
 	vaRepo *platformVA.Repository,
 	pirepRepo *Repository,
 	redisQueue *queue.RedisQueueService,
+	metricsReg *metrics.MetricsRegistry,
 ) *QueueWorker {
 	return &QueueWorker{
 		db:         db,
 		vaRepo:     vaRepo,
 		pirepRepo:  pirepRepo,
 		redisQueue: redisQueue,
+		metrics:    metricsReg,
 		workerID:   "pirep-worker",
 	}
 }
@@ -42,7 +46,7 @@ func NewQueueWorker(
 // Start begins processing PIREPs from all VA queues
 // Spawns multiple goroutines to handle different VA queues concurrently
 func (w *QueueWorker) Start(ctx context.Context, numWorkers int) error {
-	log.Printf("[PirepQueueWorker] Starting %d workers with ID prefix: %s", numWorkers, w.workerID)
+	logging.Info("PIREP queue worker starting", "num_workers", numWorkers, "worker_id", w.workerID)
 
 	var wg sync.WaitGroup
 
@@ -59,11 +63,11 @@ func (w *QueueWorker) Start(ctx context.Context, numWorkers int) error {
 	}
 
 	if len(vaIDs) == 0 {
-		log.Printf("[PirepQueueWorker] No VAs with active Airtable configs found")
+		logging.Info("PIREP queue worker: no VAs with active Airtable configs")
 		return nil
 	}
 
-	log.Printf("[PirepQueueWorker] Found %d VAs to process", len(vaIDs))
+	logging.Info("PIREP queue worker: VAs to process", "count", len(vaIDs))
 
 	// Start workers for each VA
 	for _, vaID := range vaIDs {
@@ -71,7 +75,7 @@ func (w *QueueWorker) Start(ctx context.Context, numWorkers int) error {
 
 		// Ensure consumer group exists
 		if err := w.redisQueue.CreateConsumerGroup(ctx, streamName, "pirep-workers"); err != nil {
-			log.Printf("[PirepQueueWorker] Warning - failed to create consumer group for VA %s: %v", vaID, err)
+			logging.Warn("PIREP queue worker: failed to create consumer group", "va_id", vaID, "error", err)
 		}
 
 		// Start multiple workers for this VA queue
@@ -94,13 +98,13 @@ func (w *QueueWorker) Start(ctx context.Context, numWorkers int) error {
 	}()
 
 	wg.Wait()
-	log.Printf("[PirepQueueWorker] All workers stopped")
+	logging.Info("PIREP queue worker: all workers stopped")
 	return nil
 }
 
 // processQueue continuously processes PIREPs from a specific VA queue
 func (w *QueueWorker) processQueue(ctx context.Context, vaID, streamName, workerName string) {
-	log.Printf("[%s] Started processing queue: %s", workerName, streamName)
+	logging.Info("PIREP worker started", "worker", workerName, "stream", streamName)
 
 	processedCount := 0
 	errorCount := 0
@@ -108,13 +112,13 @@ func (w *QueueWorker) processQueue(ctx context.Context, vaID, streamName, worker
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[%s] Shutting down. Processed: %d, Errors: %d", workerName, processedCount, errorCount)
+			logging.Info("PIREP worker shutting down", "worker", workerName, "processed", processedCount, "errors", errorCount)
 			return
 		default:
 			// Dequeue next PIREP (blocks for up to 5 seconds)
 			item, messageID, err := w.redisQueue.DequeuePirep(ctx, streamName, "pirep-workers", workerName, 5*time.Second)
 			if err != nil {
-				log.Printf("[%s] Error dequeuing: %v", workerName, err)
+				logging.Error("PIREP worker dequeue error", "worker", workerName, "error", err)
 				time.Sleep(1 * time.Second) // Back off on error
 				continue
 			}
@@ -124,22 +128,39 @@ func (w *QueueWorker) processQueue(ctx context.Context, vaID, streamName, worker
 				continue
 			}
 
+			if w.metrics != nil {
+				w.metrics.QueueDequeuedTotal.WithLabelValues("pirep_queue", "pirep").Inc()
+			}
+
 			// Process the PIREP
-			if err := w.processPirep(ctx, item); err != nil {
-				log.Printf("[%s] Error processing PIREP %s: %v", workerName, item.AirtableRecordID, err)
+			itemStart := time.Now()
+			processErr := w.processPirep(ctx, item)
+			elapsed := time.Since(itemStart)
+
+			if w.metrics != nil {
+				w.metrics.QueueProcessingDuration.WithLabelValues("pirep_queue", "pirep").Observe(elapsed.Seconds())
+			}
+
+			if processErr != nil {
+				logging.Error("PIREP worker process error", "worker", workerName, "record_id", item.AirtableRecordID, "va_id", item.VATID, "error", processErr)
 				errorCount++
+				if w.metrics != nil {
+					w.metrics.QueueErrorsTotal.WithLabelValues("pirep_queue", "pirep", "transient").Inc()
+				}
 				// Note: We still acknowledge to avoid reprocessing indefinitely
-				// Production systems might want a DLQ (dead letter queue) here
 			} else {
 				processedCount++
+				if w.metrics != nil {
+					w.metrics.QueueAcknowledgedTotal.WithLabelValues("pirep_queue", "pirep").Inc()
+				}
 				if processedCount%100 == 0 {
-					log.Printf("[%s] Processed %d PIREPs (Errors: %d)", workerName, processedCount, errorCount)
+					logging.Info("PIREP worker progress", "worker", workerName, "processed", processedCount, "errors", errorCount)
 				}
 			}
 
 			// Acknowledge message
 			if err := w.redisQueue.AckPirep(ctx, streamName, "pirep-workers", messageID); err != nil {
-				log.Printf("[%s] Error acknowledging message %s: %v", workerName, messageID, err)
+				logging.Error("PIREP worker ack error", "worker", workerName, "message_id", messageID, "error", err)
 			}
 		}
 	}
@@ -395,22 +416,22 @@ func (w *QueueWorker) claimStaleMessages(ctx context.Context, vaIDs []string) {
 
 				items, messageIDs, err := w.redisQueue.ClaimStalePireps(ctx, streamName, "pirep-workers", claimerName, 5*time.Minute)
 				if err != nil {
-					log.Printf("[PirepQueueWorker] Error claiming stale messages for VA %s: %v", vaID, err)
+					logging.Error("PIREP worker: failed to claim stale messages", "va_id", vaID, "error", err)
 					continue
 				}
 
 				if len(items) > 0 {
-					log.Printf("[PirepQueueWorker] Claimed %d stale messages for VA %s", len(items), vaID)
+					logging.Info("PIREP worker: claimed stale messages", "va_id", vaID, "count", len(items))
 
 					// Process claimed items
 					for i, item := range items {
 						if err := w.processPirep(ctx, item); err != nil {
-							log.Printf("[PirepQueueWorker] Error processing claimed PIREP: %v", err)
+							logging.Error("PIREP worker: failed to process claimed PIREP", "record_id", item.AirtableRecordID, "va_id", item.VATID, "error", err)
 						}
 
 						// Acknowledge
 						if err := w.redisQueue.AckPirep(ctx, streamName, "pirep-workers", messageIDs[i]); err != nil {
-							log.Printf("[PirepQueueWorker] Error acknowledging claimed message: %v", err)
+							logging.Error("PIREP worker: failed to ack claimed message", "message_id", messageIDs[i], "error", err)
 						}
 					}
 				}

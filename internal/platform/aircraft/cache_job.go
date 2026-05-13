@@ -8,6 +8,7 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 )
 
 // CacheJob syncs aircraft and livery data from Infinite Flight API to Redis cache
@@ -15,13 +16,15 @@ import (
 type CacheJob struct {
 	liveAPIClient *liveapi.Client
 	redisCache    *cache.RedisCacheService
+	metrics       *metrics.MetricsRegistry
 }
 
 // NewCacheJob creates a new aircraft cache job
-func NewCacheJob(liveAPIClient *liveapi.Client, redisCache *cache.RedisCacheService) *CacheJob {
+func NewCacheJob(liveAPIClient *liveapi.Client, redisCache *cache.RedisCacheService, metricsReg *metrics.MetricsRegistry) *CacheJob {
 	return &CacheJob{
 		liveAPIClient: liveAPIClient,
 		redisCache:    redisCache,
+		metrics:       metricsReg,
 	}
 }
 
@@ -34,6 +37,11 @@ func (j *CacheJob) Name() string {
 func (j *CacheJob) Run(ctx context.Context) error {
 	startTime := time.Now()
 	logging.Info("Starting aircraft cache job")
+	defer func() {
+		if j.metrics != nil {
+			j.metrics.SyncJobDuration.WithLabelValues("aircraft_cache_job", "liveapi", "aircraft").Observe(time.Since(startTime).Seconds())
+		}
+	}()
 
 	// Fetch aircraft and liveries from Infinite Flight API
 	resp, _, err := j.liveAPIClient.GetAircraftLiveries()
@@ -65,12 +73,14 @@ func (j *CacheJob) Run(ctx context.Context) error {
 		)
 	}
 
-	duration := time.Since(startTime)
+	if j.metrics != nil {
+		j.metrics.SyncJobRecordsProcessed.WithLabelValues("aircraft_cache_job", "liveapi", "aircraft", "_", "success").Add(float64(liveryCount))
+	}
 
 	logging.Info("Aircraft cache job completed",
 		"uniqueAircraft", len(aircraftCount),
 		"totalLiveries", liveryCount,
-		"duration", duration,
+		"duration", time.Since(startTime),
 	)
 
 	return nil

@@ -7,6 +7,7 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/internal/constants"
 )
 
@@ -16,6 +17,7 @@ type Worker struct {
 	api        *liveapi.Client
 	liveryRepo *Repository
 	liverySvc  *Service
+	metrics    *metrics.MetricsRegistry
 }
 
 // NewWorker creates a new aircraft sync worker
@@ -24,12 +26,14 @@ func NewWorker(
 	api *liveapi.Client,
 	liveryRepo *Repository,
 	liverySvc *Service,
+	metricsReg *metrics.MetricsRegistry,
 ) *Worker {
 	return &Worker{
 		c:          c,
 		api:        api,
 		liveryRepo: liveryRepo,
 		liverySvc:  liverySvc,
+		metrics:    metricsReg,
 	}
 }
 
@@ -52,6 +56,11 @@ func (w *Worker) Start() {
 func (w *Worker) syncAircraftLiveriesTask() {
 	ctx := context.Background()
 	startTime := time.Now()
+	defer func() {
+		if w.metrics != nil {
+			w.metrics.SyncJobDuration.WithLabelValues("aircraft_cache_job", "liveapi", "aircraft").Observe(time.Since(startTime).Seconds())
+		}
+	}()
 
 	// Fetch liveries from Infinite Flight API
 	resp, _, err := w.api.GetAircraftLiveries()
@@ -132,9 +141,13 @@ func (w *Worker) syncAircraftLiveriesTask() {
 		}
 	}
 
-	elapsed := time.Since(startTime)
+	if w.metrics != nil {
+		total := float64(addedCount + updatedCount)
+		w.metrics.SyncJobRecordsProcessed.WithLabelValues("aircraft_cache_job", "liveapi", "aircraft", "_", "success").Add(total)
+	}
+
 	logging.Info("Livery sync completed",
-		"duration", elapsed,
+		"duration", time.Since(startTime),
 		"added", addedCount,
 		"updated", updatedCount,
 		"removed", len(removedIDs),

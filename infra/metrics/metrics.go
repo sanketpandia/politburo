@@ -8,14 +8,9 @@ import (
 // MetricsRegistry holds all Prometheus metrics for Politburo
 type MetricsRegistry struct {
 	// HTTP Metrics
-	HTTPRequestsTotal     prometheus.CounterVec
-	HTTPRequestDuration   prometheus.HistogramVec
-	HTTPRequestsInFlight  prometheus.GaugeVec
-
-	// Database Metrics
-	DBQueriesTotal   prometheus.CounterVec
-	DBQueryDuration  prometheus.HistogramVec
-	DBConnections    prometheus.GaugeVec
+	HTTPRequestsTotal    prometheus.CounterVec
+	HTTPRequestDuration  prometheus.HistogramVec
+	HTTPRequestsInFlight prometheus.GaugeVec
 
 	// Cache Metrics
 	CacheHitsTotal   prometheus.CounterVec
@@ -23,9 +18,7 @@ type MetricsRegistry struct {
 	CacheSize        prometheus.GaugeVec
 
 	// Business Metrics
-	FlightsProcessedTotal prometheus.Counter
-	UsersActive           prometheus.Gauge
-	SyncJobDuration       prometheus.HistogramVec
+	SyncJobDuration prometheus.HistogramVec
 
 	// Generic Queue Metrics (for all queue types)
 	QueueDepth              prometheus.GaugeVec   // Labels: queue_name, queue_type
@@ -51,6 +44,9 @@ type MetricsRegistry struct {
 	// Rate Limiting Metrics
 	RateLimitThrottled      prometheus.CounterVec // Labels: provider, va_id
 	RateLimitAllowed        prometheus.CounterVec // Labels: provider, va_id
+
+	// Webhook Delivery Metrics
+	WebhooksDeliveredTotal prometheus.CounterVec // Labels: webhook_target, status
 }
 
 // NewMetricsRegistry initializes and returns a new MetricsRegistry with all metrics
@@ -80,30 +76,6 @@ func NewMetricsRegistry() *MetricsRegistry {
 			[]string{"endpoint"},
 		),
 
-		// Database Metrics
-		DBQueriesTotal: *promauto.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "politburo_db_queries_total",
-				Help: "Total database queries by operation type",
-			},
-			[]string{"query_type"},
-		),
-		DBQueryDuration: *promauto.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "politburo_db_query_duration_seconds",
-				Help:    "Database query execution time in seconds",
-				Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
-			},
-			[]string{"query_type"},
-		),
-		DBConnections: *promauto.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Name: "politburo_db_connections",
-				Help: "Current number of database connections",
-			},
-			[]string{"state"},
-		),
-
 		// Cache Metrics
 		CacheHitsTotal: *promauto.NewCounterVec(
 			prometheus.CounterOpts{
@@ -128,18 +100,6 @@ func NewMetricsRegistry() *MetricsRegistry {
 		),
 
 		// Business Metrics
-		FlightsProcessedTotal: promauto.NewCounter(
-			prometheus.CounterOpts{
-				Name: "politburo_flights_processed_total",
-				Help: "Total flight records processed",
-			},
-		),
-		UsersActive: promauto.NewGauge(
-			prometheus.GaugeOpts{
-				Name: "politburo_users_active",
-				Help: "Current number of active users",
-			},
-		),
 		SyncJobDuration: *promauto.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    "politburo_sync_job_duration_seconds",
@@ -275,6 +235,14 @@ func NewMetricsRegistry() *MetricsRegistry {
 				Help: "Total number of requests allowed by rate limiter",
 			},
 			[]string{"provider", "va_id"},
+		),
+
+		WebhooksDeliveredTotal: *promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "politburo_webhooks_delivered_total",
+				Help: "Total number of webhook delivery attempts",
+			},
+			[]string{"webhook_target", "status"},
 		),
 	}
 }

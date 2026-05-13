@@ -9,6 +9,7 @@ import (
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 )
 
 // CacheJob syncs all Infinite Flight sessions/servers to Redis cache
@@ -16,13 +17,15 @@ import (
 type CacheJob struct {
 	liveAPIClient *liveapi.Client
 	redisCache    *cache.RedisCacheService
+	metrics       *metrics.MetricsRegistry
 }
 
 // NewCacheJob creates a new session cache job
-func NewCacheJob(liveAPIClient *liveapi.Client, redisCache *cache.RedisCacheService) *CacheJob {
+func NewCacheJob(liveAPIClient *liveapi.Client, redisCache *cache.RedisCacheService, metricsReg *metrics.MetricsRegistry) *CacheJob {
 	return &CacheJob{
 		liveAPIClient: liveAPIClient,
 		redisCache:    redisCache,
+		metrics:       metricsReg,
 	}
 }
 
@@ -35,6 +38,11 @@ func (j *CacheJob) Name() string {
 func (j *CacheJob) Run(ctx context.Context) error {
 	startTime := time.Now()
 	logging.Info("Starting session cache job")
+	defer func() {
+		if j.metrics != nil {
+			j.metrics.SyncJobDuration.WithLabelValues("session_cache_job", "liveapi", "session").Observe(time.Since(startTime).Seconds())
+		}
+	}()
 
 	// Fetch all servers from Infinite Flight Live API
 	sessionsResp, err := j.liveAPIClient.GetSessions()
@@ -67,11 +75,13 @@ func (j *CacheJob) Run(ctx context.Context) error {
 	sessionListStr := strings.Join(sessionIDs, "|")
 	j.redisCache.Set(cache.KeySessionList, sessionListStr, 24*time.Hour)
 
-	duration := time.Since(startTime)
+	if j.metrics != nil {
+		j.metrics.CacheSize.WithLabelValues("session_cache").Set(float64(len(sessionIDs)))
+	}
 
 	logging.Info("Session cache job completed",
 		"sessionCount", len(sessionIDs),
-		"duration", duration,
+		"duration", time.Since(startTime),
 	)
 
 	return nil

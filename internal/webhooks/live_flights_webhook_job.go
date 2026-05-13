@@ -9,8 +9,9 @@ import (
 
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/logging"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/internal/flights"
-	platformVA 	"infinite-experiment/politburo/internal/platform/va"
+	platformVA "infinite-experiment/politburo/internal/platform/va"
 )
 
 // LiveFlightsWebhookJob runs every 30 minutes, finds VAs with active live_flights webhooks,
@@ -20,6 +21,7 @@ type LiveFlightsWebhookJob struct {
 	vaRepo      *platformVA.Repository
 	redisCache  *cache.RedisCacheService
 	httpClient  *http.Client
+	metrics     *metrics.MetricsRegistry
 }
 
 // NewLiveFlightsWebhookJob creates a new job instance
@@ -27,6 +29,7 @@ func NewLiveFlightsWebhookJob(
 	webhookRepo *platformVA.WebhookRepo,
 	vaRepo *platformVA.Repository,
 	redisCache *cache.RedisCacheService,
+	metricsReg *metrics.MetricsRegistry,
 ) *LiveFlightsWebhookJob {
 	return &LiveFlightsWebhookJob{
 		webhookRepo: webhookRepo,
@@ -35,6 +38,7 @@ func NewLiveFlightsWebhookJob(
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		metrics: metricsReg,
 	}
 }
 
@@ -75,6 +79,11 @@ func (j *LiveFlightsWebhookJob) RunForVA(ctx context.Context, vaID string) error
 func (j *LiveFlightsWebhookJob) Run(ctx context.Context) error {
 	start := time.Now()
 	logging.Info("Starting live flights webhook job")
+	defer func() {
+		if j.metrics != nil {
+			j.metrics.SyncJobDuration.WithLabelValues("live_flights_webhook_job", "liveapi", "flight").Observe(time.Since(start).Seconds())
+		}
+	}()
 
 	if j.redisCache == nil {
 		logging.Warn("Redis cache not available, skipping live flights webhook job")
@@ -99,7 +108,13 @@ func (j *LiveFlightsWebhookJob) Run(ctx context.Context) error {
 				"va_id", w.VAID,
 				"webhook_id", w.ID,
 				"error", err)
+			if j.metrics != nil {
+				j.metrics.WebhooksDeliveredTotal.WithLabelValues("discord", "error").Inc()
+			}
 			continue
+		}
+		if j.metrics != nil {
+			j.metrics.WebhooksDeliveredTotal.WithLabelValues("discord", "success").Inc()
 		}
 		sent++
 	}
