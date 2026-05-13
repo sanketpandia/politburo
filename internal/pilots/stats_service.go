@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/constants"
@@ -14,7 +15,6 @@ import (
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/sync"
-	"log"
 	"math"
 	"time"
 
@@ -141,7 +141,7 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 
 	// Step 4: Construct full callsign
 	fullCallsign := callsignPrefix + membership.Callsign
-	fmt.Printf("Searching for pilot with callsign: %s (prefix: %s, base: %s)\n", fullCallsign, callsignPrefix, membership.Callsign)
+	logging.Debug("Searching for pilot by callsign", "full_callsign", fullCallsign, "prefix", callsignPrefix, "base", membership.Callsign)
 
 	// Step 5: Get pilot schema config by type (separate config row)
 	pilotConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pilot")
@@ -197,7 +197,7 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	// Step 8: Build Airtable filter formula
 	// Airtable formula: {Callsign} = 'TEST012'
 	filterFormula := fmt.Sprintf("{%s} = '%s'", callsignFieldName, fullCallsign)
-	fmt.Printf("Airtable filter formula: %s\n", filterFormula)
+	logging.Debug("Airtable filter formula", "formula", filterFormula)
 
 	// Step 9: Get credentials config separately
 	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
@@ -278,17 +278,7 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 
 	// Step 11: Log the raw response data
 	record := recordSet.Records[0]
-	fmt.Printf("\n=== PILOT STATUS RESPONSE FROM AIRTABLE ===\n")
-	fmt.Printf("Record ID: %s\n", record.ID)
-
-	// Pretty print the fields as JSON
-	fieldsJSON, err := json.MarshalIndent(record.Fields, "", "  ")
-	if err != nil {
-		fmt.Printf("Raw Fields (error formatting): %+v\n", record.Fields)
-	} else {
-		fmt.Printf("Raw Fields (JSON):\n%s\n", string(fieldsJSON))
-	}
-	fmt.Printf("===========================================\n\n")
+	logging.Debug("Pilot status response from Airtable", "record_id", record.ID)
 
 	// Step 12: Build response
 	response := &PilotStatusResponse{
@@ -313,23 +303,21 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 func (s *StatsService) fetchIFGameStats(ctx context.Context, ifcID string) (*IFGameStats, error) {
 	// Validate IFC ID
 	if ifcID == "" {
-		log.Printf("[fetchIFGameStats] IFC ID is empty, skipping game stats fetch")
 		return nil, nil
 	}
 
-	log.Printf("[fetchIFGameStats] Fetching game stats for IFC ID: %s", ifcID)
+	logging.Debug("Fetching IF game stats", "ifc_id", ifcID)
 
 	// Call Live API provider to get user stats
 	userStatsResp, statusCode, err := s.liveAPIProvider.GetUserByIfcId(ctx, ifcID)
 	if err != nil {
-		log.Printf("[fetchIFGameStats] Error fetching user stats from Live API (status: %d): %v", statusCode, err)
+		logging.Warn("Failed to fetch user stats from Live API", "ifc_id", ifcID, "status_code", statusCode, "err", err)
 		// Game stats are optional, so we log the error but don't fail
 		return nil, nil
 	}
 
 	// Check if we have results
 	if userStatsResp == nil || len(userStatsResp.Result) == 0 {
-		log.Printf("[fetchIFGameStats] No user stats found in Live API response")
 		return nil, nil
 	}
 
@@ -340,7 +328,7 @@ func (s *StatsService) fetchIFGameStats(ctx context.Context, ifcID string) (*IFG
 	if userStats.DiscourseUsername != nil {
 		discourseUsername = *userStats.DiscourseUsername
 	}
-	log.Printf("[fetchIFGameStats] Successfully fetched game stats for user %s", discourseUsername)
+	logging.Debug("Fetched IF game stats", "discourse_username", discourseUsername)
 
 	// Transform to IFGameStats DTO
 	// Note: FlightTime from Live API is in minutes, convert to seconds for consistency
@@ -384,15 +372,14 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 	if err == nil && gameStats != nil {
 		response.GameStats = gameStats
 	} else if err != nil {
-		log.Printf("[GetPilotStats] Error fetching game stats: %v", err)
+		logging.Warn("Failed to fetch IF game stats", "discord_id", userDiscordID, "va_id", vaID, "err", err)
 		// Game stats are optional - don't fail the entire request
 	}
 
 	// Fetch provider data (Airtable, etc.)
 	providerData, rawFields, cached, err := s.fetchProviderData(ctx, userDiscordID, vaID)
 	if err != nil {
-		// Provider data is optional - log but don't fail
-		log.Printf("[GetPilotStats] Provider data unavailable for user %s in VA %s: %v", userDiscordID, vaID, err)
+		logging.Warn("Provider data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", err)
 	} else {
 		response.ProviderData = providerData
 		response.Metadata.ProviderConfigured = true
@@ -402,7 +389,7 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 		if rawFields != nil {
 			recentPIREPs, err := s.fetchRecentPIREPs(ctx, vaID, rawFields)
 			if err != nil {
-				log.Printf("[GetPilotStats] Error fetching recent PIREPs: %v", err)
+				logging.Warn("Failed to fetch recent PIREPs", "va_id", vaID, "err", err)
 			} else if len(recentPIREPs) > 0 {
 				response.RecentPIREPs = recentPIREPs
 			}
@@ -412,8 +399,7 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 	// Fetch career mode data if configured
 	careerModeData, cmCached, err := s.fetchCareerModeData(ctx, userDiscordID, vaID)
 	if err != nil {
-		// Career mode data is optional - log but don't fail
-		log.Printf("[GetPilotStats] Career mode data unavailable for user %s in VA %s: %v", userDiscordID, vaID, err)
+		logging.Warn("Career mode data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", err)
 	} else {
 		response.CareerModeData = careerModeData
 		// Update cached flag if career mode was also cached
@@ -471,8 +457,7 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 
 	// Check if airtable_pilot_id exists - if not, return nil (optional data)
 	if membership.AirtablePilotID == nil || *membership.AirtablePilotID == "" {
-		log.Printf("[fetchProviderData] No airtable_pilot_id for user %s in VA %s - skipping provider data fetch", userDiscordID, vaID)
-		return nil, nil, false, nil // Return nil, nil, false, nil - no error, just no data
+		return nil, nil, false, nil // No error, just no data yet
 	}
 
 	airtablePilotID := *membership.AirtablePilotID
@@ -481,13 +466,12 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	cacheKey := fmt.Sprintf("pilot_stats:%s:%s", vaID, airtablePilotID)
 	if cachedData, found := s.cache.Get(cacheKey); found {
 		if data, ok := cachedData.(*ProviderPilotData); ok {
-			log.Printf("[fetchProviderData] Cache hit for pilot %s in VA %s", airtablePilotID, vaID)
 			_ = data // Temporarily ignoring cache
 			// return data, nil, true, nil
 		}
 	}
 
-	log.Printf("[fetchProviderData] Fetching from Airtable for pilot %s in VA %s", airtablePilotID, vaID)
+	logging.Debug("Fetching provider data from Airtable", "at_pilot_id", airtablePilotID, "va_id", vaID)
 	
 	// Get credentials config separately
 	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
@@ -549,33 +533,16 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 				}
 			}
 			// For other errors (record not found, network issues, etc.), return nil (optional data)
-			log.Printf("[fetchProviderData] Failed to fetch pilot %s: %v - treating as optional", airtablePilotID, err)
+			logging.Warn("Failed to fetch pilot from Airtable", "at_pilot_id", airtablePilotID, "va_id", vaID, "err", err)
 			return nil, nil, false, nil
 		}
 		// Non-provider error - return nil (optional data)
-		log.Printf("[fetchProviderData] Error fetching pilot %s: %v - treating as optional", airtablePilotID, err)
+		logging.Warn("Error fetching pilot from Airtable", "at_pilot_id", airtablePilotID, "va_id", vaID, "err", err)
 		return nil, nil, false, nil
-	}
-
-	// Log raw fields from Airtable
-	log.Printf("[fetchProviderData] Raw fields from Airtable:")
-	rawJSON, _ := json.MarshalIndent(pilotRecord.RawFields, "", "  ")
-	log.Printf("%s", string(rawJSON))
-
-	// Log schema fields for debugging
-	log.Printf("[fetchProviderData] Schema fields configuration:")
-	for _, field := range pilotSchema.Fields {
-		log.Printf("  - AirtableName: %s, InternalName: %s, DisplayName: %s, IsUserVisible: %v",
-			field.AirtableName, field.InternalName, field.DisplayName, field.IsUserVisible)
 	}
 
 	// Transform to standardized response
 	providerData := s.transformToStandardizedFields(pilotRecord.RawFields, &pilotSchema)
-
-	// Log transformed data
-	log.Printf("[fetchProviderData] Transformed provider data:")
-	transformedJSON, _ := json.MarshalIndent(providerData, "", "  ")
-	log.Printf("%s", string(transformedJSON))
 
 	// Cache the result (10 minutes)
 	s.cache.Set(cacheKey, providerData, 10*time.Minute)
@@ -818,8 +785,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 
 	// Check if we have a stored career mode pilot ID
 	if membership.CareerModePilotID != nil && *membership.CareerModePilotID != "" {
-		// Use stored ID - faster and more reliable
-		log.Printf("[fetchCareerModeData] Using stored career mode pilot ID: %s", *membership.CareerModePilotID)
+		logging.Debug("Fetching career mode data by stored pilot ID", "at_pilot_id", *membership.CareerModePilotID, "va_id", vaID)
 		pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, *membership.CareerModePilotID, vaCareerModeSchema)
 		if err != nil {
 			if provErr, ok := err.(*providers.ProviderError); ok {
@@ -832,11 +798,11 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 					}
 				}
 				// For other errors (record not found, network issues, etc.), fallback to callsign matching
-				log.Printf("[fetchCareerModeData] Failed to fetch by ID (%s), falling back to callsign matching: %v", provErr.Code, err)
+				logging.Warn("Failed to fetch career mode by ID, falling back to callsign match", "va_id", vaID, "err_code", provErr.Code, "err", err)
 				// Fall through to callsign matching below
 			} else {
 				// Non-provider error - fallback to callsign matching
-				log.Printf("[fetchCareerModeData] Failed to fetch by ID, falling back to callsign matching: %v", err)
+				logging.Warn("Error fetching career mode by ID, falling back to callsign match", "va_id", vaID, "err", err)
 				// Fall through to callsign matching below
 			}
 		} else {
@@ -848,7 +814,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 
 	// Fallback to callsign matching if ID not set or fetch by ID failed
 	if recordFields == nil {
-		log.Printf("[fetchCareerModeData] Using callsign matching (fallback)")
+		logging.Debug("Career mode: using callsign matching", "va_id", vaID)
 
 		// Get callsign prefix from VA config
 		callsignPrefix, ok := s.vaConfigService.GetConfigVal(ctx, vaID, common.ConfigKeyAirtableCallsignColumnPrefix)
@@ -877,7 +843,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 
 		// Build Airtable filter formula
 		filterFormula := fmt.Sprintf("{%s} = '%s'", callsignFieldName, fullCallsign)
-		log.Printf("[fetchCareerModeData] Filter formula: %s", filterFormula)
+		logging.Debug("Career mode filter formula", "formula", filterFormula, "va_id", vaID)
 
 		filters := &providers.SyncFilters{
 			FilterFormula: filterFormula,
@@ -913,29 +879,22 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 		recordID = record.ID
 	}
 
-	// Log raw fields from Airtable
-	log.Printf("[fetchCareerModeData] Raw fields from Airtable (Record ID: %s):", recordID)
-	rawJSON, _ := json.MarshalIndent(recordFields, "", "  ")
-	log.Printf("%s", string(rawJSON))
+	logging.Debug("Career mode record fetched from Airtable", "record_id", recordID, "va_id", vaID)
 
 	// Transform to standardized response
 	careerModeData := s.transformCareerModeFields(recordFields, &careerModeSchema)
-	
+
 	// Resolve last_flown_route if it contains a PIREP ID
 	// If LastCareerModePIREP is set but LastCareerModeFlight is not, it means we need to fetch the route
 	if careerModeData.LastCareerModePIREP != nil && careerModeData.LastCareerModeFlight == nil {
-		log.Printf("[fetchCareerModeData] Resolving last_flown_route from PIREP ID")
+		logging.Debug("Resolving last_flown_route from PIREP ID", "va_id", vaID)
 		route := s.fetchRouteFromPIREPID(ctx, vaID, *careerModeData.LastCareerModePIREP)
 		if route != "" {
 			careerModeData.LastCareerModeFlight = &route
-			log.Printf("[fetchCareerModeData] Successfully resolved route from PIREP: %s", route)
 		} else {
-			log.Printf("[fetchCareerModeData] Failed to resolve route from PIREP ID, trying fallback: query by flight_mode and callsign")
 			// Fallback: Query by flight_mode="Career Mode" and callsign if available
-			// Get callsign from membership or from career mode data
 			membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
 			if err == nil && membership != nil {
-				// Try to get callsign from membership or from career mode data
 				callsign := membership.Callsign
 				if callsign == "" && careerModeData.AdditionalFields != nil {
 					if callsignVal, ok := careerModeData.AdditionalFields["Callsign"]; ok {
@@ -944,28 +903,16 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 						}
 					}
 				}
-				
+
 				if callsign != "" {
 					route = s.fetchLastCareerModeRouteByCallsign(ctx, vaID, callsign, &careerModeSchema)
 					if route != "" {
 						careerModeData.LastCareerModeFlight = &route
-						log.Printf("[fetchCareerModeData] Successfully resolved route from fallback query: %s", route)
-					} else {
-						log.Printf("[fetchCareerModeData] Failed to resolve route from fallback query")
 					}
-				} else {
-					log.Printf("[fetchCareerModeData] Cannot use fallback: callsign not available")
 				}
-			} else {
-				log.Printf("[fetchCareerModeData] Cannot use fallback: membership not available")
 			}
 		}
 	}
-
-	// Log transformed data
-	log.Printf("[fetchCareerModeData] Transformed career mode data:")
-	transformedJSON, _ := json.MarshalIndent(careerModeData, "", "  ")
-	log.Printf("%s", string(transformedJSON))
 
 	return careerModeData, false, nil
 }
@@ -1072,8 +1019,7 @@ func (s *StatsService) transformCareerModeFields(
 		case "last_flown_route":
 			// Map last_flown_route to LastCareerModeFlight for API response
 			// If the value is a PIREP ID (array or string starting with "rec"), fetch route from pirep_at_synced
-			log.Printf("[transformCareerModeFields] Mapping last_flown_route: value=%v, type=%T", value, value)
-			
+
 			// Check if this is a PIREP ID that needs to be resolved
 			var pirepATID string
 			switch v := value.(type) {
@@ -1102,24 +1048,17 @@ func (s *StatsService) transformCareerModeFields(
 				} else {
 					// It's already a route string
 					data.LastCareerModeFlight = &v
-					log.Printf("[transformCareerModeFields] last_flown_route is already a route string: %s", v)
 					continue
 				}
 			}
-			
-			// If we found a PIREP ID, fetch the route from pirep_at_synced
+
+			// If we found a PIREP ID, store it for resolution after transformation
 			if pirepATID != "" {
-				log.Printf("[transformCareerModeFields] Detected PIREP ID in last_flown_route, fetching route from pirep_at_synced: %s", pirepATID)
-				// Note: We need vaID and ctx to fetch from DB, but we don't have them in transformCareerModeFields
-				// So we'll store the PIREP ID and resolve it after transformation
-				// Store as interface{} so we can resolve it later
 				data.LastCareerModePIREP = &value
-				log.Printf("[transformCareerModeFields] Stored PIREP ID for later resolution: %s", pirepATID)
 			} else {
 				// Not a PIREP ID, treat as direct route string
 				if str := fmt.Sprintf("%v", value); str != "" {
 					data.LastCareerModeFlight = &str
-					log.Printf("[transformCareerModeFields] Using last_flown_route as direct route string: %s", str)
 				}
 			}
 
@@ -1148,13 +1087,12 @@ func getKeys(m map[string]interface{}) []string {
 
 // fetchLastCareerModeRouteByCallsign fetches the most recent career mode route by callsign and flight_mode
 func (s *StatsService) fetchLastCareerModeRouteByCallsign(ctx context.Context, vaID string, callsign string, careerModeSchema *dtos.EntitySchema) string {
-	log.Printf("[fetchLastCareerModeRouteByCallsign] Fetching last career mode route for callsign: %s", callsign)
+	logging.Debug("Fetching last career mode route by callsign", "callsign", callsign, "va_id", vaID)
 
 	// Get flight mode from schema config (if configured)
 	flightModeFilter := "Career Mode" // Default to "Career Mode"
 	if careerModeSchema.CareerModeFlightMode != nil && *careerModeSchema.CareerModeFlightMode != "" {
 		flightModeFilter = *careerModeSchema.CareerModeFlightMode
-		log.Printf("[fetchLastCareerModeRouteByCallsign] Using configured flight mode: %s", flightModeFilter)
 	}
 
 	type PirepSynced struct {
@@ -1175,20 +1113,12 @@ func (s *StatsService) fetchLastCareerModeRouteByCallsign(ctx context.Context, v
 		First(&pirep).Error
 
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			log.Printf("[fetchLastCareerModeRouteByCallsign] No PIREP found for callsign: %s, flight_mode: %s", callsign, flightModeFilter)
-		} else {
-			log.Printf("[fetchLastCareerModeRouteByCallsign] Error fetching PIREP: %v", err)
+		if err != gorm.ErrRecordNotFound {
+			logging.Warn("Error fetching career mode route by callsign", "callsign", callsign, "va_id", vaID, "err", err)
 		}
 		return ""
 	}
 
-	if pirep.Route == "" {
-		log.Printf("[fetchLastCareerModeRouteByCallsign] Route not found in PIREP for callsign: %s", callsign)
-		return ""
-	}
-
-	log.Printf("[fetchLastCareerModeRouteByCallsign] Successfully fetched route: %s", pirep.Route)
 	return pirep.Route
 }
 
@@ -1222,17 +1152,15 @@ func (s *StatsService) fetchRouteFromPIREPID(ctx context.Context, vaID string, p
 			pirepATID = v
 		}
 	default:
-		log.Printf("[fetchRouteFromPIREPID] Unexpected type for PIREP ID: %T", pirepIDData)
 		return ""
 	}
 
 	// If no AT ID found, return empty
 	if pirepATID == "" {
-		log.Printf("[fetchRouteFromPIREPID] No PIREP AT ID found in data: %v", pirepIDData)
 		return ""
 	}
 
-	log.Printf("[fetchRouteFromPIREPID] Fetching route from PIREP with AT ID: %s", pirepATID)
+	logging.Debug("Fetching route from PIREP AT ID", "at_id", pirepATID, "va_id", vaID)
 
 	// Fetch the PIREP record from pirep_at_synced table
 	type PirepSynced struct {
@@ -1246,32 +1174,23 @@ func (s *StatsService) fetchRouteFromPIREPID(ctx context.Context, vaID string, p
 
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			log.Printf("[fetchRouteFromPIREPID] PIREP not found in synced table with AT ID: %s, trying Airtable", pirepATID)
 			// Fallback: Fetch directly from Airtable
 			return s.fetchRouteFromAirtablePIREP(ctx, vaID, pirepATID)
-		} else {
-			log.Printf("[fetchRouteFromPIREPID] Error fetching PIREP: %v", err)
 		}
+		logging.Warn("Error fetching PIREP route from DB", "at_id", pirepATID, "va_id", vaID, "err", err)
 		return ""
 	}
 
-	if pirep.Route == "" {
-		log.Printf("[fetchRouteFromPIREPID] Route not found in PIREP with AT ID: %s", pirepATID)
-		return ""
-	}
-
-	log.Printf("[fetchRouteFromPIREPID] Successfully fetched route: %s", pirep.Route)
 	return pirep.Route
 }
 
 // fetchRouteFromAirtablePIREP fetches a PIREP record directly from Airtable and extracts the route
 func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID string, pirepATID string) string {
-	log.Printf("[fetchRouteFromAirtablePIREP] Fetching PIREP from Airtable with AT ID: %s", pirepATID)
+	logging.Debug("Fetching PIREP route directly from Airtable", "at_id", pirepATID, "va_id", vaID)
 
 	// Get PIREP schema config
 	pirepConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pirep")
 	if err != nil || pirepConfig == nil {
-		log.Printf("[fetchRouteFromAirtablePIREP] PIREP schema not configured: %v", err)
 		return ""
 	}
 
@@ -1279,18 +1198,15 @@ func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID str
 	var pirepSchema dtos.EntitySchema
 	bytes, err := json.Marshal(pirepConfig.ConfigData)
 	if err != nil {
-		log.Printf("[fetchRouteFromAirtablePIREP] Failed to marshal PIREP config: %v", err)
 		return ""
 	}
 	if err := json.Unmarshal(bytes, &pirepSchema); err != nil {
-		log.Printf("[fetchRouteFromAirtablePIREP] Failed to parse PIREP schema: %v", err)
 		return ""
 	}
 
 	// Get credentials config
 	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
 	if err != nil || credentialsConfig == nil {
-		log.Printf("[fetchRouteFromAirtablePIREP] Credentials not found: %v", err)
 		return ""
 	}
 
@@ -1302,11 +1218,9 @@ func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID str
 	}
 	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
 	if err != nil {
-		log.Printf("[fetchRouteFromAirtablePIREP] Failed to marshal credentials: %v", err)
 		return ""
 	}
 	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
-		log.Printf("[fetchRouteFromAirtablePIREP] Failed to parse credentials: %v", err)
 		return ""
 	}
 
@@ -1329,28 +1243,19 @@ func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID str
 	// Fetch PIREP record from Airtable (using FetchPilotRecord which works for any record type)
 	pirepRecord, err := s.airtableProvider.FetchPilotRecord(ctx, pirepATID, vaPirepSchema)
 	if err != nil {
-		log.Printf("[fetchRouteFromAirtablePIREP] Error fetching PIREP from Airtable: %v", err)
+		logging.Warn("Failed to fetch PIREP from Airtable", "at_id", pirepATID, "va_id", vaID, "err", err)
 		return ""
 	}
-
-	// Log the full JSON response
-	log.Printf("[fetchRouteFromAirtablePIREP] PIREP record from Airtable (AT ID: %s):", pirepATID)
-	pirepJSON, _ := json.MarshalIndent(pirepRecord.RawFields, "", "  ")
-	log.Printf("%s", string(pirepJSON))
 
 	// Extract route field from schema
 	routeField := pirepSchema.GetFieldMapping("route")
 	var routeValue interface{}
 	var exists bool
-	
+
 	if routeField != nil {
-		// Try using schema mapping first
 		routeValue, exists = pirepRecord.RawFields[routeField.AirtableName]
-		if !exists {
-			log.Printf("[fetchRouteFromAirtablePIREP] Route field '%s' (from schema) not found in PIREP record, trying direct field names", routeField.AirtableName)
-		}
 	}
-	
+
 	// Fallback: Try common route field names directly
 	if !exists {
 		commonRouteNames := []string{"Route", "route", "Route Name", "Route Name (from Route)"}
@@ -1358,14 +1263,12 @@ func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID str
 			if val, ok := pirepRecord.RawFields[fieldName]; ok {
 				routeValue = val
 				exists = true
-				log.Printf("[fetchRouteFromAirtablePIREP] Found route using direct field name: %s", fieldName)
 				break
 			}
 		}
 	}
-	
+
 	if !exists {
-		log.Printf("[fetchRouteFromAirtablePIREP] Route field not found in PIREP record. Available fields: %v", getKeys(pirepRecord.RawFields))
 		return ""
 	}
 
@@ -1385,12 +1288,6 @@ func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID str
 		route = fmt.Sprintf("%v", v)
 	}
 
-	if route == "" {
-		log.Printf("[fetchRouteFromAirtablePIREP] Route is empty in PIREP record")
-		return ""
-	}
-
-	log.Printf("[fetchRouteFromAirtablePIREP] Successfully extracted route from Airtable: %s", route)
 	return route
 }
 
@@ -1425,17 +1322,15 @@ func (s *StatsService) fetchAndTransformLastCareerModePIREP(
 		// In case it's a single string
 		pirepATID = v
 	default:
-		log.Printf("[fetchAndTransformLastCareerModePIREP] Unexpected type for PIREP AT ID: %T", pirepATIDData)
 		return pirepATIDData // Return original data if we can't parse it
 	}
 
 	// If no AT ID found, return original data
 	if pirepATID == "" {
-		log.Printf("[fetchAndTransformLastCareerModePIREP] No PIREP AT ID found")
 		return pirepATIDData
 	}
 
-	log.Printf("[fetchAndTransformLastCareerModePIREP] Fetching PIREP with AT ID: %s", pirepATID)
+	logging.Debug("Fetching last career mode PIREP route", "at_id", pirepATID)
 
 	// Fetch the PIREP record from pirep_at_synced table
 	type PirepSynced struct {
@@ -1448,16 +1343,14 @@ func (s *StatsService) fetchAndTransformLastCareerModePIREP(
 		First(&pirep).Error
 
 	if err != nil {
-		log.Printf("[fetchAndTransformLastCareerModePIREP] Error fetching PIREP: %v", err)
+		logging.Warn("Error fetching career mode PIREP route from DB", "at_id", pirepATID, "err", err)
 		return pirepATIDData // Return original data on error
 	}
 
 	if pirep.Route == "" {
-		log.Printf("[fetchAndTransformLastCareerModePIREP] Route not found in PIREP with AT ID: %s", pirepATID)
 		return pirepATIDData // Return original data if route is empty
 	}
 
-	log.Printf("[fetchAndTransformLastCareerModePIREP] Successfully fetched route: %s", pirep.Route)
 	return pirep.Route
 }
 
@@ -1469,7 +1362,6 @@ func (s *StatsService) fetchRecentPIREPs(ctx context.Context, vaID string, rawFi
 		// Try alternative field name "Recent Logged Flights"
 		recentLogsRaw, exists = rawFields["Recent Logged Flights"]
 		if !exists {
-			log.Printf("[fetchRecentPIREPs] No recent logs field found in Airtable data")
 			return nil, nil
 		}
 	}
@@ -1486,16 +1378,14 @@ func (s *StatsService) fetchRecentPIREPs(ctx context.Context, vaID string, rawFi
 	case []string:
 		atIDs = v
 	default:
-		log.Printf("[fetchRecentPIREPs] Unexpected type for Recent Logs: %T", recentLogsRaw)
 		return nil, nil
 	}
 
 	if len(atIDs) == 0 {
-		log.Printf("[fetchRecentPIREPs] No recent log IDs found")
 		return nil, nil
 	}
 
-	log.Printf("[fetchRecentPIREPs] Fetching %d recent PIREPs from synced data", len(atIDs))
+	logging.Debug("Fetching recent PIREPs", "count", len(atIDs), "va_id", vaID)
 
 	// Fetch PIREPs from database directly using GORM (to avoid circular dependency)
 	var pireps []struct {
@@ -1517,7 +1407,7 @@ func (s *StatsService) fetchRecentPIREPs(ctx context.Context, vaID string, rawFi
 		Find(&pireps).Error
 
 	if err != nil {
-		log.Printf("[fetchRecentPIREPs] Error fetching PIREPs: %v", err)
+		logging.Error("Failed to fetch recent PIREPs", "va_id", vaID, "err", err)
 		return nil, err
 	}
 
@@ -1543,6 +1433,6 @@ func (s *StatsService) fetchRecentPIREPs(ctx context.Context, vaID string, rawFi
 		recentPIREPs = append(recentPIREPs, dto)
 	}
 
-	log.Printf("[fetchRecentPIREPs] Successfully fetched %d PIREPs", len(recentPIREPs))
+	logging.Debug("Fetched recent PIREPs", "count", len(recentPIREPs), "va_id", vaID)
 	return recentPIREPs, nil
 }
