@@ -48,7 +48,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Missing authentication headers
+          description: Missing or invalid X-API-Key authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing required Discord context headers X-Discord-User-Id or X-Discord-Server-Id
           content:
             application/json:
               schema:
@@ -77,7 +83,7 @@ paths:
       operationId: initServer
       summary: Initialise a Discord server as a virtual airline
       description: |
-        Creates a new VA record linked to the Discord server in X-Server-Id.
+        Creates a new VA record linked to the Discord server in X-Discord-Server-Id.
         Requires the calling user to already be registered (/pilots/register).
         Callsign prefix and suffix define how pilot callsigns are composed
         (e.g. prefix "IFE" + callsign "123" = "IFE123"). At least one of
@@ -103,7 +109,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Missing authentication headers
+          description: Missing or invalid X-API-Key authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing required Discord context headers X-Discord-User-Id or X-Discord-Server-Id
           content:
             application/json:
               schema:
@@ -133,7 +145,7 @@ paths:
       summary: Join the VA associated with the current Discord server
       description: |
         Creates a membership record linking the authenticated Discord user to the VA
-        resolved from X-Server-Id. The callsign must exist in the VA's linked Airtable
+        resolved from X-Discord-Server-Id. The callsign must exist in the VA's linked Airtable
         base; the bot should surface the Airtable URL in the error message when it
         does not.
       tags: [registration]
@@ -157,7 +169,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Missing authentication headers
+          description: Missing or invalid X-API-Key authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing required Discord context headers X-Discord-User-Id or X-Discord-Server-Id
           content:
             application/json:
               schema:
@@ -194,7 +212,7 @@ paths:
       description: |
         Returns full user detail including all VA affiliations across every server
         the user belongs to, plus the current-VA membership context derived from
-        the X-Server-Id header. The bot calls this to determine which onboarding
+        the X-Discord-Server-Id header. The bot calls this to determine which onboarding
         steps are still required.
       tags: [registration]
       responses:
@@ -205,7 +223,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/UserStatusResponse"
         "401":
-          description: Missing authentication headers
+          description: Missing or invalid X-API-Key authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing required Discord context headers X-Discord-User-Id or X-Discord-Server-Id
           content:
             application/json:
               schema:
@@ -253,7 +277,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Missing authentication headers
+          description: Missing or invalid X-API-Key authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing required Discord context headers X-Discord-User-Id or X-Discord-Server-Id
           content:
             application/json:
               schema:
@@ -281,12 +311,12 @@ components:
     ServerId:
       type: apiKey
       in: header
-      name: X-Server-Id
+      name: X-Discord-Server-Id
       description: Discord server (guild) ID — used to resolve the VA context
     DiscordId:
       type: apiKey
       in: header
-      name: X-Discord-Id
+      name: X-Discord-User-Id
       description: Discord user ID of the caller
 
   schemas:

@@ -65,6 +65,9 @@ func (s *Server) JoinMembership(ctx context.Context, request registrationgen.Joi
 	case http.StatusUnauthorized:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.JoinMembership401JSONResponse(response), err
+	case http.StatusForbidden:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.JoinMembership403JSONResponse(response), err
 	case http.StatusNotFound:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.JoinMembership404JSONResponse(response), err
@@ -98,6 +101,9 @@ func (s *Server) RegisterPilot(ctx context.Context, request registrationgen.Regi
 	case http.StatusUnauthorized:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.RegisterPilot401JSONResponse(response), err
+	case http.StatusForbidden:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.RegisterPilot403JSONResponse(response), err
 	case http.StatusConflict:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.RegisterPilot409JSONResponse(response), err
@@ -128,6 +134,9 @@ func (s *Server) InitServer(ctx context.Context, request registrationgen.InitSer
 	case http.StatusUnauthorized:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.InitServer401JSONResponse(response), err
+	case http.StatusForbidden:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.InitServer403JSONResponse(response), err
 	case http.StatusConflict:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.InitServer409JSONResponse(response), err
@@ -158,6 +167,9 @@ func (s *Server) GenerateSignedLink(ctx context.Context, request registrationgen
 	case http.StatusUnauthorized:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.GenerateSignedLink401JSONResponse(response), err
+	case http.StatusForbidden:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GenerateSignedLink403JSONResponse(response), err
 	case http.StatusNotFound:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.GenerateSignedLink404JSONResponse(response), err
@@ -182,6 +194,9 @@ func (s *Server) GetUserStatus(ctx context.Context, _ registrationgen.GetUserSta
 	case http.StatusUnauthorized:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.GetUserStatus401JSONResponse(response), err
+	case http.StatusForbidden:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GetUserStatus403JSONResponse(response), err
 	case http.StatusNotFound:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.GetUserStatus404JSONResponse(response), err

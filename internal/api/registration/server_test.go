@@ -15,6 +15,7 @@ import (
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/memberships"
 	"infinite-experiment/politburo/internal/pilots"
+	"infinite-experiment/politburo/internal/platform/httpdto"
 	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/servers"
@@ -155,6 +156,56 @@ func TestStrictServer_UnauthorizedWithoutBotHeaders(t *testing.T) {
 	}
 }
 
+func TestStrictServer_ForbiddenDiscordContextMapsErrorEnvelope(t *testing.T) {
+	forbiddenHandler := func(w http.ResponseWriter, r *http.Request) {
+		httpdto.WriteError(w, time.Now(), "MISSING_DISCORD_CONTEXT", "Missing required Discord context headers: X-Discord-User-Id and X-Discord-Server-Id", http.StatusForbidden)
+	}
+
+	strictServer := registrationgen.NewStrictHandler(NewServerFromHandlers(Handlers{
+		JoinMembership:     forbiddenHandler,
+		RegisterPilot:      forbiddenHandler,
+		InitServer:         forbiddenHandler,
+		GenerateSignedLink: forbiddenHandler,
+		GetUserStatus:      forbiddenHandler,
+	}), nil)
+	router := chi.NewRouter()
+	registrationgen.HandlerFromMux(strictServer, router)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{name: "register pilot", method: http.MethodPost, path: "/pilots/register", body: map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"}},
+		{name: "init server", method: http.MethodPost, path: "/server/init", body: map[string]string{"va_code": "IFE", "va_name": "Infinite", "callsign_prefix": "IFE"}},
+		{name: "join membership", method: http.MethodPost, path: "/memberships/join", body: map[string]string{"callsign": "IFE123"}},
+		{name: "user status", method: http.MethodGet, path: "/user/status"},
+		{name: "signed link", method: http.MethodPost, path: "/signed-link", body: map[string]any{"redirect_to": "/dashboard", "ttl_minutes": 15}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := newComradeBotRequest(t, tt.method, tt.path, tt.body)
+			req = req.WithContext(auth.SetUserClaims(req.Context(), apiKeyClaims("", "", false)))
+			rr := httptest.NewRecorder()
+
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d (%s)", rr.Code, rr.Body.String())
+			}
+			var response registrationgen.ErrorResponse
+			if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response.Error == nil || response.Error.Code != "MISSING_DISCORD_CONTEXT" {
+				t.Fatalf("unexpected error response: %+v", response)
+			}
+		})
+	}
+}
+
 func TestStrictServer_ValidationFailureMatchesHandlerEnvelope(t *testing.T) {
 	pilotsHandler := pilots.NewHandler(nil, pilotServiceStub{}, nil, lookupStub{})
 	membershipsHandler := memberships.NewHandler(membershipServiceStub{}, nil, nil)
@@ -198,8 +249,8 @@ func newComradeBotRequest(t *testing.T, method string, path string, body any) *h
 	}
 	req := httptest.NewRequest(method, path, reader)
 	req.Header.Set("X-API-Key", "test-api-key")
-	req.Header.Set("X-Discord-Id", "discord-user")
-	req.Header.Set("X-Server-Id", "discord-server")
+	req.Header.Set("X-Discord-User-Id", "discord-user")
+	req.Header.Set("X-Discord-Server-Id", "discord-server")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

@@ -734,6 +734,20 @@ func (response JoinMembership401JSONResponse) VisitJoinMembershipResponse(w http
 	return err
 }
 
+type JoinMembership403JSONResponse ErrorResponse
+
+func (response JoinMembership403JSONResponse) VisitJoinMembershipResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type JoinMembership404JSONResponse ErrorResponse
 
 func (response JoinMembership404JSONResponse) VisitJoinMembershipResponse(w http.ResponseWriter) error {
@@ -840,6 +854,20 @@ func (response RegisterPilot401JSONResponse) VisitRegisterPilotResponse(w http.R
 	return err
 }
 
+type RegisterPilot403JSONResponse ErrorResponse
+
+func (response RegisterPilot403JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RegisterPilot409JSONResponse ErrorResponse
 
 func (response RegisterPilot409JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
@@ -928,6 +956,20 @@ func (response InitServer401JSONResponse) VisitInitServerResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InitServer403JSONResponse ErrorResponse
+
+func (response InitServer403JSONResponse) VisitInitServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -1024,6 +1066,20 @@ func (response GenerateSignedLink401JSONResponse) VisitGenerateSignedLinkRespons
 	return err
 }
 
+type GenerateSignedLink403JSONResponse ErrorResponse
+
+func (response GenerateSignedLink403JSONResponse) VisitGenerateSignedLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GenerateSignedLink404JSONResponse ErrorResponse
 
 func (response GenerateSignedLink404JSONResponse) VisitGenerateSignedLinkResponse(w http.ResponseWriter) error {
@@ -1083,6 +1139,20 @@ func (response GetUserStatus401JSONResponse) VisitGetUserStatusResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserStatus403JSONResponse ErrorResponse
+
+func (response GetUserStatus403JSONResponse) VisitGetUserStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
