@@ -1,6 +1,7 @@
 package servers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -11,10 +12,14 @@ import (
 )
 
 type Handler struct {
-	regSvc *RegistrationService
+	regSvc serverRegistrationHandlerService
 }
 
-func NewHandler(regSvc *RegistrationService) *Handler {
+type serverRegistrationHandlerService interface {
+	InitServer(ctx context.Context, discordServerID string, discordUserID string, vaCode string, vaName string, callsignPrefix string, callsignSuffix string) (*InitServerResponse, *ServerError)
+}
+
+func NewHandler(regSvc serverRegistrationHandlerService) *Handler {
 	return &Handler{
 		regSvc: regSvc,
 	}
@@ -77,4 +82,3 @@ func (h *Handler) InitServer() http.HandlerFunc {
 		httpdto.WriteSuccess(w, initTime, result, http.StatusCreated)
 	}
 }
-

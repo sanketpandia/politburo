@@ -1,6 +1,7 @@
 package pilots
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -22,13 +23,21 @@ import (
 // Handler handles pilot statistics and registration endpoints
 type Handler struct {
 	statsSvc   *StatsService
-	regSvc     *RegistrationService
+	regSvc     registrationHandlerService
 	logbookSvc *LogbookService
-	usersSvc   *users.Service
+	usersSvc   logbookUserLookupService
+}
+
+type registrationHandlerService interface {
+	RegisterPilot(ctx context.Context, discordUserID string, discordServerID string, ifcId string, lastFlight string) (*RegisterPilotResponse, *RegistrationError)
+}
+
+type logbookUserLookupService interface {
+	GetByDiscordID(ctx context.Context, discordID string) (*users.User, error)
 }
 
 // NewHandler creates a new pilot handler instance
-func NewHandler(statsSvc *StatsService, regSvc *RegistrationService, logbookSvc *LogbookService, usersSvc *users.Service) *Handler {
+func NewHandler(statsSvc *StatsService, regSvc registrationHandlerService, logbookSvc *LogbookService, usersSvc logbookUserLookupService) *Handler {
 	return &Handler{
 		statsSvc:   statsSvc,
 		regSvc:     regSvc,

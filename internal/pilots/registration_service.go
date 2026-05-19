@@ -13,6 +13,15 @@ import (
 	"gorm.io/gorm"
 )
 
+type registrationUsersService interface {
+	GetUserByIFCId(ctx context.Context, ifcId string) (*users.User, error)
+	RegisterUser(ctx context.Context, discordID string, ifCommunityID string, ifApiID *string, isActive bool) error
+}
+
+type registrationVAService interface {
+	GetByDiscordServerID(ctx context.Context, discordServerID string) (*va.VA, error)
+}
+
 // LiveAPIProvider defines the methods needed from the Live API provider
 type LiveAPIProvider interface {
 	GetUserByIfcId(ctx context.Context, ifcId string) (*dtos.UserStatsResponse, int, error)
@@ -21,15 +30,15 @@ type LiveAPIProvider interface {
 
 // RegistrationService handles pilot registration business logic
 type RegistrationService struct {
-	usersSvc        *users.Service
-	vaSvc           *va.Service
+	usersSvc        registrationUsersService
+	vaSvc           registrationVAService
 	liveAPIProvider LiveAPIProvider
 }
 
 // NewRegistrationService creates a new registration service
 func NewRegistrationService(
-	usersSvc *users.Service,
-	vaSvc *va.Service,
+	usersSvc registrationUsersService,
+	vaSvc registrationVAService,
 	liveAPIProvider LiveAPIProvider,
 ) *RegistrationService {
 	return &RegistrationService{

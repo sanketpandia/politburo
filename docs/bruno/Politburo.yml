@@ -1,0 +1,296 @@
+opencollection: 1.0.0
+info:
+  name: Politburo
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ''
+      port: ''
+      auth:
+        username: ''
+        password: ''
+      bypassProxy: ''
+  environments:
+    - name: Dev-Politburp
+      variables:
+        - name: Base_Url
+          value: http://localhost:8080
+        - name: D_User_id
+          value: ''
+        - name: D_Server_Id
+          value: ''
+        - name: P_Api_Key
+          value: ''
+        - name: IFC_Id
+          value: john_doe
+        - name: Last_Flight
+          value: KLAX-KSFO
+        - name: VA_Code
+          value: IFE
+        - name: VA_Name
+          value: Infinite Flight Express
+        - name: Callsign
+          value: '123'
+request:
+  headers:
+    - name: X-Discord-Id
+      value: '{{D_User_id}}'
+    - name: X-Server-Id
+      value: '{{D_Server_Id}}'
+    - name: X-API-Key
+      value: '{{P_Api_Key}}'
+bundled: true
+items:
+  - info:
+      name: Health
+      type: folder
+      seq: 1
+    items:
+      - info:
+          name: Health Check
+          type: http
+          seq: 1
+          tags:
+            - health
+            - smoke
+        http:
+          method: GET
+          url: '{{Base_Url}}/healthCheck'
+          auth: none
+        runtime:
+          assertions:
+            - expression: res.status
+              operator: eq
+              value: '200'
+            - expression: res.body.status
+              operator: isString
+            - expression: res.body.services.postgres.status
+              operator: isString
+            - expression: res.body.services.cache.status
+              operator: isString
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+        docs: |-
+          Public liveness endpoint mounted at `GET /healthCheck`.
+
+          Source: `internal/routes/router.go` and `internal/platform/health/handler.go`.
+          Returns service status for Postgres and Redis cache plus uptime metadata.
+
+  - info:
+      name: Registration & Onboarding
+      type: folder
+      seq: 2
+    items:
+      - info:
+          name: Register Pilot
+          type: http
+          seq: 1
+          tags:
+            - registration
+            - onboarding
+        http:
+          method: POST
+          url: '{{Base_Url}}/api/v1/pilots/register'
+          headers:
+            - name: Content-Type
+              value: application/json
+          body:
+            type: json
+            data: |-
+              {
+                "ifc_id": "{{IFC_Id}}",
+                "last_flight": "{{Last_Flight}}"
+              }
+          auth: inherit
+        runtime:
+          assertions:
+            - expression: res.status
+              operator: eq
+              value: '201'
+            - expression: res.body.status
+              operator: eq
+              value: ok
+            - expression: res.body.result.success
+              operator: eq
+              value: 'true'
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+        docs: |-
+          Registers a Discord user as a pilot using IFC verification.
+
+          Source: `api/openapi/registration.yaml`, operationId `registerPilot`.
+          Requires inherited bot headers: `X-API-Key`, `X-Server-Id`, and `X-Discord-Id`.
+
+      - info:
+          name: Initialize Server
+          type: http
+          seq: 2
+          tags:
+            - registration
+            - onboarding
+        http:
+          method: POST
+          url: '{{Base_Url}}/api/v1/server/init'
+          headers:
+            - name: Content-Type
+              value: application/json
+          body:
+            type: json
+            data: |-
+              {
+                "va_code": "{{VA_Code}}",
+                "va_name": "{{VA_Name}}",
+                "callsign_prefix": "{{VA_Code}}",
+                "callsign_suffix": ""
+              }
+          auth: inherit
+        runtime:
+          assertions:
+            - expression: res.status
+              operator: eq
+              value: '201'
+            - expression: res.body.status
+              operator: eq
+              value: ok
+            - expression: res.body.result.va_code
+              operator: eq
+              value: '{{VA_Code}}'
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+        docs: |-
+          Initializes the current Discord server as a virtual airline.
+
+          Source: `api/openapi/registration.yaml`, operationId `initServer`.
+          At least one of `callsign_prefix` or `callsign_suffix` must be supplied.
+
+      - info:
+          name: Join Membership
+          type: http
+          seq: 3
+          tags:
+            - registration
+            - onboarding
+        http:
+          method: POST
+          url: '{{Base_Url}}/api/v1/memberships/join'
+          headers:
+            - name: Content-Type
+              value: application/json
+          body:
+            type: json
+            data: |-
+              {
+                "callsign": "{{Callsign}}"
+              }
+          auth: inherit
+        runtime:
+          assertions:
+            - expression: res.status
+              operator: eq
+              value: '201'
+            - expression: res.body.status
+              operator: eq
+              value: ok
+            - expression: res.body.result.callsign
+              operator: eq
+              value: '{{Callsign}}'
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+        docs: |-
+          Joins the VA associated with the current `X-Server-Id`.
+
+          Source: `api/openapi/registration.yaml`, operationId `joinMembership`.
+          The callsign must exist in the VA's linked Airtable base.
+
+      - info:
+          name: Get User Status
+          type: http
+          seq: 4
+          tags:
+            - registration
+            - onboarding
+        http:
+          method: GET
+          url: '{{Base_Url}}/api/v1/user/status'
+          auth: inherit
+        runtime:
+          assertions:
+            - expression: res.status
+              operator: eq
+              value: '200'
+            - expression: res.body.status
+              operator: eq
+              value: ok
+            - expression: res.body.result.discord_id
+              operator: isString
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+        docs: |-
+          Returns registration and membership status for the authenticated Discord user.
+
+          Source: `api/openapi/registration.yaml`, operationId `getUserStatus`.
+
+      - info:
+          name: Generate Signed Dashboard Link
+          type: http
+          seq: 5
+          tags:
+            - registration
+            - dashboard
+        http:
+          method: POST
+          url: '{{Base_Url}}/api/v1/signed-link'
+          headers:
+            - name: Content-Type
+              value: application/json
+          body:
+            type: json
+            data: |-
+              {
+                "redirect_to": "/dashboard",
+                "ttl_minutes": 15
+              }
+          auth: inherit
+        runtime:
+          assertions:
+            - expression: res.status
+              operator: eq
+              value: '200'
+            - expression: res.body.status
+              operator: eq
+              value: ok
+            - expression: res.body.result.url
+              operator: isString
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+        docs: |-
+          Generates a presigned Vizburo dashboard URL for the authenticated user.
+
+          Source: `api/openapi/registration.yaml`, operationId `generateSignedLink`.
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git
+    exportedAt: '2026-05-19T06:31:04.447Z'
+    exportedUsing: Bruno

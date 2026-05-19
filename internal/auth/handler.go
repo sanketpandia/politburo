@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,22 +12,40 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/platform/httpdto"
+	platformUsers "infinite-experiment/politburo/internal/platform/users"
 
 	"github.com/go-chi/chi/v5"
 )
 
+// tokenSessionCreator is a narrow interface for the token-login path, enabling test injection.
+type tokenSessionCreator interface {
+	CreateSessionFromToken(ctx context.Context, token string) (*CreateSessionFromTokenResult, error)
+}
+
+type handlerService interface {
+	GetUserAndVAFromDiscordIDs(ctx context.Context, discordUserID string, discordServerID string) (*platformUsers.User, VAInfo, error)
+	GenerateSignedLink(ctx context.Context, userID string, vaID string, redirectTo string, ttl time.Duration) (string, error)
+	DestroyAllSessionsByIFCId(ctx context.Context, ifcId string) (int, error)
+	DeleteSession(ctx context.Context, sessionID string) error
+}
+
 // Handler provides HTTP handlers for authentication endpoints
 type Handler struct {
-	svc      *Service
+	svc      handlerService
+	tokenSvc tokenSessionCreator
 	renderer *templates.Renderer
 }
 
 // NewHandler creates a new auth handler
-func NewHandler(svc *Service, renderer *templates.Renderer) *Handler {
-	return &Handler{
+func NewHandler(svc handlerService, renderer *templates.Renderer) *Handler {
+	handler := &Handler{
 		svc:      svc,
 		renderer: renderer,
 	}
+	if tokenSvc, ok := svc.(tokenSessionCreator); ok {
+		handler.tokenSvc = tokenSvc
+	}
+	return handler
 }
 
 // GetUIBaseURL extracts the UI base URL from environment or request headers
@@ -72,7 +91,7 @@ func (h *Handler) TokenLogin() http.HandlerFunc {
 		}
 
 		// Create session from token
-		result, err := h.svc.CreateSessionFromToken(r.Context(), token)
+		result, err := h.tokenSvc.CreateSessionFromToken(r.Context(), token)
 		if err != nil {
 			logging.Error("Failed to create session from token", "error", err)
 			logging.Warn("Auth login rendered expired state", "token_prefix", shortToken(token))
@@ -128,7 +147,7 @@ func (h *Handler) Logout() http.HandlerFunc {
 		cookie, err := r.Cookie("session_id")
 		if err == nil {
 			// Delete session from Redis
-			h.svc.sessionSvc.DeleteSession(r.Context(), cookie.Value)
+			_ = h.svc.DeleteSession(r.Context(), cookie.Value)
 		}
 
 		// Clear session cookie

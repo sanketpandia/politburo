@@ -156,6 +156,11 @@ func (s *Service) GenerateSignedLink(
 	return s.urlSigner.GenerateSignedLink(ctx, userID, vaID, redirectTo, ttl)
 }
 
+func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
+	s.sessionSvc.DeleteSession(ctx, sessionID)
+	return nil
+}
+
 // DestroyAllSessionsByIFCId destroys all sessions for a user identified by their IFC ID
 func (s *Service) DestroyAllSessionsByIFCId(ctx context.Context, ifcId string) (int, error) {
 	// Look up user by IFC ID

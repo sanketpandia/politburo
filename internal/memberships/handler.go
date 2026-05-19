@@ -1,6 +1,7 @@
 package memberships
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,7 +10,6 @@ import (
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/auth"
-	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/httpdto"
 	platformMemberships "infinite-experiment/politburo/internal/platform/memberships"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
@@ -18,13 +18,26 @@ import (
 
 // Handler provides HTTP handlers for membership-related endpoints
 type Handler struct {
-	svc         *Service
-	pilotRepo   *pilots.Repository
-	vaConfigSvc *platformVA.ConfigService
+	svc         membershipsHandlerService
+	pilotRepo   pilotCallsignSampler
+	vaConfigSvc vaConfigReader
+}
+
+type membershipsHandlerService interface {
+	GetUserStatus(ctx context.Context, userID string, vaID string) (*UserDetailResponse, error)
+	JoinVA(ctx context.Context, discordUserID string, discordServerID string, callsign string) (*JoinVAResponse, *MembershipError)
+}
+
+type pilotCallsignSampler interface {
+	GetSampleCallsigns(ctx context.Context, vaID string, limit int) ([]string, error)
+}
+
+type vaConfigReader interface {
+	GetAllConfigValues(ctx context.Context, vaID string) (map[string]string, error)
 }
 
 // NewHandler creates a new memberships handler
-func NewHandler(svc *Service, pilotRepo *pilots.Repository, vaConfigSvc *platformVA.ConfigService) *Handler {
+func NewHandler(svc membershipsHandlerService, pilotRepo pilotCallsignSampler, vaConfigSvc vaConfigReader) *Handler {
 	return &Handler{
 		svc:         svc,
 		pilotRepo:   pilotRepo,
@@ -47,8 +60,8 @@ func (h *Handler) GetUserStatus() http.HandlerFunc {
 		}
 
 		// Get user ID and VA ID from claims
-		userID := claims.UserID()   // Use user ID, not discord ID
-		vaID := claims.ServerID()   // VA ID from claims
+		userID := claims.UserID() // Use user ID, not discord ID
+		vaID := claims.ServerID() // VA ID from claims
 
 		// If user ID is empty, user doesn't exist
 		if userID == "" {
@@ -157,4 +170,3 @@ func (h *Handler) JoinVA() http.HandlerFunc {
 		httpdto.WriteSuccess(w, initTime, result, http.StatusCreated)
 	}
 }
-
