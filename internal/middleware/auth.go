@@ -100,7 +100,7 @@ func tryAuthFromSession(r *http.Request, sessionSvc *session.SessionService) (se
 }
 
 // tryAuthFromAPIKey validates the X-API-Key header and builds claims from the
-// X-Server-Id and X-Discord-Id headers.
+// X-Discord-Server-Id and X-Discord-User-Id headers.
 func tryAuthFromAPIKey(r *http.Request, keysRepo *apikeys.Repository, claimsRepo *claims.Repository) (auth.UserClaims, bool) {
 	apiKey := r.Header.Get("X-API-Key")
 	if apiKey == "" {
@@ -113,8 +113,8 @@ func tryAuthFromAPIKey(r *http.Request, keysRepo *apikeys.Repository, claimsRepo
 		return nil, false
 	}
 
-	serverID := r.Header.Get("X-Server-Id")
-	userID := r.Header.Get("X-Discord-Id")
+	serverID := r.Header.Get(DiscordServerIDHeader)
+	userID := r.Header.Get(DiscordUserIDHeader)
 
 	return auth.MakeClaimsFromApi(r.Context(), claimsRepo, serverID, userID), true
 }

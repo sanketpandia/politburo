@@ -11,10 +11,10 @@ import (
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/app"
-	"infinite-experiment/politburo/internal/platform/health"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/middleware"
+	"infinite-experiment/politburo/internal/platform/health"
 	"infinite-experiment/politburo/internal/platform/roles"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 
@@ -113,17 +113,24 @@ func NewRouter(application *app.App) http.Handler {
 
 		logging.Info("Auth middleware applied to /api/v1 routes")
 
-		// User status endpoint
-		v1.Get("/user/status", application.Features.MembershipsHandler.GetUserStatus())
+		v1.Group(func(bot chi.Router) {
+			bot.Use(middleware.RequireDiscordBotContextMiddleware())
 
-		// Pilot registration endpoint
-		v1.Post("/pilots/register", application.Features.PilotsHandler.RegisterPilot())
+			// User status endpoint
+			bot.Get("/user/status", application.Features.MembershipsHandler.GetUserStatus())
 
-		// Server initialization endpoint
-		v1.Post("/server/init", application.Features.ServersHandler.InitServer())
+			// Pilot registration endpoint
+			bot.Post("/pilots/register", application.Features.PilotsHandler.RegisterPilot())
 
-		// Membership join endpoint
-		v1.Post("/memberships/join", application.Features.MembershipsHandler.JoinVA())
+			// Server initialization endpoint
+			bot.Post("/server/init", application.Features.ServersHandler.InitServer())
+
+			// Membership join endpoint
+			bot.Post("/memberships/join", application.Features.MembershipsHandler.JoinVA())
+
+			// Signed link generation endpoint
+			bot.Post("/signed-link", application.Features.AuthHandler.GenerateSignedLink())
+		})
 
 		// Pilot stats endpoint
 		v1.Get("/pilot/stats", application.Features.PilotsHandler.GetPilotStats())
@@ -135,9 +142,6 @@ func NewRouter(application *app.App) http.Handler {
 
 		// Get single flight by ID - returns CompleteFlight from cache
 		v1.Get("/flights/{flight_id}", flights.GetFlightByID(application.Infra.RedisCache))
-
-		// Signed link generation endpoint
-		v1.Post("/signed-link", application.Features.AuthHandler.GenerateSignedLink())
 
 		// Logbook endpoint (staff/admin only)
 		v1.Route("/pilots/{ifc_id}/logbook", func(logbook chi.Router) {
