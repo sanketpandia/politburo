@@ -24,7 +24,7 @@ type Handler struct {
 }
 
 type membershipsHandlerService interface {
-	GetUserStatus(ctx context.Context, userID string, vaID string) (*UserDetailResponse, error)
+	GetUserStatus(ctx context.Context, userID string, vaID string, discordUserID string, discordServerID string) (*UserDetailResponse, error)
 	JoinVA(ctx context.Context, discordUserID string, discordServerID string, callsign string) (*JoinVAResponse, *MembershipError)
 }
 
@@ -59,21 +59,15 @@ func (h *Handler) GetUserStatus() http.HandlerFunc {
 			return
 		}
 
-		// Get user ID and VA ID from claims
-		userID := claims.UserID() // Use user ID, not discord ID
-		vaID := claims.ServerID() // VA ID from claims
+		userID := claims.UserID()
+		vaID := claims.ServerID()
+		discordUserID := claims.DiscordUserID()
+		discordServerID := claims.DiscordServerID()
 
-		// If user ID is empty, user doesn't exist
-		if userID == "" {
-			logging.Warn("User status request with empty user ID", "va_id", vaID)
-			httpdto.WriteError(w, initTime, "USER_NOT_FOUND", "User not found", http.StatusNotFound)
-			return
-		}
-
-		logging.Info("User status request", "user_id", userID, "va_id", vaID, "endpoint", "/user/status")
+		logging.Info("User status request", "user_id", userID, "va_id", vaID, "discord_server_id", discordServerID, "endpoint", "/user/status")
 
 		// Call service
-		userStatus, err := h.svc.GetUserStatus(r.Context(), userID, vaID)
+		userStatus, err := h.svc.GetUserStatus(r.Context(), userID, vaID, discordUserID, discordServerID)
 		if err != nil {
 			// Check if user was not found
 			if errors.Is(err, platformMemberships.ErrUserNotFound) {

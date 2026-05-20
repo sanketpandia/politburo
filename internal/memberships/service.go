@@ -3,6 +3,7 @@ package memberships
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/internal/pilots"
@@ -37,26 +38,106 @@ func NewService(
 
 // GetUserStatus retrieves user status with all VA affiliations and current VA context
 // Feature-layer method that transforms platform data to API response format
-func (s *Service) GetUserStatus(ctx context.Context, userID, vaID string) (*UserDetailResponse, error) {
+func (s *Service) GetUserStatus(ctx context.Context, userID, vaID, discordUserID, discordServerID string) (*UserDetailResponse, error) {
 	// Log request
-	logging.Info("GetUserStatus called", "user_id", userID, "va_id", vaID)
+	logging.Info("GetUserStatus called", "user_id", userID, "va_id", vaID, "discord_server_id", discordServerID)
+
+	currentServer, resolvedVAID, err := s.resolveCurrentServer(ctx, vaID, discordServerID)
+	if err != nil {
+		return nil, err
+	}
+	if userID == "" && discordUserID != "" {
+		user, err := s.usersSvc.GetByDiscordID(ctx, discordUserID)
+		if err != nil {
+			if !isNotFoundError(err) {
+				return nil, fmt.Errorf("lookup user by discord id: %w", err)
+			}
+		} else if user != nil {
+			userID = user.ID
+		}
+	}
+
+	if userID == "" {
+		response := newUnregisteredUserStatus(discordUserID, currentServer)
+		logging.Debug("User status resolved as unregistered", "discord_server_id", discordServerID, "server_is_va", currentServer.IsConfiguredVA)
+		return response, nil
+	}
 
 	// Call platform service
-	result, err := s.membershipsSvc.GetUserStatusByUserID(ctx, userID, vaID)
+	result, err := s.membershipsSvc.GetUserStatusByUserID(ctx, userID, resolvedVAID)
 	if err != nil {
 		logging.Error("Failed to get user status from platform", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to fetch user status: %w", err)
 	}
 
 	// Transform to API response
-	response := transformToUserDetailResponse(result)
+	response := transformToUserDetailResponse(result, currentServer)
 
 	logging.Debug("User status fetched successfully", "user_id", userID, "affiliations_count", len(result.Affiliations))
 	return response, nil
 }
 
+func (s *Service) resolveCurrentServer(ctx context.Context, vaID, discordServerID string) (CurrentServerStatus, string, error) {
+	currentServer := CurrentServerStatus{DiscordServerID: discordServerID}
+	if discordServerID == "" && vaID == "" {
+		return currentServer, vaID, nil
+	}
+
+	var currentVA *platformVA.VA
+	var err error
+	if discordServerID != "" {
+		currentVA, err = s.vaSvc.GetByDiscordServerID(ctx, discordServerID)
+		if err != nil && !isNotFoundError(err) {
+			return currentServer, vaID, fmt.Errorf("lookup current server VA: %w", err)
+		}
+	}
+	if currentVA == nil && vaID != "" {
+		currentVA, err = s.vaSvc.GetByID(ctx, vaID)
+		if err != nil && !isNotFoundError(err) {
+			return currentServer, vaID, fmt.Errorf("lookup current VA: %w", err)
+		}
+	}
+	if currentVA == nil {
+		return currentServer, "", nil
+	}
+
+	currentServer.IsConfiguredVA = true
+	currentServer.VAID = currentVA.ID
+	currentServer.VAName = currentVA.Name
+	currentServer.VACode = currentVA.Code
+	return currentServer, currentVA.ID, nil
+}
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not found")
+}
+
+func newUnregisteredUserStatus(discordUserID string, currentServer CurrentServerStatus) *UserDetailResponse {
+	currentVA := &CurrentVAStatus{IsMember: false}
+	if currentServer.IsConfiguredVA {
+		currentVA.VAID = currentServer.VAID
+		currentVA.VAName = currentServer.VAName
+		currentVA.VACode = currentServer.VACode
+	}
+
+	return &UserDetailResponse{
+		IsRegistered:          false,
+		GlobalUserExists:      false,
+		DiscordID:             discordUserID,
+		IsActive:              false,
+		Affiliations:          []VAAffiliation{},
+		CurrentServer:         currentServer,
+		CurrentVA:             currentVA,
+		MembershipsSummary:    MembershipsSummary{},
+		OtherMembershipsCount: 0,
+	}
+}
+
 // transformToUserDetailResponse converts platform UserStatusResult to API response format
-func transformToUserDetailResponse(result *platformMemberships.UserStatusResult) *UserDetailResponse {
+func transformToUserDetailResponse(result *platformMemberships.UserStatusResult, currentServer CurrentServerStatus) *UserDetailResponse {
 	// Convert affiliations
 	affiliations := make([]VAAffiliation, 0, len(result.Affiliations))
 	for _, aff := range result.Affiliations {
@@ -77,6 +158,15 @@ func transformToUserDetailResponse(result *platformMemberships.UserStatusResult)
 		currentVA = &CurrentVAStatus{
 			IsMember: result.CurrentVA.IsMember,
 		}
+		if result.CurrentVA.VAID != nil {
+			currentVA.VAID = *result.CurrentVA.VAID
+		}
+		if result.CurrentVA.VAName != nil {
+			currentVA.VAName = *result.CurrentVA.VAName
+		}
+		if result.CurrentVA.VACode != nil {
+			currentVA.VACode = *result.CurrentVA.VACode
+		}
 
 		// Only set these fields if user is a member
 		if result.CurrentVA.IsMember && result.CurrentVA.Role != nil {
@@ -89,17 +179,52 @@ func transformToUserDetailResponse(result *platformMemberships.UserStatusResult)
 			}
 		}
 	}
+	if currentVA == nil {
+		currentVA = &CurrentVAStatus{IsMember: false}
+	}
+	if !currentVA.IsMember && currentServer.IsConfiguredVA {
+		currentVA.VAID = currentServer.VAID
+		currentVA.VAName = currentServer.VAName
+		currentVA.VACode = currentServer.VACode
+	}
+
+	activeCount := 0
+	otherMemberships := make([]MembershipSummary, 0, len(affiliations))
+	for _, aff := range affiliations {
+		if aff.IsActive {
+			activeCount++
+		}
+		if aff.VAID != currentServer.VAID {
+			otherMemberships = append(otherMemberships, MembershipSummary{
+				VAID:     aff.VAID,
+				VAName:   aff.VAName,
+				VACode:   aff.VACode,
+				Role:     aff.Role,
+				IsActive: aff.IsActive,
+			})
+		}
+	}
+	createdAt := result.CreatedAt
 
 	return &UserDetailResponse{
-		UserID:        result.UserID,
-		DiscordID:     result.DiscordID,
-		IFCommunityID: result.IFCommunityID,
-		IFApiID:       result.IFApiID,
-		UserName:      nil, // Not available in platform data (would need users service)
-		IsActive:      result.IsActive,
-		CreatedAt:     result.CreatedAt,
-		Affiliations:  affiliations,
-		CurrentVA:     currentVA,
+		IsRegistered:     true,
+		GlobalUserExists: true,
+		UserID:           result.UserID,
+		DiscordID:        result.DiscordID,
+		IFCommunityID:    result.IFCommunityID,
+		IFApiID:          result.IFApiID,
+		UserName:         nil, // Not available in platform data (would need users service)
+		IsActive:         result.IsActive,
+		CreatedAt:        &createdAt,
+		Affiliations:     affiliations,
+		CurrentServer:    currentServer,
+		CurrentVA:        currentVA,
+		MembershipsSummary: MembershipsSummary{
+			TotalCount:  len(affiliations),
+			ActiveCount: activeCount,
+		},
+		OtherMembershipsCount: len(otherMemberships),
+		OtherMemberships:      otherMemberships,
 	}
 }
 

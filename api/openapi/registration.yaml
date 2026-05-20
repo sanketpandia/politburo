@@ -210,10 +210,10 @@ paths:
       operationId: getUserStatus
       summary: Get authenticated user's registration and membership status
       description: |
-        Returns full user detail including all VA affiliations across every server
-        the user belongs to, plus the current-VA membership context derived from
-        the X-Discord-Server-Id header. The bot calls this to determine which onboarding
-        steps are still required.
+        Returns explicit onboarding state for the authenticated Discord user and
+        current Discord server. Normal onboarding states, including unregistered
+        users and servers that are not configured as VAs, are represented as a
+        200 response rather than requiring clients to infer state from 404s.
       tags: [registration]
       responses:
         "200":
@@ -230,12 +230,6 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: Missing required Discord context headers X-Discord-User-Id or X-Discord-Server-Id
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: User record not found (not yet registered)
           content:
             application/json:
               schema:
@@ -411,7 +405,7 @@ components:
           example: Pilot registered successfully
         is_va_registered:
           type: boolean
-          description: True when the Discord server is already set up as a VA, indicating the user should proceed to /join.
+          description: True when the Discord server is already set up as a VA, indicating the bot may offer VA linking through /register.
 
     RegisterPilotResponse:
       type: object
@@ -560,19 +554,80 @@ components:
       properties:
         is_member:
           type: boolean
+        va_id:
+          type: string
+          format: uuid
+        va_name:
+          type: string
+          example: Infinite Flight Express
+        va_code:
+          type: string
+          example: IFE
         role:
           type: string
-          example: member
+          example: pilot
         is_active:
           type: boolean
         callsign:
           type: string
           example: "123"
 
+    CurrentServerStatus:
+      type: object
+      required: [discord_server_id, is_configured_va]
+      properties:
+        discord_server_id:
+          type: string
+          example: "987654321098765432"
+        is_configured_va:
+          type: boolean
+        va_id:
+          type: string
+          format: uuid
+        va_name:
+          type: string
+          example: Infinite Flight Express
+        va_code:
+          type: string
+          example: IFE
+
+    MembershipsSummary:
+      type: object
+      required: [total_count, active_count]
+      properties:
+        total_count:
+          type: integer
+          minimum: 0
+        active_count:
+          type: integer
+          minimum: 0
+
+    MembershipSummary:
+      type: object
+      required: [va_id, va_name, va_code, role, is_active]
+      properties:
+        va_id:
+          type: string
+          format: uuid
+        va_name:
+          type: string
+        va_code:
+          type: string
+        role:
+          type: string
+        is_active:
+          type: boolean
+
     UserStatusData:
       type: object
-      required: [user_id, discord_id, if_community_id, is_active, created_at, affiliations]
+      required: [is_registered, global_user_exists, discord_id, is_active, affiliations, current_server, current_va, memberships_summary, other_memberships_count]
       properties:
+        is_registered:
+          type: boolean
+          description: True when a global Comrade Bot account exists for this Discord user.
+        global_user_exists:
+          type: boolean
+          description: Compatibility alias for is_registered.
         user_id:
           type: string
           format: uuid
@@ -601,6 +656,17 @@ components:
             $ref: "#/components/schemas/VAAffiliation"
         current_va:
           $ref: "#/components/schemas/CurrentVAStatus"
+        current_server:
+          $ref: "#/components/schemas/CurrentServerStatus"
+        memberships_summary:
+          $ref: "#/components/schemas/MembershipsSummary"
+        other_memberships_count:
+          type: integer
+          minimum: 0
+        other_memberships:
+          type: array
+          items:
+            $ref: "#/components/schemas/MembershipSummary"
 
     UserStatusResponse:
       type: object

@@ -23,12 +23,12 @@ func TestMain(m *testing.M) {
 }
 
 type fakeMembershipsService struct {
-	getUserStatus func(ctx context.Context, userID string, vaID string) (*UserDetailResponse, error)
+	getUserStatus func(ctx context.Context, userID string, vaID string, discordUserID string, discordServerID string) (*UserDetailResponse, error)
 	joinVA        func(ctx context.Context, discordUserID string, discordServerID string, callsign string) (*JoinVAResponse, *MembershipError)
 }
 
-func (f *fakeMembershipsService) GetUserStatus(ctx context.Context, userID string, vaID string) (*UserDetailResponse, error) {
-	return f.getUserStatus(ctx, userID, vaID)
+func (f *fakeMembershipsService) GetUserStatus(ctx context.Context, userID string, vaID string, discordUserID string, discordServerID string) (*UserDetailResponse, error) {
+	return f.getUserStatus(ctx, userID, vaID, discordUserID, discordServerID)
 }
 
 func (f *fakeMembershipsService) JoinVA(ctx context.Context, discordUserID string, discordServerID string, callsign string) (*JoinVAResponse, *MembershipError) {
@@ -49,6 +49,94 @@ type fakeVAConfigReader struct {
 
 func (f *fakeVAConfigReader) GetAllConfigValues(ctx context.Context, vaID string) (map[string]string, error) {
 	return f.getAllConfigValues(ctx, vaID)
+}
+
+func TestGetUserStatus_UnregisteredReturnsExplicitState(t *testing.T) {
+	handler := NewHandler(&fakeMembershipsService{
+		getUserStatus: func(ctx context.Context, userID string, vaID string, discordUserID string, discordServerID string) (*UserDetailResponse, error) {
+			if userID != "" || vaID != "" || discordUserID != "discord-user" || discordServerID != "discord-server" {
+				t.Fatalf("unexpected status arguments: %q %q %q %q", userID, vaID, discordUserID, discordServerID)
+			}
+			return &UserDetailResponse{
+				IsRegistered:     false,
+				GlobalUserExists: false,
+				DiscordID:        discordUserID,
+				Affiliations:     []VAAffiliation{},
+				CurrentServer:    CurrentServerStatus{DiscordServerID: discordServerID, IsConfiguredVA: false},
+				CurrentVA:        &CurrentVAStatus{IsMember: false},
+			}, nil
+		},
+	}, nil, nil)
+	req := newUserStatusRequest(&auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
+	rr := httptest.NewRecorder()
+
+	handler.GetUserStatus()(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var response httpdto.Response[UserDetailResponse]
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Result.IsRegistered || response.Result.CurrentServer.IsConfiguredVA || response.Result.CurrentVA.IsMember {
+		t.Fatalf("unexpected user status response: %+v", response.Result)
+	}
+}
+
+func TestGetUserStatus_RegisteredLinkedReturnsCurrentVA(t *testing.T) {
+	now := time.Now()
+	handler := NewHandler(&fakeMembershipsService{
+		getUserStatus: func(ctx context.Context, userID string, vaID string, discordUserID string, discordServerID string) (*UserDetailResponse, error) {
+			if userID != "user-id" || vaID != "va-id" || discordUserID != "discord-user" || discordServerID != "discord-server" {
+				t.Fatalf("unexpected status arguments: %q %q %q %q", userID, vaID, discordUserID, discordServerID)
+			}
+			return &UserDetailResponse{
+				IsRegistered:     true,
+				GlobalUserExists: true,
+				UserID:           userID,
+				DiscordID:        discordUserID,
+				IFCommunityID:    "ifc_user",
+				IsActive:         true,
+				CreatedAt:        &now,
+				Affiliations: []VAAffiliation{{
+					VAID: "va-id", VAName: "Test VA", VACode: "TVA", Role: "pilot", IsActive: true, JoinedAt: now, Callsign: "TVA123",
+				}},
+				CurrentServer: CurrentServerStatus{DiscordServerID: discordServerID, IsConfiguredVA: true, VAID: "va-id", VAName: "Test VA", VACode: "TVA"},
+				CurrentVA:     &CurrentVAStatus{IsMember: true, VAID: "va-id", VAName: "Test VA", VACode: "TVA", Role: "pilot", IsActive: true, Callsign: "TVA123"},
+				MembershipsSummary: MembershipsSummary{
+					TotalCount: 1, ActiveCount: 1,
+				},
+			}, nil
+		},
+	}, nil, nil)
+	req := newUserStatusRequest(&auth.APIKeyClaims{UserUUID: "user-id", VaUUID: "va-id", DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server", RoleValue: roles.RolePilot})
+	rr := httptest.NewRecorder()
+
+	handler.GetUserStatus()(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var response httpdto.Response[UserDetailResponse]
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Result.IsRegistered || !response.Result.CurrentServer.IsConfiguredVA || !response.Result.CurrentVA.IsMember || response.Result.CurrentVA.Callsign != "TVA123" {
+		t.Fatalf("unexpected user status response: %+v", response.Result)
+	}
+}
+
+func TestGetUserStatus_MissingClaims(t *testing.T) {
+	handler := NewHandler(&fakeMembershipsService{}, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/status", nil)
+	rr := httptest.NewRecorder()
+
+	handler.GetUserStatus()(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
 }
 
 func TestJoinVA_MissingClaims(t *testing.T) {
@@ -170,6 +258,14 @@ func newJoinMembershipRequest(t *testing.T, body JoinVARequest, claims auth.User
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/memberships/join", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
+	if claims != nil {
+		req = req.WithContext(auth.SetUserClaims(req.Context(), claims))
+	}
+	return req
+}
+
+func newUserStatusRequest(claims auth.UserClaims) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/user/status", nil)
 	if claims != nil {
 		req = req.WithContext(auth.SetUserClaims(req.Context(), claims))
 	}
