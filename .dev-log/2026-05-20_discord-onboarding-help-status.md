@@ -25,3 +25,16 @@
 - Blast-radius notes / dependent surfaces checked: inspected command registry/loader, InteractionRouter, register buttons/modals, response types, status/help commands, API service, message formatter, and bot package scripts.
 - Live API compliance notes: bot account creation modal still collects only IF Community username and last-flight route; callsign is only requested through VA-link modal after enriched status indicates current server is a configured VA.
 - Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents: redeploy slash commands with environment-specific deploy script; Unit Testing should add mocked command-flow cases; Observability can review whether command-level metrics need dashboards/alerts.
+
+## Comrade Bot VA initialization admin permission follow-up
+- Logical unit / commit intent: restrict the VA initialization slash command to Discord server administrators using Discord.js default member permissions.
+- Changed files: `comrade-bot/src/commands/initServer.ts`.
+- Reused code / patterns / components: existing `/initserver` `SlashCommandBuilder`; added Discord.js `PermissionFlagsBits.Administrator` via `.setDefaultMemberPermissions(...)` only on that command.
+- Logging added or affected: none.
+- Metrics added or affected: none; existing command metrics remain unchanged.
+- Test surface touched or still needed: no new tests; command JSON/deployment should be manually verified during slash-command redeploy.
+- Build/test command(s) run and status: `npm run build` passed; `npm test` passed (5 tests).
+- Deviations from plan, if any: user-requested follow-up beyond original plan; scoped only to `/initserver`.
+- Blast-radius notes / dependent surfaces checked: inspected command registry and command files to identify `src/commands/initServer.ts` as the VA initialization command; did not modify `/register`, `/status`, `/help`, `/botstatus`, or other user commands.
+- Live API compliance notes: no backend/API behavior changed.
+- Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents: redeploy slash commands so Discord receives the updated default member permission for `/initserver`.
