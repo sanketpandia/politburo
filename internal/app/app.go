@@ -43,8 +43,8 @@ import (
 	"infinite-experiment/politburo/internal/webhooks"
 	"os"
 
-	watermillmessage "github.com/ThreeDotsLabs/watermill/message"
 	watermillredis "github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
+	watermillmessage "github.com/ThreeDotsLabs/watermill/message"
 	goredis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -562,7 +562,7 @@ func (a *App) initFeatures() error {
 		a.Infra.RedisCache,
 		a.Infra.MetricsReg,
 	)
-	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, vaWebhookRepo, liveFlightsWebhookJob, a.Infra.TemplateRenderer)
+	vaAdminHandler := vaadmin.NewHandler(pilotMgmtSvc, a.Platform.VASvc, a.Platform.VAConfigSvc, vaWebhookRepo, liveFlightsWebhookJob, a.Infra.TemplateRenderer)
 
 	logging.Debug("Feature handlers initialized")
 

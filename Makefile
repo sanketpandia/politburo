@@ -3,7 +3,7 @@
 # Regenerate OpenAPI server stubs from spec files.
 # Run after any change to api/openapi/*.yaml.
 generate-api:
-	cd api/openapi && oapi-codegen -config registration.cfg.yaml registration.yaml
+	cd api/openapi && go tool oapi-codegen -config registration.cfg.yaml registration.yaml
 
 # Default target
 help:

@@ -20,16 +20,16 @@ func TestMain(m *testing.M) {
 }
 
 type fakeServerRegistrationService struct {
-	initServer func(ctx context.Context, discordServerID string, discordUserID string, vaCode string, vaName string, callsignPrefix string, callsignSuffix string) (*InitServerResponse, *ServerError)
+	initServer func(ctx context.Context, discordServerID string, discordUserID string, vaCode string) (*InitServerResponse, *ServerError)
 }
 
-func (f *fakeServerRegistrationService) InitServer(ctx context.Context, discordServerID string, discordUserID string, vaCode string, vaName string, callsignPrefix string, callsignSuffix string) (*InitServerResponse, *ServerError) {
-	return f.initServer(ctx, discordServerID, discordUserID, vaCode, vaName, callsignPrefix, callsignSuffix)
+func (f *fakeServerRegistrationService) InitServer(ctx context.Context, discordServerID string, discordUserID string, vaCode string) (*InitServerResponse, *ServerError) {
+	return f.initServer(ctx, discordServerID, discordUserID, vaCode)
 }
 
 func TestInitServer_MissingClaims(t *testing.T) {
 	handler := NewHandler(&fakeServerRegistrationService{})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/init", bytes.NewBufferString(`{"va_code":"IFE","va_name":"Infinite","callsign_prefix":"IFE"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/init", bytes.NewBufferString(`{"va_code":"IFE"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -40,25 +40,25 @@ func TestInitServer_MissingClaims(t *testing.T) {
 	}
 }
 
-func TestInitServer_InvalidCallsignConfig(t *testing.T) {
+func TestInitServer_MissingVACode(t *testing.T) {
 	handler := NewHandler(&fakeServerRegistrationService{})
-	req := newInitServerRequest(t, InitServerRequest{VACode: "IFE", VAName: "Infinite"}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
+	req := newInitServerRequest(t, InitServerRequest{}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
 	rr := httptest.NewRecorder()
 
 	handler.InitServer()(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rr.Code)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rr.Code)
 	}
 }
 
 func TestInitServer_ServerAlreadyRegistered(t *testing.T) {
 	handler := NewHandler(&fakeServerRegistrationService{
-		initServer: func(context.Context, string, string, string, string, string, string) (*InitServerResponse, *ServerError) {
+		initServer: func(context.Context, string, string, string) (*InitServerResponse, *ServerError) {
 			return nil, &ServerError{Code: "SERVER_ALREADY_REGISTERED", Message: "already registered", StatusCode: http.StatusConflict}
 		},
 	})
-	req := newInitServerRequest(t, InitServerRequest{VACode: "IFE", VAName: "Infinite", CallsignPrefix: "IFE"}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
+	req := newInitServerRequest(t, InitServerRequest{VACode: "IFE"}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
 	rr := httptest.NewRecorder()
 
 	handler.InitServer()(rr, req)
@@ -70,11 +70,11 @@ func TestInitServer_ServerAlreadyRegistered(t *testing.T) {
 
 func TestInitServer_UserNotRegistered(t *testing.T) {
 	handler := NewHandler(&fakeServerRegistrationService{
-		initServer: func(context.Context, string, string, string, string, string, string) (*InitServerResponse, *ServerError) {
+		initServer: func(context.Context, string, string, string) (*InitServerResponse, *ServerError) {
 			return nil, &ServerError{Code: "USER_NOT_REGISTERED", Message: "register first", StatusCode: http.StatusBadRequest}
 		},
 	})
-	req := newInitServerRequest(t, InitServerRequest{VACode: "IFE", VAName: "Infinite", CallsignPrefix: "IFE"}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
+	req := newInitServerRequest(t, InitServerRequest{VACode: "IFE"}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
 	rr := httptest.NewRecorder()
 
 	handler.InitServer()(rr, req)
@@ -86,14 +86,14 @@ func TestInitServer_UserNotRegistered(t *testing.T) {
 
 func TestInitServer_Success(t *testing.T) {
 	handler := NewHandler(&fakeServerRegistrationService{
-		initServer: func(ctx context.Context, discordServerID string, discordUserID string, vaCode string, vaName string, callsignPrefix string, callsignSuffix string) (*InitServerResponse, *ServerError) {
-			if discordServerID != "discord-server" || discordUserID != "discord-user" || vaCode != "IFE" || vaName != "Infinite" {
-				t.Fatalf("unexpected service arguments: %q %q %q %q", discordServerID, discordUserID, vaCode, vaName)
+		initServer: func(ctx context.Context, discordServerID string, discordUserID string, vaCode string) (*InitServerResponse, *ServerError) {
+			if discordServerID != "discord-server" || discordUserID != "discord-user" || vaCode != "IFE" {
+				t.Fatalf("unexpected service arguments: %q %q %q", discordServerID, discordUserID, vaCode)
 			}
-			return &InitServerResponse{Success: true, Message: "Server initialized successfully", VACode: vaCode, VAID: "0d0e5756-5797-4a9d-8645-b6127e633922"}, nil
+			return &InitServerResponse{Success: true, Message: "Server initialized successfully", VACode: vaCode, SetupRequired: true}, nil
 		},
 	})
-	req := newInitServerRequest(t, InitServerRequest{VACode: "IFE", VAName: "Infinite", CallsignPrefix: "IFE"}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
+	req := newInitServerRequest(t, InitServerRequest{VACode: "IFE"}, &auth.APIKeyClaims{DiscordUIDVal: "discord-user", DiscordServerIDVal: "discord-server"})
 	rr := httptest.NewRecorder()
 
 	handler.InitServer()(rr, req)
@@ -106,7 +106,7 @@ func TestInitServer_Success(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Status != "ok" || !response.Result.Success || response.Result.VACode != "IFE" {
+	if response.Status != "ok" || !response.Result.Success || response.Result.VACode != "IFE" || !response.Result.SetupRequired {
 		t.Fatalf("unexpected success response: %+v", response)
 	}
 }

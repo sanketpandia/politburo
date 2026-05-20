@@ -74,9 +74,8 @@ func (membershipServiceStub) JoinVA(context.Context, string, string, string) (*m
 
 type serverServiceStub struct{}
 
-func (serverServiceStub) InitServer(context.Context, string, string, string, string, string, string) (*servers.InitServerResponse, *servers.ServerError) {
-	vaID := uuid.MustParse("0d0e5756-5797-4a9d-8645-b6127e633922")
-	return &servers.InitServerResponse{Success: true, Message: "Server initialized successfully", VACode: "IFE", VAID: vaID.String()}, nil
+func (serverServiceStub) InitServer(context.Context, string, string, string) (*servers.InitServerResponse, *servers.ServerError) {
+	return &servers.InitServerResponse{Success: true, Message: "Server initialized successfully", VACode: "IFE", SetupRequired: true}, nil
 }
 
 type authServiceStub struct{}
@@ -118,7 +117,7 @@ func TestStrictServer_ComradeBotFlowEndpoints(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "register pilot", method: http.MethodPost, path: "/pilots/register", body: map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
-		{name: "init server", method: http.MethodPost, path: "/server/init", body: map[string]string{"va_code": "IFE", "va_name": "Infinite", "callsign_prefix": "IFE"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
+		{name: "init server", method: http.MethodPost, path: "/server/init", body: map[string]string{"va_code": "IFE"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
 		{name: "join membership", method: http.MethodPost, path: "/memberships/join", body: map[string]string{"callsign": "IFE123"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
 		{name: "user status", method: http.MethodGet, path: "/user/status", claims: apiKeyClaims(uuid.MustParse("1cfa3e1e-5de1-4eff-ad0c-6fcb1bcd510a").String(), roles.RolePilot.String(), true), wantStatus: http.StatusOK},
 		{name: "signed link", method: http.MethodPost, path: "/signed-link", body: map[string]any{"redirect_to": "/dashboard", "ttl_minutes": 15}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusOK},
@@ -184,7 +183,7 @@ func TestStrictServer_ForbiddenDiscordContextMapsErrorEnvelope(t *testing.T) {
 		body   any
 	}{
 		{name: "register pilot", method: http.MethodPost, path: "/pilots/register", body: map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"}},
-		{name: "init server", method: http.MethodPost, path: "/server/init", body: map[string]string{"va_code": "IFE", "va_name": "Infinite", "callsign_prefix": "IFE"}},
+		{name: "init server", method: http.MethodPost, path: "/server/init", body: map[string]string{"va_code": "IFE"}},
 		{name: "join membership", method: http.MethodPost, path: "/memberships/join", body: map[string]string{"callsign": "IFE123"}},
 		{name: "user status", method: http.MethodGet, path: "/user/status"},
 		{name: "signed link", method: http.MethodPost, path: "/signed-link", body: map[string]any{"redirect_to": "/dashboard", "ttl_minutes": 15}},

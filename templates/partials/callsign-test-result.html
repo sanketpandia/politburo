@@ -1,0 +1,9 @@
+{{define "callsign-test-result"}}
+{{if not .HasInput}}
+<span class="setup-muted">Enter a sample callsign to test.</span>
+{{else if .Matches}}
+<span class="setup-badge">Matches {{.Sample}}</span>
+{{else}}
+<span class="setup-badge">Does not match {{.Sample}}</span>
+{{end}}
+{{end}}

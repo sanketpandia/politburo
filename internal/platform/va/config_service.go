@@ -68,7 +68,7 @@ var AllowedVAConfigKeys = map[string]struct{}{
 	ConfigKeyATFieldRoutesRoute:           {},
 	ConfigKeyAirtableCallsignColumnPrefix: {},
 	ConfigKeyTourFlightMode:               {},
-	ConfigKeyDefaultAircraft:             {},
+	ConfigKeyDefaultAircraft:              {},
 	ConfigKeyDefaultAirline:               {},
 }
 
@@ -83,6 +83,17 @@ func ListAllowedVAConfigKeys() []string {
 func IsValidVAConfigKey(k string) bool {
 	_, ok := AllowedVAConfigKeys[k]
 	return ok
+}
+
+func (s *ConfigService) SetConfigValue(ctx stdCtx.Context, vaID string, key string, value string) error {
+	if !IsValidVAConfigKey(key) {
+		return fmt.Errorf("%q is not a valid key", key)
+	}
+	if err := s.repo.UpsertVAConfig(ctx, vaID, key, value); err != nil {
+		return fmt.Errorf("failed to set config: %w", err)
+	}
+	s.cacheStore.Delete(configCacheKey(vaID))
+	return nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -439,9 +450,9 @@ func (s *ConfigService) ResolveLiveryName(ctx stdCtx.Context, vaID, liveryID str
 
 // ResolvedValue represents a resolved value with metadata about how it was resolved
 type ResolvedValue struct {
-	Value          string
-	UsedDefault    bool
-	OriginalValue  string
+	Value         string
+	UsedDefault   bool
+	OriginalValue string
 }
 
 // ResolveAircraftNameWithMetadata resolves aircraft name and returns metadata about resolution

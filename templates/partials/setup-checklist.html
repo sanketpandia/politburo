@@ -1,0 +1,26 @@
+{{define "setup-checklist"}}
+<h3 class="setup-section-title">Setup checklist</h3>
+<div class="setup-module-row">
+    <div class="setup-module-title">Create VA <span class="setup-badge">Ready</span></div>
+    <p class="setup-helper">Created from Discord with your VA Code / ID.</p>
+</div>
+<div class="setup-module-row">
+    <div class="setup-module-title">Recognize your flights {{if .Readiness.FlightMatchingReady}}<span class="setup-badge">Ready</span>{{else}}<span class="setup-badge">Needs setup</span>{{end}}</div>
+    <p class="setup-helper">Required for live-flight matching. Add a callsign start or end in Basic Setup.</p>
+</div>
+<div class="setup-module-row">
+    <div class="setup-module-title">Connect Airtable records <span class="setup-badge">Optional</span></div>
+    <p class="setup-helper">Use this only if your VA wants roster, route, or PIREP data from Airtable.</p>
+    <a href="/dashboard/settings/datasource" class="btn-secondary">Open Airtable setup</a>
+</div>
+<div class="setup-module-row">
+    <div class="setup-module-title">Flight logging <span class="setup-badge">Optional</span></div>
+    <p class="setup-helper">Enable PIREP modes when your VA is ready to collect flight reports.</p>
+    <a href="/dashboard/vaadmin/flight-modes" class="btn-secondary">Open flight modes</a>
+</div>
+<div class="setup-module-row">
+    <div class="setup-module-title">Discord notifications <span class="setup-badge">Optional</span></div>
+    <p class="setup-helper">Send live flight updates to Discord when you add a webhook.</p>
+    <a href="/dashboard/vaadmin/webhooks" class="btn-secondary">Open webhooks</a>
+</div>
+{{end}}

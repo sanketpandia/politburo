@@ -1,15 +1,14 @@
 package servers
 
 type InitServerRequest struct {
-	VACode         string `json:"va_code" validate:"required"`
-	VAName         string `json:"va_name" validate:"required"`
-	CallsignPrefix string `json:"callsign_prefix"`
-	CallsignSuffix string `json:"callsign_suffix"`
+	VACode string `json:"va_code" validate:"required"`
 }
 
 type InitServerResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	VACode  string `json:"va_code"`
-	VAID    string `json:"va_id,omitempty"`
+	Success       bool   `json:"success"`
+	Message       string `json:"message"`
+	VACode        string `json:"va_code"`
+	SetupRequired bool   `json:"setup_required"`
+	DashboardURL  string `json:"dashboard_url,omitempty"`
+	SetupURL      string `json:"setup_url,omitempty"`
 }

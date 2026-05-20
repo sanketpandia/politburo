@@ -3,6 +3,7 @@ package servers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"infinite-experiment/politburo/internal/platform/roles"
 	"infinite-experiment/politburo/internal/platform/users"
@@ -35,25 +36,24 @@ func (s *RegistrationService) InitServer(
 	discordServerID string,
 	discordUserID string,
 	vaCode string,
-	vaName string,
-	callsignPrefix string,
-	callsignSuffix string,
 ) (*InitServerResponse, *ServerError) {
+	vaCode = strings.ToUpper(strings.TrimSpace(vaCode))
 
 	// 1. Validate required fields
-	if vaCode == "" || vaName == "" {
+	if vaCode == "" {
 		return nil, sentinelToServerError(ErrVACreationFailed)
 	}
 
-	// 2. Validate at least one callsign pattern exists
-	if callsignPrefix == "" && callsignSuffix == "" {
-		return nil, sentinelToServerError(ErrInvalidCallsignConfig)
-	}
-
-	// 3. Check if server already registered
+	// 2. Check if server already registered
 	existingVA, err := s.vaSvc.GetByDiscordServerID(ctx, discordServerID)
 	if err == nil && existingVA != nil {
 		return nil, sentinelToServerError(ErrServerAlreadyRegistered)
+	}
+
+	// 3. Check if the admin-facing VA code is already in use.
+	existingCodeVA, err := s.vaSvc.GetByCode(ctx, vaCode)
+	if err == nil && existingCodeVA != nil {
+		return nil, sentinelToServerError(ErrVACodeAlreadyExists)
 	}
 
 	// 4. Check if user is registered
@@ -62,9 +62,10 @@ func (s *RegistrationService) InitServer(
 		return nil, sentinelToServerError(ErrUserNotRegistered)
 	}
 
-	// 5. Create VA
+	// 5. Create minimal VA. Display name starts as the VA code; admins can update
+	// it later from Vizburo Basic Setup.
 	newVA := &va.VA{
-		Name:      vaName,
+		Name:      vaCode,
 		Code:      vaCode,
 		DiscordID: discordServerID,
 		IsActive:  true,
@@ -74,20 +75,7 @@ func (s *RegistrationService) InitServer(
 		return nil, sentinelToServerError(fmt.Errorf("%w: %v", ErrVACreationFailed, err))
 	}
 
-	// 6. Store callsign configs
-	if callsignPrefix != "" {
-		if err := s.vaSvc.UpsertConfig(ctx, newVA.ID, "callsign_prefix", callsignPrefix); err != nil {
-			return nil, sentinelToServerError(fmt.Errorf("failed to store callsign prefix: %w", err))
-		}
-	}
-
-	if callsignSuffix != "" {
-		if err := s.vaSvc.UpsertConfig(ctx, newVA.ID, "callsign_suffix", callsignSuffix); err != nil {
-			return nil, sentinelToServerError(fmt.Errorf("failed to store callsign suffix: %w", err))
-		}
-	}
-
-	// 7. Create admin membership (no callsign needed for admin role)
+	// 6. Create admin membership (no callsign needed for admin role)
 	_, err = s.usersRepo.InsertMembership(
 		ctx,
 		user.ID,
@@ -100,9 +88,9 @@ func (s *RegistrationService) InitServer(
 	}
 
 	return &InitServerResponse{
-		Success: true,
-		Message: "Server initialized successfully",
-		VACode:  newVA.Code,
-		VAID:    newVA.ID,
+		Success:       true,
+		Message:       "Server initialized successfully. Continue setup in Vizburo to enable live-flight matching.",
+		VACode:        newVA.Code,
+		SetupRequired: true,
 	}, nil
 }

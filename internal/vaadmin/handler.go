@@ -27,17 +27,19 @@ type LiveFlightsRunner interface {
 type Handler struct {
 	pilotMgmtSvc      *pilots.ManagementService
 	vaSvc             *platformVA.Service
+	vaConfigSvc       *platformVA.ConfigService
 	webhookRepo       *platformVA.WebhookRepo
 	liveFlightsRunner LiveFlightsRunner // optional: nil means "Run now" is not available
-	templateRenderer *templates.Renderer
+	templateRenderer  *templates.Renderer
 }
 
 // NewHandler creates a new VA admin handler instance.
 // liveFlightsRunner may be nil; if set, "Run now" for live flights webhooks is enabled.
-func NewHandler(pilotMgmtSvc *pilots.ManagementService, vaSvc *platformVA.Service, webhookRepo *platformVA.WebhookRepo, liveFlightsRunner LiveFlightsRunner, templateRenderer *templates.Renderer) *Handler {
+func NewHandler(pilotMgmtSvc *pilots.ManagementService, vaSvc *platformVA.Service, vaConfigSvc *platformVA.ConfigService, webhookRepo *platformVA.WebhookRepo, liveFlightsRunner LiveFlightsRunner, templateRenderer *templates.Renderer) *Handler {
 	return &Handler{
 		pilotMgmtSvc:      pilotMgmtSvc,
 		vaSvc:             vaSvc,
+		vaConfigSvc:       vaConfigSvc,
 		webhookRepo:       webhookRepo,
 		liveFlightsRunner: liveFlightsRunner,
 		templateRenderer:  templateRenderer,
@@ -76,6 +78,206 @@ func (h *Handler) IndexPageHandler() http.HandlerFunc {
 			return
 		}
 	}
+}
+
+func (h *Handler) SetupPageHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionData, activeVA, ok := h.requireActiveVASession(w, r)
+		if !ok {
+			return
+		}
+
+		data, err := templates.PrepareTemplateData(sessionData, "VA Setup")
+		if err != nil {
+			logging.Error("Failed to prepare setup template data", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		vaEntity, err := h.vaSvc.GetByID(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to load VA for setup page", "error", err, "va_id", activeVA.VAID)
+			http.Error(w, "Failed to load VA setup", http.StatusInternalServerError)
+			return
+		}
+		readiness, err := h.vaConfigSvc.ComputeSetupReadiness(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to compute setup readiness", "error", err, "va_id", activeVA.VAID)
+			http.Error(w, "Failed to load setup readiness", http.StatusInternalServerError)
+			return
+		}
+
+		data["CurrentPage"] = "vaadmin-setup"
+		data["VA"] = vaEntity
+		data["Readiness"] = readiness
+
+		if err := h.templateRenderer.RenderTemplate(w, "pages/vaadmin-setup.html", data); err != nil {
+			logging.Error("Error rendering VA setup page", "error", err)
+			http.Error(w, "Error rendering VA setup page", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func (h *Handler) BasicSetupFormHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, activeVA, ok := h.requireActiveVASession(w, r)
+		if !ok {
+			return
+		}
+		h.renderBasicSetupForm(w, r, activeVA.VAID, "", nil)
+	}
+}
+
+func (h *Handler) SaveBasicSetupHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, activeVA, ok := h.requireActiveVASession(w, r)
+		if !ok {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not read setup form.", nil)
+			return
+		}
+
+		displayName := strings.TrimSpace(r.FormValue("display_name"))
+		prefix := strings.ToUpper(strings.TrimSpace(r.FormValue("callsign_prefix")))
+		suffix := strings.ToUpper(strings.TrimSpace(r.FormValue("callsign_suffix")))
+		if prefix == "" && suffix == "" {
+			h.renderBasicSetupForm(w, r, activeVA.VAID, "Enter a callsign start or callsign end so Infinite Experiment can recognize your flights.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
+			return
+		}
+
+		vaEntity, err := h.vaSvc.GetByID(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to load VA for setup save", "error", err, "va_id", activeVA.VAID)
+			h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not load your VA setup.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
+			return
+		}
+		if displayName != "" && displayName != vaEntity.Name {
+			vaEntity.Name = displayName
+			if err := h.vaSvc.Update(r.Context(), vaEntity); err != nil {
+				logging.Error("Failed to update VA display name", "error", err, "va_id", activeVA.VAID)
+				h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not save the VA display name.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
+				return
+			}
+		}
+
+		if err := h.vaConfigSvc.SetConfigValue(r.Context(), activeVA.VAID, platformVA.ConfigKeyCallsignPrefix, prefix); err != nil {
+			logging.Error("Failed to save callsign prefix", "error", err, "va_id", activeVA.VAID)
+			h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not save the callsign start.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
+			return
+		}
+		if err := h.vaConfigSvc.SetConfigValue(r.Context(), activeVA.VAID, platformVA.ConfigKeyCallsignSuffix, suffix); err != nil {
+			logging.Error("Failed to save callsign suffix", "error", err, "va_id", activeVA.VAID)
+			h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not save the callsign end.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
+			return
+		}
+
+		w.Header().Set("HX-Trigger", "setup-saved")
+		h.renderBasicSetupForm(w, r, activeVA.VAID, "", nil)
+	}
+}
+
+func (h *Handler) SetupChecklistHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, activeVA, ok := h.requireActiveVASession(w, r)
+		if !ok {
+			return
+		}
+		h.renderSetupChecklist(w, r, activeVA.VAID)
+	}
+}
+
+func (h *Handler) CallsignTestHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, activeVA, ok := h.requireActiveVASession(w, r)
+		if !ok {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Could not read callsign test", http.StatusBadRequest)
+			return
+		}
+		sample := strings.TrimSpace(r.FormValue("sample_callsign"))
+		readiness, err := h.vaConfigSvc.ComputeSetupReadiness(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to compute callsign test readiness", "error", err, "va_id", activeVA.VAID)
+			http.Error(w, "Could not test callsign", http.StatusInternalServerError)
+			return
+		}
+		data := map[string]interface{}{
+			"Sample":   sample,
+			"HasInput": sample != "",
+			"Matches":  platformVA.CallsignMatches(sample, readiness.CallsignPrefix, readiness.CallsignSuffix),
+		}
+		if err := h.templateRenderer.RenderPartial(w, "partials/callsign-test-result.html", data); err != nil {
+			logging.Error("Error rendering callsign test result", "error", err)
+			http.Error(w, "Error rendering callsign test result", http.StatusInternalServerError)
+		}
+	}
+}
+
+func (h *Handler) renderBasicSetupForm(w http.ResponseWriter, r *http.Request, vaID string, formError string, values map[string]string) {
+	vaEntity, err := h.vaSvc.GetByID(r.Context(), vaID)
+	if err != nil {
+		logging.Error("Failed to load VA for setup form", "error", err, "va_id", vaID)
+		http.Error(w, "Failed to load setup form", http.StatusInternalServerError)
+		return
+	}
+	readiness, err := h.vaConfigSvc.ComputeSetupReadiness(r.Context(), vaID)
+	if err != nil {
+		logging.Error("Failed to compute setup form readiness", "error", err, "va_id", vaID)
+		http.Error(w, "Failed to load setup form", http.StatusInternalServerError)
+		return
+	}
+	data := map[string]interface{}{"VA": vaEntity, "Readiness": readiness, "FormError": formError, "Saved": formError == "" && values == nil && r.Method == http.MethodPost}
+	if values != nil {
+		data["DisplayName"] = values["display_name"]
+		data["CallsignPrefix"] = values["callsign_prefix"]
+		data["CallsignSuffix"] = values["callsign_suffix"]
+	} else {
+		data["DisplayName"] = vaEntity.Name
+		data["CallsignPrefix"] = readiness.CallsignPrefix
+		data["CallsignSuffix"] = readiness.CallsignSuffix
+	}
+	if err := h.templateRenderer.RenderPartial(w, "partials/basic-setup-form.html", data); err != nil {
+		logging.Error("Error rendering basic setup form", "error", err)
+		http.Error(w, "Error rendering basic setup form", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) renderSetupChecklist(w http.ResponseWriter, r *http.Request, vaID string) {
+	readiness, err := h.vaConfigSvc.ComputeSetupReadiness(r.Context(), vaID)
+	if err != nil {
+		logging.Error("Failed to compute setup checklist readiness", "error", err, "va_id", vaID)
+		http.Error(w, "Failed to load setup checklist", http.StatusInternalServerError)
+		return
+	}
+	data := map[string]interface{}{"Readiness": readiness}
+	if err := h.templateRenderer.RenderPartial(w, "partials/setup-checklist.html", data); err != nil {
+		logging.Error("Error rendering setup checklist", "error", err)
+		http.Error(w, "Error rendering setup checklist", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) requireActiveVASession(w http.ResponseWriter, r *http.Request) (*session.SessionData, *session.VAMembership, bool) {
+	sessionDataInterface := auth.GetSessionData(r.Context())
+	if sessionDataInterface == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return nil, nil, false
+	}
+	sessionData, ok := sessionDataInterface.(*session.SessionData)
+	if !ok {
+		http.Error(w, "Invalid session data", http.StatusInternalServerError)
+		return nil, nil, false
+	}
+	activeVA := sessionData.GetActiveVA()
+	if activeVA == nil {
+		http.Error(w, "No active VA found", http.StatusInternalServerError)
+		return nil, nil, false
+	}
+	return sessionData, activeVA, true
 }
 
 // PilotsPageHandler handles GET /dashboard/vaadmin/pilots

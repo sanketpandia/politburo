@@ -197,9 +197,6 @@ func (s *Server) GetUserStatus(ctx context.Context, _ registrationgen.GetUserSta
 	case http.StatusForbidden:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.GetUserStatus403JSONResponse(response), err
-	case http.StatusNotFound:
-		response, err := decodeBody[registrationgen.ErrorResponse](body)
-		return registrationgen.GetUserStatus404JSONResponse(response), err
 	case http.StatusInternalServerError:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.GetUserStatus500JSONResponse(response), err

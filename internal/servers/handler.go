@@ -16,7 +16,7 @@ type Handler struct {
 }
 
 type serverRegistrationHandlerService interface {
-	InitServer(ctx context.Context, discordServerID string, discordUserID string, vaCode string, vaName string, callsignPrefix string, callsignSuffix string) (*InitServerResponse, *ServerError)
+	InitServer(ctx context.Context, discordServerID string, discordUserID string, vaCode string) (*InitServerResponse, *ServerError)
 }
 
 func NewHandler(regSvc serverRegistrationHandlerService) *Handler {
@@ -51,14 +51,6 @@ func (h *Handler) InitServer() http.HandlerFunc {
 			return
 		}
 
-		// The callsign-config constraint is not expressible as a single-field validate
-		// tag because it requires at least one of two fields — enforce it explicitly.
-		if req.CallsignPrefix == "" && req.CallsignSuffix == "" {
-			httpdto.WriteError(w, initTime, "INVALID_CALLSIGN_CONFIG",
-				"At least one callsign pattern (prefix or suffix) is required", http.StatusBadRequest)
-			return
-		}
-
 		logging.Info("Server initialization request", "discord_server_id", discordServerID, "va_code", req.VACode)
 
 		// 3. Call service
@@ -67,9 +59,6 @@ func (h *Handler) InitServer() http.HandlerFunc {
 			discordServerID,
 			discordUserID,
 			req.VACode,
-			req.VAName,
-			req.CallsignPrefix,
-			req.CallsignSuffix,
 		)
 
 		if svcErr != nil {
@@ -78,7 +67,7 @@ func (h *Handler) InitServer() http.HandlerFunc {
 			return
 		}
 
-		logging.Info("Server initialized successfully", "discord_server_id", discordServerID, "va_id", result.VAID)
+		logging.Info("Server initialized successfully", "discord_server_id", discordServerID, "va_code", result.VACode)
 		httpdto.WriteSuccess(w, initTime, result, http.StatusCreated)
 	}
 }

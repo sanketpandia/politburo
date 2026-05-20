@@ -11,6 +11,7 @@ var (
 	ErrUserNotRegistered       = errors.New("user must be registered before initializing server")
 	ErrVACreationFailed        = errors.New("failed to create virtual airline")
 	ErrInvalidCallsignConfig   = errors.New("at least one callsign pattern (prefix or suffix) is required")
+	ErrVACodeAlreadyExists     = errors.New("VA code is already in use")
 )
 
 // ServerError is a structured error returned by RegistrationService.InitServer.
@@ -44,6 +45,10 @@ func sentinelToServerError(sentinel error) *ServerError {
 		return serverErr("INVALID_CALLSIGN_CONFIG",
 			"At least one callsign pattern (prefix or suffix) is required",
 			http.StatusBadRequest, nil)
+	case errors.Is(sentinel, ErrVACodeAlreadyExists):
+		return serverErr("VA_CODE_ALREADY_EXISTS",
+			"That VA Code / ID is already in use",
+			http.StatusConflict, nil)
 	case errors.Is(sentinel, ErrVACreationFailed):
 		return serverErr("VA_CREATION_FAILED",
 			"Failed to create virtual airline",

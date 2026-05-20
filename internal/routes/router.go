@@ -270,6 +270,11 @@ func NewRouter(application *app.App) http.Handler {
 			// VA Admin features
 			admin.Route("/vaadmin", func(vaadmin chi.Router) {
 				vaadmin.Get("/", application.Features.VAAdminHandler.IndexPageHandler())
+				vaadmin.Get("/setup", application.Features.VAAdminHandler.SetupPageHandler())
+				vaadmin.Get("/setup/basic", application.Features.VAAdminHandler.BasicSetupFormHandler())
+				vaadmin.Post("/setup/basic", application.Features.VAAdminHandler.SaveBasicSetupHandler())
+				vaadmin.Get("/setup/checklist", application.Features.VAAdminHandler.SetupChecklistHandler())
+				vaadmin.Post("/setup/callsign-test", application.Features.VAAdminHandler.CallsignTestHandler())
 				vaadmin.Get("/flight-modes", application.Features.VAAdminHandler.FlightModesPageHandler())
 				// Pilots Management
 				vaadmin.Get("/pilots", application.Features.VAAdminHandler.PilotsPageHandler())
