@@ -26,6 +26,9 @@ go build -o .air_tmp/vizburo ./cmd/vizburo
 ```bash
 go mod tidy
 go test ./...
+
+# Focused registration/OpenAPI coverage
+go test ./internal/api/... ./internal/pilots ./internal/memberships ./internal/servers ./internal/auth ./internal/platform/httpdto ./internal/platform/validation
 ```
 
 ## Architecture
@@ -46,6 +49,10 @@ The `App` struct is the single DI container. All dependencies flow through it. T
 ### Routing (`internal/routes/router.go`)
 
 `NewRouter(application *app.App) http.Handler` — pure routing, no initialization. Uses **Chi router**.
+
+Generated registration contract coverage lives in:
+- `internal/api/generated/registration/server.gen.go` — committed generated strict Chi server
+- `internal/api/registration/server.go` — handwritten adapter that maps generated strict handlers onto the active registration feature handlers
 
 Route groups:
 - `/static/*` — static file serving
@@ -119,7 +126,7 @@ Domain-feature packages — each owns its handler, service, repo, model:
 
 ### Authentication
 
-`internal/middleware/auth.go` — `AuthMiddleware(claimsRepo, keysRepo, sessionSvc)` populates `UserClaims` in context from API key headers (`X-API-Key`, `X-Server-Id`, `X-Discord-Id`).
+`internal/middleware/auth.go` — `AuthMiddleware(claimsRepo, keysRepo, sessionSvc)` populates `UserClaims` from either a Vizburo session cookie or API-key bot context headers (`X-API-Key`, `X-Discord-Server-Id`, `X-Discord-User-Id`). Registration/onboarding routes also use `RequireDiscordBotContextMiddleware()` so missing Discord context returns `403` after API-key auth.
 
 `internal/auth/claims.go` — `UserClaims` interface; `APIKeyClaims` struct.
 `internal/auth/request_context.go` — `SetUserClaims`, `GetUserClaims`, `SetSessionData`, `GetSessionData`.
@@ -221,7 +228,7 @@ API errors: `http.Error()` or `httpdto.RespondError`. No panics. DB retries only
 
 **Watermill dual-write:** PIREP sync job publishes to both old Redis queue (`pirep:sync:<va_id>`) and new watermill topic (`wm:pirep:sync`). Both consumers run side-by-side. After bake period, delete `internal/pireps/queue_worker.go` and remove PIREP worker from `RegisterWorkers`.
 
-**Test compilation errors:** `internal/services/registration_service_v2_test.go` (SQLite migration syntax error; `internal/api/user_registration_v2_test.go` was deleted with the package).
+**Registration generated-code coverage:** use the focused `go test ./internal/api/... ./internal/pilots ./internal/memberships ./internal/servers ./internal/auth ./internal/platform/httpdto ./internal/platform/validation` command when validating the bot-facing registration/onboarding flow after spec or handler changes.
 
 **comrade-bot pending deletions:** `src/commands/SyncUserHandler.ts` and `src/commands/ConfigurePilotRoleHandler.ts` are stubbed (exports only) pending physical `rm`; all router references removed.
 

@@ -479,8 +479,8 @@ Already configured:
 **Headers**:
 ```
 X-API-Key: <your-api-key>
-X-Server-Id: <discord-server-id>
-X-Discord-Id: <discord-user-id>
+X-Discord-Server-Id: <discord-server-id>
+X-Discord-User-Id: <discord-user-id>
 ```
 
 **Response**:
