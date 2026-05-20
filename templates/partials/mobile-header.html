@@ -13,8 +13,9 @@
         </svg>
     </button>
     <div class="mobile-header-title">
-        {{if .PageTitle}}{{.PageTitle}}{{else if .ActiveVA}}{{.ActiveVA.VAName}}{{else}}Dashboard{{end}}
+        <span>{{if .PageTitle}}{{.PageTitle}}{{else}}Dashboard{{end}}</span>
+        {{if .ActiveVA}}<small>{{.ActiveVA.VAName}}</small>{{end}}
     </div>
-    <div style="width: 24px;"></div> <!-- Spacer for alignment -->
+    <div class="mobile-header-spacer"></div>
 </header>
 {{end}}

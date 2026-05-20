@@ -1,72 +1,33 @@
 {{define "flight-list"}}
-{{if .Flights}}
-{{range .Flights}}
-<button type="button"
-        class="flight-item"
-        data-flight-id="{{.FlightID}}"
-        data-flight-data='{{. | json}}'
-        onclick="handleFlightClick(this);">
-    <div class="flight-item-content">
-        <div class="flight-item-main">
-            <div class="flight-item-route">
-                {{.Origin}} → {{.Dest}}
-            </div>
-            <div class="flight-item-meta">
-                {{.Aircraft}}{{if .Livery}} • {{.Livery}}{{end}}
-            </div>
-        </div>
-        <div class="flight-item-date">
-            {{.TimeStamp.Format "Jan 2, 2006"}}
+<section class="live-list-panel" aria-label="Active flights">
+    <div class="panel-header">
+        <div>
+            <h2>Flights</h2>
+            <p>Select a row to inspect details and focus the map.</p>
         </div>
     </div>
-    <div class="flight-item-stats">
-        <span>Duration: {{.Duration}}</span>
-        <span>XP: {{.XP}}</span>
-        {{if .Violations}}
-        <span style="color: #f59e0b;">Violations: {{.Violations}}</span>
+    <div class="flight-list" data-flight-list>
+        {{if .Flights}}
+            {{range .Flights}}
+            <button class="flight-list-item" type="button" data-flight-id="{{.FlightID}}">
+                <span class="flight-list-primary">
+                    <strong>{{.Callsign}}</strong>
+                    <small>{{if .Username}}{{.Username}}{{else}}Unknown pilot{{end}}</small>
+                </span>
+                <span class="flight-list-route">{{if .Origin}}{{.Origin}}{{else}}—{{end}} → {{if .Destination}}{{.Destination}}{{else}}—{{end}}</span>
+                <span class="flight-list-meta">
+                    <span class="status-pill phase-{{.Phase}}">{{.Phase}}</span>
+                    <span>{{.Altitude}} ft</span>
+                    <span>{{.Speed}} kt</span>
+                </span>
+            </button>
+            {{end}}
+        {{else}}
+            <div class="empty-state">
+                <h3>No active flights</h3>
+                <p>Live flights will appear here after the cache job detects VA traffic.</p>
+            </div>
         {{end}}
     </div>
-</button>
-{{end}}
-
-<!-- Pagination (OOB swap) - Always show if there are flights -->
-{{if .Flights}}
-<div id="pagination" class="flight-list-pagination" hx-swap-oob="true">
-    <div>
-        {{if .HasPrevious}}
-        <button type="button"
-                class="pagination-btn"
-                hx-get="/dashboard/logbook/flights?user_id={{.UserID}}&page={{.PrevPage}}"
-                hx-target="#flight-list"
-                hx-swap="innerHTML">
-            Previous
-        </button>
-        {{end}}
-    </div>
-    <div style="color: var(--text-secondary); text-align: center; flex: 1;">
-        Page {{.PageNo}} of {{.TotalPages}} ({{.TotalCount}} flights)
-    </div>
-    <div>
-        {{if .HasNext}}
-        <button type="button"
-                class="pagination-btn"
-                hx-get="/dashboard/logbook/flights?user_id={{.UserID}}&page={{.NextPage}}"
-                hx-target="#flight-list"
-                hx-swap="innerHTML">
-            Next
-        </button>
-        {{end}}
-    </div>
-</div>
-{{else}}
-<!-- Clear pagination if no flights -->
-<div id="pagination" class="flight-list-pagination" hx-swap-oob="true"></div>
-{{end}}
-{{else}}
-<div class="flex items-center justify-center h-full" style="color: var(--text-muted);">
-    <div class="text-center">
-        <p class="text-sm">No flights found for this IFC ID</p>
-    </div>
-</div>
-{{end}}
+</section>
 {{end}}

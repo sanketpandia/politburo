@@ -232,6 +232,9 @@ func NewRouter(application *app.App) http.Handler {
 			application.Infra.TemplateRenderer,
 		))
 
+		// Active VA switching is available to any authenticated dashboard session.
+		dashboard.Post("/switch-va", application.Features.DashboardHandler.SwitchActiveVAHandler())
+
 		// member-only routes (member + staff + admin)
 		dashboard.Group(func(member chi.Router) {
 			member.Use(middleware.IsMemberMiddleware())
@@ -246,7 +249,7 @@ func NewRouter(application *app.App) http.Handler {
 			member.Get("/test-click", application.Features.DashboardHandler.TestClickHandler())
 
 			// Live Flights page (all members)
-			member.Get("/live", flights.LiveFlightsPageHandler(application.Infra.RedisCache))
+			member.Get("/live", flights.NewLivePageHandler(application.Infra.RedisCache, application.Infra.TemplateRenderer).LiveFlightsPageHandler())
 
 			// Get flight waypoints for route mapping (all members)
 			member.Get("/flights/{flight_id}/waypoints", flights.GetFlightWaypoints(application.Infra.RedisCache))

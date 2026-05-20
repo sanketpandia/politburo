@@ -330,9 +330,20 @@ func GetFlightWaypoints(redisCache *cache.RedisCacheService) http.HandlerFunc {
 	}
 }
 
-// LiveFlightsPageHandler handles GET /dashboard/live
-// Serves the live flights page with flights rendered on Gleo map (all members)
-func LiveFlightsPageHandler(redisCache *cache.RedisCacheService) http.HandlerFunc {
+// LivePageHandler renders the server-side Live flights dashboard page.
+type LivePageHandler struct {
+	redisCache       *cache.RedisCacheService
+	templateRenderer *templates.Renderer
+}
+
+// NewLivePageHandler creates a Live page handler with injected infrastructure.
+func NewLivePageHandler(redisCache *cache.RedisCacheService, templateRenderer *templates.Renderer) *LivePageHandler {
+	return &LivePageHandler{redisCache: redisCache, templateRenderer: templateRenderer}
+}
+
+// LiveFlightsPageHandler handles GET /dashboard/live.
+// Serves the live flights page with a list-first, map-enhanced layout.
+func (h *LivePageHandler) LiveFlightsPageHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get user claims from context (injected by auth middleware)
 		claims := auth.GetUserClaims(r.Context())
@@ -369,7 +380,7 @@ func LiveFlightsPageHandler(redisCache *cache.RedisCacheService) http.HandlerFun
 		}
 
 		// Fetch flights using common service function
-		flights, err := GetVALiveFlightsDTOs(redisCache, vaID)
+		flights, err := GetVALiveFlightsDTOs(h.redisCache, vaID)
 		if err != nil {
 			logging.Warn("Failed to fetch flights from cache", "error", err, "vaID", vaID)
 			// Continue with empty flights array - not a critical error for page rendering
@@ -385,6 +396,9 @@ func LiveFlightsPageHandler(redisCache *cache.RedisCacheService) http.HandlerFun
 
 		// Add current page identifier for menu highlighting
 		data["CurrentPage"] = "live"
+		data["Flights"] = flights
+		data["FlightCount"] = len(flights)
+		data["LiveStatus"] = "Cache refreshed by background jobs"
 
 		// Add flights data as JSON for the template (using template.JS for safe embedding)
 		flightsJSON, err := json.Marshal(flights)
@@ -395,15 +409,8 @@ func LiveFlightsPageHandler(redisCache *cache.RedisCacheService) http.HandlerFun
 			data["FlightsJSON"] = template.JS(flightsJSON)
 		}
 
-		// Create renderer configured for flights templates
-		renderer := templates.NewRenderer(
-			"templates",                   // BasePath (feature templates)
-			"templates/partials",          // PartialsPath (shared partials)
-			"templates/layouts/base.html", // LayoutPath (shared layout)
-		)
-
 		// Render template
-		if err := renderer.RenderTemplate(w, "pages/live.html", data); err != nil {
+		if err := h.templateRenderer.RenderTemplate(w, "pages/live.html", data); err != nil {
 			logging.Error("Error rendering live flights page", "error", err)
 			http.Error(w, "Error rendering live flights page", http.StatusInternalServerError)
 			return

@@ -5,7 +5,24 @@
        - CurrentPage: String indicating active page (for highlighting)
 -->
 <nav class="mobile-drawer" id="drawer">
-    <div style="padding: 20px; margin-bottom: 10px; opacity: 0.5; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted);">Menu</div>
+    <div class="drawer-section-label">Active VA</div>
+    <div class="drawer-va-panel">
+        {{if .ActiveVA}}
+        <strong>{{.ActiveVA.VAName}}</strong>
+        <span>{{.ActiveVA.VACode}} · {{.ActiveVA.Role}}</span>
+        {{end}}
+        <div id="mobile-va-switch-error" class="va-switch-error" aria-live="polite"></div>
+        {{range .VirtualAirlines}}
+        <form method="POST" action="/dashboard/switch-va" hx-post="/dashboard/switch-va" hx-target="#mobile-va-switch-error" hx-swap="innerHTML">
+            <input type="hidden" name="va_id" value="{{.VAID}}">
+            <button type="submit" class="drawer-va-option {{if eq $.ActiveVAID .VAID}}active{{end}}">
+                <span>{{.VAName}}</span>
+                <small>{{.VACode}} · {{.Role}}</small>
+            </button>
+        </form>
+        {{end}}
+    </div>
+    <div class="drawer-section-label">Menu</div>
     {{range .MenuItems}}
     <a href="{{.Path}}" 
        class="drawer-link {{if eq $.CurrentPage .PageID}}active{{end}}"

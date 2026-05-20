@@ -7,16 +7,32 @@
        - Username: Current username (optional)
 -->
 <header class="desktop-header">
-    <div style="display: flex; flex-direction: column; justify-content: center; flex: 1;">
-        <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin: 0;">
-            {{if .ActiveVA}}{{.ActiveVA.VAName}}{{else}}Dashboard{{end}}
-        </h2>
-        {{if .Username}}
-        <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0; margin-top: 2px;">Welcome, {{.Username}}</p>
-        {{end}}
+    <a class="topnav-brand" href="/dashboard" aria-label="Vizburo dashboard">
+        <span class="topnav-mark">V</span>
+        <span class="topnav-wordmark">Vizburo</span>
+    </a>
+
+    <div class="va-selector" data-component="va-selector">
+        <button class="va-selector-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+            <span class="va-selector-label">Active VA</span>
+            <span class="va-selector-name">{{if .ActiveVA}}{{.ActiveVA.VAName}}{{else}}Dashboard{{end}}</span>
+        </button>
+        <div class="va-selector-menu" role="menu">
+            <div class="va-selector-menu-title">Switch VA</div>
+            <div id="va-switch-error" class="va-switch-error" aria-live="polite"></div>
+            {{range .VirtualAirlines}}
+            <form method="POST" action="/dashboard/switch-va" hx-post="/dashboard/switch-va" hx-target="#va-switch-error" hx-swap="innerHTML" role="none">
+                <input type="hidden" name="va_id" value="{{.VAID}}">
+                <button type="submit" class="va-option {{if eq $.ActiveVAID .VAID}}active{{end}}" role="menuitem">
+                    <span class="va-option-name">{{.VAName}}</span>
+                    <span class="va-option-meta">{{.VACode}} · {{.Role}}</span>
+                </button>
+            </form>
+            {{end}}
+        </div>
     </div>
 
-    <nav class="desktop-nav">
+    <nav class="desktop-nav" aria-label="Primary">
         {{range .MenuItems}}
         <a href="{{.Path}}" 
            class="nav-link {{if eq $.CurrentPage .PageID}}active{{end}}"
@@ -26,16 +42,16 @@
         {{end}}
     </nav>
 
-    {{if .Username}}
-    <div style="display: flex; align-items: center; gap: 1rem; margin-left: 1rem;">
-        <span style="display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; background-color: var(--accent-primary); color: white; font-weight: 700; font-size: 0.875rem;">
+    <div class="topnav-user-slot">
+        {{if .Username}}
+        <span class="user-avatar" aria-label="Signed in as {{.Username}}">
             {{$nameInitials := ""}}
             {{range $i, $word := split .Username " "}}
               {{if lt $i 2}}{{$nameInitials = printf "%s%s" $nameInitials (slice $word 0 1)}}{{end}}
             {{end}}
             {{$nameInitials}}
         </span>
+        {{end}}
     </div>
-    {{end}}
 </header>
 {{end}}

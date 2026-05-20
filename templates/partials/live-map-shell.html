@@ -1,0 +1,18 @@
+{{define "live-map-shell"}}
+<section class="live-map-panel" aria-label="Flight map" data-live-map-panel>
+    <div class="panel-header live-map-toolbar">
+        <div>
+            <h2>Map</h2>
+            <p>Marker color follows current flight phase.</p>
+        </div>
+        {{template "map-legend" dict}}
+    </div>
+    <div class="live-map-shell">
+        <div id="leaflet-map" class="live-map-canvas" aria-label="Map of active flights"></div>
+        <div class="map-loading-state" data-map-loading>
+            <span class="spinner"></span>
+            <span>Loading map context…</span>
+        </div>
+    </div>
+</section>
+{{end}}

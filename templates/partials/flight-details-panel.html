@@ -1,0 +1,22 @@
+{{define "flight-details-panel"}}
+<aside class="flight-details-panel" data-flight-details-panel aria-live="polite">
+    <button class="panel-close" type="button" data-close-flight-details aria-label="Close flight details">×</button>
+    <div class="empty-state compact" data-flight-details-empty>
+        <h3>Select a flight</h3>
+        <p>Flight details appear here after selecting a list row or map marker.</p>
+    </div>
+    <div class="flight-details-content hidden" data-flight-details-content>
+        <p class="eyebrow" data-detail-phase></p>
+        <h2 data-detail-callsign></h2>
+        <p class="detail-muted" data-detail-pilot></p>
+        <dl class="detail-grid">
+            <div><dt>Route</dt><dd data-detail-route></dd></div>
+            <div><dt>Aircraft</dt><dd data-detail-aircraft></dd></div>
+            <div><dt>Altitude</dt><dd data-detail-altitude></dd></div>
+            <div><dt>Speed</dt><dd data-detail-speed></dd></div>
+            <div><dt>Vertical speed</dt><dd data-detail-vs></dd></div>
+            <div><dt>Last report</dt><dd data-detail-report></dd></div>
+        </dl>
+    </div>
+</aside>
+{{end}}

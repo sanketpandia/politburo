@@ -15,13 +15,76 @@ import (
 type Handler struct {
 	templateRenderer *templates.Renderer
 	dashboardSvc     *Service
+	sessionSvc       *session.SessionService
 }
 
 // NewHandler creates a new dashboard handler instance
-func NewHandler(templateRenderer *templates.Renderer, dashboardSvc *Service) *Handler {
+func NewHandler(templateRenderer *templates.Renderer, dashboardSvc *Service, sessionSvc *session.SessionService) *Handler {
 	return &Handler{
 		templateRenderer: templateRenderer,
 		dashboardSvc:     dashboardSvc,
+		sessionSvc:       sessionSvc,
+	}
+}
+
+// SwitchActiveVAHandler handles POST /dashboard/switch-va.
+// It updates the authenticated Vizburo session's global active VA context and
+// redirects to the dashboard so claims and role-aware navigation are rebuilt.
+func (h *Handler) SwitchActiveVAHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			logging.Warn("Invalid active VA switch form", "error", err)
+			h.writeSwitchVAError(w, r, http.StatusBadRequest, "Unable to switch VA from this request.")
+			return
+		}
+
+		newVAID := r.FormValue("va_id")
+		if newVAID == "" {
+			h.writeSwitchVAError(w, r, http.StatusBadRequest, "Choose a VA before switching.")
+			return
+		}
+
+		cookie, err := r.Cookie("session_id")
+		if err != nil || cookie.Value == "" {
+			logging.Warn("Active VA switch missing authenticated session cookie")
+			h.writeSwitchVAError(w, r, http.StatusUnauthorized, "Your session has expired. Please sign in again.")
+			return
+		}
+
+		if h.sessionSvc == nil {
+			logging.Error("Active VA switch handler missing session service")
+			h.writeSwitchVAError(w, r, http.StatusInternalServerError, "Unable to switch VA right now.")
+			return
+		}
+
+		if err := h.sessionSvc.SwitchActiveVA(r.Context(), cookie.Value, newVAID); err != nil {
+			logging.Warn("Active VA switch failed", "error", err)
+			h.writeSwitchVAError(w, r, http.StatusBadRequest, "That VA is not available for this session.")
+			return
+		}
+
+		logging.Info("Active VA switched", "surface", "vizburo")
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("HX-Redirect", "/dashboard")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+	}
+}
+
+func (h *Handler) writeSwitchVAError(w http.ResponseWriter, r *http.Request, status int, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	if r.Header.Get("HX-Request") == "true" {
+		if _, err := w.Write([]byte(`<div class="alert alert-error" role="alert">` + message + `</div>`)); err != nil {
+			logging.Warn("Failed to write active VA switch HTMX error", "error", err)
+		}
+		return
+	}
+	if _, err := w.Write([]byte(message)); err != nil {
+		logging.Warn("Failed to write active VA switch error", "error", err)
 	}
 }
 

@@ -482,7 +482,7 @@ func (a *App) initFeatures() error {
 
 	// Initialize dashboard service and handler
 	dashboardSvc := dashboard.NewService(eventSvc, pirepRepo, statsSvc, a.Infra.DB)
-	dashboardHandler := dashboard.NewHandler(a.Infra.TemplateRenderer, dashboardSvc)
+	dashboardHandler := dashboard.NewHandler(a.Infra.TemplateRenderer, dashboardSvc, a.Infra.SessionSvc)
 
 	// Initialize handlers
 	membershipsHandler := membershipsFeature.NewHandler(membershipsFeatureSvc, pilotRepo, a.Platform.VAConfigSvc)
