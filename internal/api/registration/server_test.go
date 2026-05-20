@@ -37,16 +37,18 @@ func (pilotServiceStub) RegisterPilot(context.Context, string, string, string, s
 
 type membershipServiceStub struct{}
 
-func (membershipServiceStub) GetUserStatus(context.Context, string, string) (*memberships.UserDetailResponse, error) {
+func (membershipServiceStub) GetUserStatus(context.Context, string, string, string, string) (*memberships.UserDetailResponse, error) {
 	userID := uuid.MustParse("1cfa3e1e-5de1-4eff-ad0c-6fcb1bcd510a")
 	vaID := uuid.MustParse("0d0e5756-5797-4a9d-8645-b6127e633922")
 	now := time.Now().UTC().Round(time.Second)
 	return &memberships.UserDetailResponse{
-		UserID:        userID.String(),
-		DiscordID:     "discord-user",
-		IFCommunityID: "ifc-user",
-		IsActive:      true,
-		CreatedAt:     now,
+		IsRegistered:     true,
+		GlobalUserExists: true,
+		UserID:           userID.String(),
+		DiscordID:        "discord-user",
+		IFCommunityID:    "ifc-user",
+		IsActive:         true,
+		CreatedAt:        &now,
 		Affiliations: []memberships.VAAffiliation{{
 			VAID:     vaID.String(),
 			VAName:   "Infinite",
@@ -56,7 +58,11 @@ func (membershipServiceStub) GetUserStatus(context.Context, string, string) (*me
 			JoinedAt: now,
 			Callsign: "IFE123",
 		}},
-		CurrentVA: &memberships.CurrentVAStatus{IsMember: true, Role: "pilot", IsActive: true, Callsign: "IFE123"},
+		CurrentServer: memberships.CurrentServerStatus{DiscordServerID: "discord-server", IsConfiguredVA: true, VAID: vaID.String(), VAName: "Infinite", VACode: "IFE"},
+		CurrentVA:     &memberships.CurrentVAStatus{IsMember: true, VAID: vaID.String(), VAName: "Infinite", VACode: "IFE", Role: "pilot", IsActive: true, Callsign: "IFE123"},
+		MembershipsSummary: memberships.MembershipsSummary{
+			TotalCount: 1, ActiveCount: 1,
+		},
 	}, nil
 }
 
