@@ -26,9 +26,11 @@ func MetricsMiddleware(metricsReg *metrics.MetricsRegistry) func(http.Handler) h
 				}
 			}
 
-			// Record request in flight
-			metricsReg.HTTPRequestsInFlight.WithLabelValues(routePattern).Inc()
-			defer metricsReg.HTTPRequestsInFlight.WithLabelValues(routePattern).Dec()
+			// Record request in flight. Chi route patterns are only final after the
+			// handler runs, so in-flight may use "unknown" for unmatched/early requests.
+			inFlightRoutePattern := routePattern
+			metricsReg.HTTPRequestsInFlight.WithLabelValues(inFlightRoutePattern).Inc()
+			defer metricsReg.HTTPRequestsInFlight.WithLabelValues(inFlightRoutePattern).Dec()
 
 			// Measure request duration
 			start := time.Now()
@@ -42,6 +44,11 @@ func MetricsMiddleware(metricsReg *metrics.MetricsRegistry) func(http.Handler) h
 			// Record metrics
 			duration := time.Since(start).Seconds()
 			statusCode := strconv.Itoa(wrapped.statusCode)
+			if rctx := chi.RouteContext(r.Context()); rctx != nil {
+				if pattern := rctx.RoutePattern(); pattern != "" {
+					routePattern = pattern
+				}
+			}
 
 			metricsReg.HTTPRequestsTotal.WithLabelValues(
 				routePattern,
@@ -60,9 +67,9 @@ func MetricsMiddleware(metricsReg *metrics.MetricsRegistry) func(http.Handler) h
 				requestID = "req-" + time.Now().Format("20060102150405")
 			}
 
-			// Extract user context if available
-			userID := r.Header.Get("X-Discord-Id")
-			serverID := r.Header.Get("X-Server-Id")
+			// Record only low-cardinality context presence flags. Do not log raw Discord IDs.
+			discordUserContextPresent := strings.TrimSpace(r.Header.Get("X-Discord-User-Id")) != "" || strings.TrimSpace(r.Header.Get("X-Discord-Id")) != ""
+			discordServerContextPresent := strings.TrimSpace(r.Header.Get("X-Discord-Server-Id")) != "" || strings.TrimSpace(r.Header.Get("X-Server-Id")) != ""
 
 			// Log request
 			logging.Info("HTTP request completed",
@@ -71,8 +78,8 @@ func MetricsMiddleware(metricsReg *metrics.MetricsRegistry) func(http.Handler) h
 				"endpoint", routePattern,
 				"status_code", wrapped.statusCode,
 				"duration_ms", int(duration*1000),
-				"server_id", serverID,
-				"user_id", userID,
+				"discord_user_context_present", discordUserContextPresent,
+				"discord_server_context_present", discordServerContextPresent,
 			)
 		})
 	}

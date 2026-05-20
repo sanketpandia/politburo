@@ -3,6 +3,7 @@ package servers
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
@@ -51,7 +52,7 @@ func (h *Handler) InitServer() http.HandlerFunc {
 			return
 		}
 
-		logging.Info("Server initialization request", "discord_server_id", discordServerID, "va_code", req.VACode)
+		logging.Info("Server initialization request", "discord_context_present", discordServerID != "" && discordUserID != "", "va_code_present", strings.TrimSpace(req.VACode) != "")
 
 		// 3. Call service
 		result, svcErr := h.regSvc.InitServer(
@@ -62,12 +63,12 @@ func (h *Handler) InitServer() http.HandlerFunc {
 		)
 
 		if svcErr != nil {
-			logging.Error("Failed to initialize server", "error", svcErr, "discord_server_id", discordServerID)
+			logging.Error("Failed to initialize server", "error_code", svcErr.Code, "status_code", svcErr.StatusCode)
 			httpdto.WriteError(w, initTime, svcErr.Code, svcErr.Message, svcErr.StatusCode)
 			return
 		}
 
-		logging.Info("Server initialized successfully", "discord_server_id", discordServerID, "va_code", result.VACode)
+		logging.Info("Server initialized successfully", "setup_required", result.SetupRequired)
 		httpdto.WriteSuccess(w, initTime, result, http.StatusCreated)
 	}
 }

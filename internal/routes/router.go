@@ -60,8 +60,9 @@ func NewRouter(application *app.App) http.Handler {
 
 	// Global middleware
 	r.Use(middleware.RequestIDMiddleware)
+	r.Use(middleware.MetricsMiddleware(application.Infra.MetricsReg))
 
-	logging.Info("Router initialized with request ID middleware")
+	logging.Info("Router initialized with request ID and metrics middleware")
 
 	// Static file serving with CDN support
 	// Serve static files from static/ at /static/
