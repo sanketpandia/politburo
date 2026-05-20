@@ -43,7 +43,13 @@ func MetricsMiddleware(metricsReg *metrics.MetricsRegistry) func(http.Handler) h
 
 			// Record metrics
 			duration := time.Since(start).Seconds()
-			statusCode := strconv.Itoa(wrapped.statusCode)
+			observedStatusCode := wrapped.statusCode
+			if wrapped.writeErr != nil && observedStatusCode == http.StatusOK {
+				// The response had started, then the client disconnected/timed out.
+				// Record this as client-closed instead of a misleading successful 200.
+				observedStatusCode = 499
+			}
+			statusCode := strconv.Itoa(observedStatusCode)
 			if rctx := chi.RouteContext(r.Context()); rctx != nil {
 				if pattern := rctx.RoutePattern(); pattern != "" {
 					routePattern = pattern
@@ -76,8 +82,9 @@ func MetricsMiddleware(metricsReg *metrics.MetricsRegistry) func(http.Handler) h
 				"request_id", requestID,
 				"method", r.Method,
 				"endpoint", routePattern,
-				"status_code", wrapped.statusCode,
+				"status_code", observedStatusCode,
 				"duration_ms", int(duration*1000),
+				"write_error", wrapped.writeErr != nil,
 				"discord_user_context_present", discordUserContextPresent,
 				"discord_server_context_present", discordServerContextPresent,
 			)
@@ -108,6 +115,7 @@ type statusRecorder struct {
 	http.ResponseWriter
 	statusCode int
 	written    bool
+	writeErr   error
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
@@ -123,7 +131,11 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 		r.statusCode = 200
 		r.written = true
 	}
-	return r.ResponseWriter.Write(b)
+	n, err := r.ResponseWriter.Write(b)
+	if err != nil {
+		r.writeErr = err
+	}
+	return n, err
 }
 
 // isIDLike checks if a string looks like an ID (numeric or UUID)

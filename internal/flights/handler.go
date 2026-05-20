@@ -398,7 +398,7 @@ func (h *LivePageHandler) LiveFlightsPageHandler() http.HandlerFunc {
 		data["CurrentPage"] = "live"
 		data["Flights"] = flights
 		data["FlightCount"] = len(flights)
-		data["LiveStatus"] = "Cache refreshed by background jobs"
+		data["LiveStatus"] = "Live data updates automatically"
 
 		// Add flights data as JSON for the template (using template.JS for safe embedding)
 		flightsJSON, err := json.Marshal(flights)
@@ -411,6 +411,10 @@ func (h *LivePageHandler) LiveFlightsPageHandler() http.HandlerFunc {
 
 		// Render template
 		if err := h.templateRenderer.RenderTemplate(w, "pages/live.html", data); err != nil {
+			if templates.IsClientDisconnect(err) {
+				logging.Debug("Client disconnected while rendering live flights page")
+				return
+			}
 			logging.Error("Error rendering live flights page", "error", err)
 			http.Error(w, "Error rendering live flights page", http.StatusInternalServerError)
 			return

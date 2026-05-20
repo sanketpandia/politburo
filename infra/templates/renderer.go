@@ -1,8 +1,10 @@
 package templates
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -124,6 +126,10 @@ func (r *Renderer) RenderTemplate(w http.ResponseWriter, templateName string, da
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.Execute(w, data); err != nil {
+		if IsClientDisconnect(err) {
+			logging.Debug("Client disconnected during template render", "template", templateName)
+			return err
+		}
 		logging.Error("Failed to execute template", "error", err)
 		http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
 		return err
@@ -150,6 +156,10 @@ func (r *Renderer) RenderPartial(w http.ResponseWriter, templateName string, dat
 	// Try to execute the template by its block name first, fall back to "content"
 	if err := t.ExecuteTemplate(w, templateBlockName, data); err != nil {
 		if err := t.ExecuteTemplate(w, "content", data); err != nil {
+			if IsClientDisconnect(err) {
+				logging.Debug("Client disconnected during partial render", "template", templateName)
+				return err
+			}
 			logging.Error("Failed to execute template", "error", err, "template", templateName)
 			http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
 			return err
@@ -176,12 +186,33 @@ func (r *Renderer) RenderStandalone(w http.ResponseWriter, templateName string, 
 	// Execute the layout template (like RenderTemplate does with base.html)
 	// The layout will pull in blocks from the page template automatically
 	if err := t.Execute(w, data); err != nil {
+		if IsClientDisconnect(err) {
+			logging.Debug("Client disconnected during standalone template render", "template", templateName)
+			return err
+		}
 		logging.Error("Failed to execute template", "error", err)
 		http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
 		return err
 	}
 
 	return nil
+}
+
+func IsClientDisconnect(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "broken pipe") ||
+		strings.Contains(message, "connection reset by peer") ||
+		strings.Contains(message, "i/o timeout") ||
+		strings.Contains(message, "client disconnected")
 }
 
 func (r *Renderer) template(mode templateMode, templateName string) (*template.Template, error) {
