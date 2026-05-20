@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
@@ -64,73 +65,59 @@ type Renderer struct {
 	BasePath     string // e.g., "vizburo/ui/templates"
 	PartialsPath string // e.g., "vizburo/ui/templates/partials"
 	LayoutPath   string // e.g., "vizburo/ui/templates/layouts/base.html"
+
+	reloadTemplates bool
+	mu              sync.RWMutex
+	cache           map[templateCacheKey]*template.Template
+}
+
+type templateMode string
+
+const (
+	templateModePage       templateMode = "page"
+	templateModePartial    templateMode = "partial"
+	templateModeStandalone templateMode = "standalone"
+)
+
+type templateCacheKey struct {
+	mode templateMode
+	name string
+}
+
+// Option configures template renderer behavior.
+type Option func(*Renderer)
+
+// WithReloadTemplates controls whether templates are parsed on every render.
+// Local development should enable this so template edits are visible without a restart.
+func WithReloadTemplates(enabled bool) Option {
+	return func(r *Renderer) {
+		r.reloadTemplates = enabled
+	}
 }
 
 // NewRenderer creates a new template renderer
 func NewRenderer(basePath, partialsPath, layoutPath string) *Renderer {
-	return &Renderer{
+	return NewRendererWithOptions(basePath, partialsPath, layoutPath)
+}
+
+// NewRendererWithOptions creates a new template renderer with optional behavior.
+func NewRendererWithOptions(basePath, partialsPath, layoutPath string, opts ...Option) *Renderer {
+	r := &Renderer{
 		BasePath:     basePath,
 		PartialsPath: partialsPath,
 		LayoutPath:   layoutPath,
+		cache:        make(map[templateCacheKey]*template.Template),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // RenderTemplate renders a full page template with base layout
 func (r *Renderer) RenderTemplate(w http.ResponseWriter, templateName string, data map[string]interface{}) error {
-	funcMap := r.getFuncMap()
-
-	// Parse templates with custom functions
-	t := template.New("base.html").Funcs(funcMap)
-
-	// Load all partials (only if files exist)
-	if r.PartialsPath != "" {
-		// Resolve path relative to project root
-		resolvedPartialsPath := resolvePath(r.PartialsPath)
-		// Check if any files match the pattern first
-		// Use filepath.Join to properly construct the glob pattern
-		pattern := filepath.Join(resolvedPartialsPath, "*.html")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			logging.Warn("Failed to check partials directory", "error", err, "pattern", pattern)
-		} else if len(matches) > 0 {
-			// Only parse if files exist
-			t, err = t.ParseGlob(pattern)
-			if err != nil {
-				logging.Error("Failed to load partials", "error", err, "pattern", pattern)
-				http.Error(w, "Error loading partials: "+err.Error(), http.StatusInternalServerError)
-				return err
-			}
-			logging.Debug("Loaded partials", "count", len(matches), "pattern", pattern)
-		} else {
-			logging.Warn("No partials found", "pattern", pattern)
-		}
-	}
-
-	// Load base layout and page template
-	// Resolve paths relative to project root
-	resolvedLayoutPath := resolvePath(r.LayoutPath)
-	files := []string{resolvedLayoutPath}
-	if templateName != "" {
-		resolvedBasePath := resolvePath(r.BasePath)
-		files = append(files, filepath.Join(resolvedBasePath, templateName))
-	}
-
-	// Verify files exist before parsing (for better error messages)
-	for _, file := range files {
-		if _, err := os.Stat(file); os.IsNotExist(err) {
-			// Log both original and resolved paths for debugging
-			logging.Error("Template file not found", "file", file, "original_layout", r.LayoutPath, "original_base", r.BasePath, "project_root", projectRoot, "error", err)
-			http.Error(w, "Template file not found: "+file, http.StatusInternalServerError)
-			return err
-		}
-	}
-
-	// Log the files being loaded for debugging
-	logging.Debug("Loading template files", "files", files, "layout", r.LayoutPath, "base", r.BasePath, "template", templateName)
-
-	t, err := t.ParseFiles(files...)
+	t, err := r.template(templateModePage, templateName)
 	if err != nil {
-		logging.Error("Failed to parse template files", "error", err, "files", files, "layout", r.LayoutPath, "base", r.BasePath)
 		http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
 		return err
 	}
@@ -147,41 +134,8 @@ func (r *Renderer) RenderTemplate(w http.ResponseWriter, templateName string, da
 
 // RenderPartial renders just the content portion (for HTMX responses)
 func (r *Renderer) RenderPartial(w http.ResponseWriter, templateName string, data map[string]interface{}) error {
-	funcMap := r.getFuncMap()
-
-	// Parse just the template file without base layout
-	t := template.New("partial").Funcs(funcMap)
-
-	// Load all partials (only if files exist)
-	if r.PartialsPath != "" {
-		// Resolve path relative to project root
-		resolvedPartialsPath := resolvePath(r.PartialsPath)
-		// Check if any files match the pattern first
-		// Use filepath.Join to properly construct the glob pattern
-		pattern := filepath.Join(resolvedPartialsPath, "*.html")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			logging.Warn("Failed to check partials directory", "error", err, "pattern", pattern)
-		} else if len(matches) > 0 {
-			// Only parse if files exist
-			t, err = t.ParseGlob(pattern)
-			if err != nil {
-				logging.Error("Failed to load partials", "error", err, "pattern", pattern)
-				http.Error(w, "Error loading partials: "+err.Error(), http.StatusInternalServerError)
-				return err
-			}
-			logging.Debug("Loaded partials", "count", len(matches), "pattern", pattern)
-		} else {
-			logging.Warn("No partials found", "pattern", pattern)
-		}
-	}
-
-	// Load the specific template
-	// Resolve path relative to project root
-	resolvedBasePath := resolvePath(r.BasePath)
-	t, err := t.ParseFiles(filepath.Join(resolvedBasePath, templateName))
+	t, err := r.template(templateModePartial, templateName)
 	if err != nil {
-		logging.Error("Failed to parse template", "error", err, "template", templateName)
 		http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
 		return err
 	}
@@ -208,36 +162,8 @@ func (r *Renderer) RenderPartial(w http.ResponseWriter, templateName string, dat
 // RenderStandalone renders a standalone template with the error base layout
 // Useful for error pages that don't need the full app shell or session data
 func (r *Renderer) RenderStandalone(w http.ResponseWriter, templateName string, data map[string]interface{}) error {
-	funcMap := r.getFuncMap()
-
-	// Load error base layout
-	resolvedLayoutPath := resolvePath(r.LayoutPath)
-	// Replace base.html with error.html for error pages
-	errorLayoutPath := strings.Replace(resolvedLayoutPath, "base.html", "error.html", 1)
-
-	// Load page template
-	resolvedBasePath := resolvePath(r.BasePath)
-	templatePath := filepath.Join(resolvedBasePath, templateName)
-
-	// Verify files exist
-	files := []string{errorLayoutPath, templatePath}
-	for _, file := range files {
-		if _, err := os.Stat(file); os.IsNotExist(err) {
-			logging.Error("Template file not found", "file", file, "error", err)
-			http.Error(w, "Template file not found: "+file, http.StatusInternalServerError)
-			return err
-		}
-	}
-
-	// Parse templates with custom functions
-	// Use the layout file's base name as the template name (like RenderTemplate does with base.html)
-	layoutBaseName := filepath.Base(errorLayoutPath)
-	t := template.New(layoutBaseName).Funcs(funcMap)
-
-	// Parse both layout and page template together
-	t, err := t.ParseFiles(files...)
+	t, err := r.template(templateModeStandalone, templateName)
 	if err != nil {
-		logging.Error("Failed to parse template files", "error", err, "files", files)
 		http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
 		return err
 	}
@@ -255,6 +181,157 @@ func (r *Renderer) RenderStandalone(w http.ResponseWriter, templateName string, 
 		return err
 	}
 
+	return nil
+}
+
+func (r *Renderer) template(mode templateMode, templateName string) (*template.Template, error) {
+	key := templateCacheKey{mode: mode, name: templateName}
+	if !r.reloadTemplates {
+		r.mu.RLock()
+		cached := r.cache[key]
+		r.mu.RUnlock()
+		if cached != nil {
+			logging.Debug("Template cache hit", "mode", string(mode), "template", templateName)
+			return cached, nil
+		}
+	}
+
+	parsed, err := r.parseTemplate(mode, templateName)
+	if err != nil {
+		return nil, err
+	}
+
+	if !r.reloadTemplates {
+		r.mu.Lock()
+		if cached := r.cache[key]; cached != nil {
+			r.mu.Unlock()
+			return cached, nil
+		}
+		r.cache[key] = parsed
+		r.mu.Unlock()
+	}
+
+	return parsed, nil
+}
+
+func (r *Renderer) parseTemplate(mode templateMode, templateName string) (*template.Template, error) {
+	switch mode {
+	case templateModePage:
+		return r.parsePageTemplate(templateName)
+	case templateModePartial:
+		return r.parsePartialTemplate(templateName)
+	case templateModeStandalone:
+		return r.parseStandaloneTemplate(templateName)
+	default:
+		return nil, fmt.Errorf("unknown template mode %q", mode)
+	}
+}
+
+func (r *Renderer) parsePageTemplate(templateName string) (*template.Template, error) {
+	t := template.New("base.html").Funcs(r.getFuncMap())
+
+	var err error
+	if t, err = r.parseSharedPartials(t); err != nil {
+		return nil, err
+	}
+
+	resolvedLayoutPath := resolvePath(r.LayoutPath)
+	files := []string{resolvedLayoutPath}
+	if templateName != "" {
+		files = append(files, filepath.Join(resolvePath(r.BasePath), templateName))
+	}
+
+	if err := r.verifyFiles(files); err != nil {
+		logging.Error("Template file not found", "error", err, "files", files, "original_layout", r.LayoutPath, "original_base", r.BasePath, "project_root", projectRoot)
+		return nil, err
+	}
+
+	logging.Debug("Loading template files", "mode", string(templateModePage), "files", files, "layout", r.LayoutPath, "base", r.BasePath, "template", templateName)
+	t, err = t.ParseFiles(files...)
+	if err != nil {
+		logging.Error("Failed to parse template files", "mode", string(templateModePage), "error", err, "files", files, "layout", r.LayoutPath, "base", r.BasePath)
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func (r *Renderer) parsePartialTemplate(templateName string) (*template.Template, error) {
+	t := template.New("partial").Funcs(r.getFuncMap())
+
+	var err error
+	if t, err = r.parseSharedPartials(t); err != nil {
+		return nil, err
+	}
+
+	templatePath := filepath.Join(resolvePath(r.BasePath), templateName)
+	if err := r.verifyFiles([]string{templatePath}); err != nil {
+		logging.Error("Template file not found", "mode", string(templateModePartial), "template", templateName, "file", templatePath, "error", err)
+		return nil, err
+	}
+
+	t, err = t.ParseFiles(templatePath)
+	if err != nil {
+		logging.Error("Failed to parse template", "mode", string(templateModePartial), "error", err, "template", templateName)
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func (r *Renderer) parseStandaloneTemplate(templateName string) (*template.Template, error) {
+	resolvedLayoutPath := resolvePath(r.LayoutPath)
+	errorLayoutPath := strings.Replace(resolvedLayoutPath, "base.html", "error.html", 1)
+	templatePath := filepath.Join(resolvePath(r.BasePath), templateName)
+	files := []string{errorLayoutPath, templatePath}
+
+	if err := r.verifyFiles(files); err != nil {
+		logging.Error("Template file not found", "mode", string(templateModeStandalone), "files", files, "error", err)
+		return nil, err
+	}
+
+	t := template.New(filepath.Base(errorLayoutPath)).Funcs(r.getFuncMap())
+	t, err := t.ParseFiles(files...)
+	if err != nil {
+		logging.Error("Failed to parse template files", "mode", string(templateModeStandalone), "error", err, "files", files)
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func (r *Renderer) parseSharedPartials(t *template.Template) (*template.Template, error) {
+	if r.PartialsPath == "" {
+		return t, nil
+	}
+
+	pattern := filepath.Join(resolvePath(r.PartialsPath), "*.html")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		logging.Warn("Failed to check partials directory", "error", err, "pattern", pattern)
+		return t, nil
+	}
+	if len(matches) == 0 {
+		logging.Warn("No partials found", "pattern", pattern)
+		return t, nil
+	}
+
+	t, err = t.ParseGlob(pattern)
+	if err != nil {
+		logging.Error("Failed to load partials", "error", err, "pattern", pattern)
+		return nil, err
+	}
+
+	logging.Debug("Loaded partials", "count", len(matches), "pattern", pattern)
+	return t, nil
+}
+
+func (r *Renderer) verifyFiles(files []string) error {
+	for _, file := range files {
+		if _, err := os.Stat(file); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

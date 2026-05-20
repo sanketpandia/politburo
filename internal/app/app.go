@@ -217,12 +217,13 @@ func (a *App) initInfra() error {
 	logging.Info("Redis queue service initialized")
 
 	// Initialize template renderer
-	templateRenderer := templates.NewRenderer(
+	templateRenderer := templates.NewRendererWithOptions(
 		"templates",                   // base path
 		"templates/partials",          // partials path
 		"templates/layouts/base.html", // layout path
+		templates.WithReloadTemplates(a.Config.AppEnv == "local"),
 	)
-	logging.Info("Template renderer initialized")
+	logging.Info("Template renderer initialized", "reload_templates", a.Config.AppEnv == "local")
 
 	// Initialize watermill publisher (Redis Stream)
 	zapLog := logging.GetLogger().Desugar()
