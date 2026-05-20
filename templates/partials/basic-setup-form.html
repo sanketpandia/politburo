@@ -30,8 +30,11 @@
         <input id="callsign_suffix" name="callsign_suffix" type="text" value="{{.CallsignSuffix}}" placeholder="VA">
         <span class="setup-muted">Example: if pilots fly as 123VA, enter VA.</span>
     </div>
-    <div class="setup-actions">
-        <button type="submit" class="btn-primary">Save Basic Setup</button>
+    <div class="setup-action-row">
+        <button type="submit" class="setup-button setup-button-primary">
+            <span class="setup-button-icon" aria-hidden="true">✓</span>
+            <span>Save Basic Setup</span>
+        </button>
         {{if .Readiness.FlightMatchingReady}}<span class="setup-badge">Ready for live-flight matching</span>{{else}}<span class="setup-badge">Needs callsign matching</span>{{end}}
     </div>
 </form>

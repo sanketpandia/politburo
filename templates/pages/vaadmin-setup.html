@@ -54,6 +54,77 @@
         gap: 0.75rem;
         align-items: center;
     }
+    .setup-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 1.25rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+    }
+    .setup-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 2.75rem;
+        padding: 0.7rem 1rem;
+        border: 1px solid transparent;
+        border-radius: 0.5rem;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1;
+        text-decoration: none;
+        cursor: pointer;
+        transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+    }
+    .setup-button:hover {
+        transform: translateY(-1px);
+    }
+    .setup-button:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
+    }
+    .setup-button-primary {
+        background-color: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: var(--text-primary);
+    }
+    .setup-button-primary:hover {
+        background-color: var(--accent-primary);
+        border-color: var(--accent-primary);
+    }
+    .setup-button-secondary {
+        background-color: var(--bg-surface);
+        border-color: var(--border-color);
+        color: var(--text-primary);
+    }
+    .setup-button-secondary:hover {
+        border-color: var(--accent-primary);
+        color: var(--accent-primary);
+    }
+    .setup-button-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        line-height: 1;
+    }
+    .callsign-test-form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.75rem;
+        align-items: end;
+    }
+    .callsign-test-form .setup-field {
+        margin-bottom: 0;
+    }
+    .callsign-test-result-row {
+        margin-top: 0.85rem;
+    }
     .setup-alert {
         border: 1px solid var(--border-color);
         border-radius: 0.375rem;
@@ -89,6 +160,17 @@
             grid-template-columns: 1fr;
         }
     }
+    @media (max-width: 640px) {
+        .setup-action-row,
+        .callsign-test-form {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .setup-button {
+            width: 100%;
+        }
+    }
 </style>
 
 {{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" .CurrentPage "MenuItems" .MenuItems}}
@@ -108,12 +190,17 @@
             <h3 class="setup-section-title">Test a sample callsign</h3>
             <p class="setup-helper">Try examples like <strong>IFE123</strong> or <strong>123VA</strong> to confirm your saved callsign rule behaves as expected.</p>
             <form hx-post="/dashboard/vaadmin/setup/callsign-test" hx-target="#callsign-test-result" hx-swap="innerHTML" hx-indicator="#global-spinner">
-                <div class="setup-field">
-                    <label for="sample_callsign">Sample callsign</label>
-                    <input id="sample_callsign" name="sample_callsign" type="text" placeholder="IFE123">
+                <div class="callsign-test-form">
+                    <div class="setup-field">
+                        <label for="sample_callsign">Sample callsign</label>
+                        <input id="sample_callsign" name="sample_callsign" type="text" placeholder="IFE123">
+                    </div>
+                    <button type="submit" class="setup-button setup-button-secondary">
+                        <span class="setup-button-icon" aria-hidden="true">↪</span>
+                        <span>Test callsign</span>
+                    </button>
                 </div>
-                <div class="setup-actions">
-                    <button type="submit" class="btn-secondary">Test callsign</button>
+                <div class="callsign-test-result-row">
                     <div id="callsign-test-result" class="setup-muted">Save a callsign start or end first, then test a sample.</div>
                 </div>
             </form>
