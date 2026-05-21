@@ -1,0 +1,7 @@
+package: liveapigen
+generate:
+  client: true
+  models: true
+output: ../../infra/liveapi/generated/client.gen.go
+output-options:
+  skip-prune: false
