@@ -31,3 +31,25 @@
   - Swagger/OpenAPI: confirm `registration.yaml` remains the canonical source for the registration domain and decide a TypeScript client generator convention for comrade-bot using the existing Swagger/OpenAPI dev tooling.
   - Observability: verify dashboards/queries do not depend on the old `/pilots/register` route label; route metrics should now use `/user/register`.
   - Unit Testing: future generated TypeScript client migration should include bot-side tests/type checks around the generated client boundary and auth header injection.
+
+## 2026-05-21 — RegisterPilot 404 propagation fix
+
+- **Logical unit / commit intent:** Add the missing generated-contract `404` response for `POST /api/v1/user/register` so expected IFC-user-not-found errors propagate as JSON error envelopes instead of adapter-level 500s.
+- **Changed files:**
+  - `api/openapi/registration.yaml`
+  - `internal/api/generated/registration/server.gen.go`
+  - `internal/api/registration/server.go`
+  - `internal/api/registration/server_test.go`
+- **Reused code / patterns / components:** Reused existing `pilots.RegistrationError` domain mapping (`IFC_USER_NOT_FOUND`, HTTP 404), existing `httpdto.WriteError` envelope, and generated strict response object mapping.
+- **Logging added or affected:** No logging changes. Existing logs correctly record the LiveAPI lookup result and handler error without changing fields.
+- **Metrics added or affected:** No metrics changes. HTTP metrics now record the correct `404` status for expected missing IFC user cases instead of `500`.
+- **Test surface touched or still needed:** Added generated-adapter coverage asserting `IFC_USER_NOT_FOUND` propagates as `404` with the error envelope.
+- **Build/test command(s) run and status:**
+  - `make generate-registration-api` from `politburo/` — passed.
+  - `go tool oapi-codegen -config registration.cfg.yaml registration.yaml >/tmp/registration-oapi-validate.go` from `politburo/api/openapi/` — passed.
+  - `go test ./internal/api/... ./internal/routes ./internal/pilots ./internal/middleware ./internal/memberships ./internal/servers ./internal/auth ./internal/platform/httpdto ./internal/platform/validation` from `politburo/` — passed.
+  - Local curl for missing IFC user — returned `HTTP/1.1 404 Not Found` with `{"status":"error","error":{"code":"IFC_USER_NOT_FOUND",...}}`.
+- **Deviations from plan, if any:** None. This corrects an implementation bug discovered by manual curl testing.
+- **Blast-radius notes / dependent surfaces checked:** Checked OpenAPI response coverage, generated response object presence, adapter switch mapping, and registration service domain error mapping.
+- **Live API compliance notes:** LiveAPI may return 200 with an empty result for unknown IFC users; Politburo maps that expected domain outcome to `IFC_USER_NOT_FOUND` / 404.
+- **Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents:** No further follow-up required for this specific 404 propagation issue.

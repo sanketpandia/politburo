@@ -35,6 +35,12 @@ func (pilotServiceStub) RegisterPilot(context.Context, string, string, string, s
 	return &pilots.RegisterPilotResponse{Success: true, Message: "Pilot registered successfully", IsVARegistered: true}, nil
 }
 
+type pilotServiceNotFoundStub struct{}
+
+func (pilotServiceNotFoundStub) RegisterPilot(context.Context, string, string, string, string) (*pilots.RegisterPilotResponse, *pilots.RegistrationError) {
+	return nil, &pilots.RegistrationError{Code: "IFC_USER_NOT_FOUND", Message: "IFC user not found. Please verify your IFC username.", StatusCode: http.StatusNotFound}
+}
+
 type membershipServiceStub struct{}
 
 func (membershipServiceStub) GetUserStatus(context.Context, string, string, string, string) (*memberships.UserDetailResponse, error) {
@@ -237,6 +243,34 @@ func TestStrictServer_ValidationFailureMatchesHandlerEnvelope(t *testing.T) {
 	}
 	if response.Error == nil || response.Error.Code != registrationgen.VALIDATIONFAILED {
 		t.Fatalf("unexpected validation response: %+v", response)
+	}
+}
+
+func TestStrictServer_RegisterPilotNotFoundPropagatesEnvelope(t *testing.T) {
+	pilotsHandler := pilots.NewHandler(nil, pilotServiceNotFoundStub{}, nil, lookupStub{})
+	membershipsHandler := memberships.NewHandler(membershipServiceStub{}, nil, nil)
+	serversHandler := servers.NewHandler(serverServiceStub{})
+	authHandler := auth.NewHandler(authServiceStub{}, nil)
+
+	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler), nil)
+	router := chi.NewRouter()
+	registrationgen.HandlerFromMux(strictServer, router)
+
+	req := newComradeBotRequest(t, http.MethodPost, "/user/register", map[string]string{"ifc_id": "john_doe", "last_flight": "KLAX-KSFO"})
+	req = req.WithContext(auth.SetUserClaims(req.Context(), apiKeyClaims("", "", false)))
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d (%s)", rr.Code, rr.Body.String())
+	}
+	var response registrationgen.ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Status != "error" || response.Error == nil || response.Error.Code != "IFC_USER_NOT_FOUND" {
+		t.Fatalf("unexpected error response: %+v", response)
 	}
 }
 

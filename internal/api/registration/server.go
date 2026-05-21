@@ -104,6 +104,9 @@ func (s *Server) RegisterPilot(ctx context.Context, request registrationgen.Regi
 	case http.StatusForbidden:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.RegisterPilot403JSONResponse(response), err
+	case http.StatusNotFound:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.RegisterPilot404JSONResponse(response), err
 	case http.StatusConflict:
 		response, err := decodeBody[registrationgen.ErrorResponse](body)
 		return registrationgen.RegisterPilot409JSONResponse(response), err

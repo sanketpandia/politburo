@@ -1099,6 +1099,20 @@ func (response RegisterPilot403JSONResponse) VisitRegisterPilotResponse(w http.R
 	return err
 }
 
+type RegisterPilot404JSONResponse ErrorResponse
+
+func (response RegisterPilot404JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RegisterPilot409JSONResponse ErrorResponse
 
 func (response RegisterPilot409JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
