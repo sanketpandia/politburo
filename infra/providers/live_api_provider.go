@@ -1,281 +1,171 @@
 package providers
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+
+	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/internal/constants"
 	"infinite-experiment/politburo/internal/models/dtos"
-	"io"
-	"net/http"
-	"os"
-	"time"
 )
 
-// LiveAPIProvider implements a provider for Infinite Flight Live API
+// LiveAPIProvider adapts the canonical infra/liveapi.Client into the provider
+// interface shape used by registration-style feature services. Keep feature
+// packages depending on small interfaces; keep generated LiveAPI details behind
+// infra/liveapi.Client.
 type LiveAPIProvider struct {
-	BaseURL string
-	APIKey  string
-	Client  *http.Client
+	client *liveapi.Client
 }
 
-// NewLiveAPIProvider creates a new Infinite Flight Live API provider
+// NewLiveAPIProvider creates a feature-facing adapter around the canonical LiveAPI client.
 func NewLiveAPIProvider() *LiveAPIProvider {
-	baseURL := os.Getenv("IF_API_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://api.infiniteflight.com/public/v2" // Default
-	}
-	apiKey := os.Getenv("IF_API_KEY")
-
-	return &LiveAPIProvider{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-		Client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-	}
+	return NewLiveAPIProviderWithClient(liveapi.NewClient())
 }
 
-// GetProviderType returns the provider type identifier
+// NewLiveAPIProviderWithClient creates an adapter around a supplied LiveAPI client.
+// Tests and DI code should use this instead of constructing the provider fields directly.
+func NewLiveAPIProviderWithClient(client *liveapi.Client) *LiveAPIProvider {
+	return &LiveAPIProvider{client: client}
+}
+
+// GetProviderType returns the provider type identifier.
 func (p *LiveAPIProvider) GetProviderType() string {
 	return "infinite_flight_live_api"
 }
 
-// ============================================================================
-// User Registration Methods
-// ============================================================================
-
-// GetUserByIfcId fetches user stats by Infinite Flight Community username
+// GetUserByIfcId fetches user stats by Infinite Flight Community username.
 func (p *LiveAPIProvider) GetUserByIfcId(ctx context.Context, ifcId string) (*dtos.UserStatsResponse, int, error) {
-	// Input validation
 	if ifcId == "" {
 		return nil, 0, &ProviderError{
 			Code:    constants.ErrCodeInvalidDataFormat,
 			Message: "IFC ID cannot be empty",
 		}
 	}
-
-	// Build request body
-	reqBody := dtos.LiveApiUserStatsReq{
-		DiscourseNames: []string{ifcId},
+	if err := p.validateReady(ctx); err != nil {
+		return nil, 0, err
 	}
 
-	// Make POST request
-	var result dtos.UserStatsResponse
-	status, err := p.doPost(ctx, "/users", reqBody, &result)
+	resp, status, err := p.client.GetUserByIfcId(ifcId)
 	if err != nil {
-		return nil, status, err
+		return nil, status, p.providerError(status, "users", err)
 	}
-
-	return &result, status, nil
+	return convertUserStatsResponse(resp), status, nil
 }
 
-// GetUserFlights fetches user flight history with pagination
+// GetUserFlights fetches user flight history with pagination.
 func (p *LiveAPIProvider) GetUserFlights(ctx context.Context, userID string, page int) (*dtos.UserFlightsResponse, int, error) {
-	// Input validation
 	if userID == "" {
 		return nil, 0, &ProviderError{
 			Code:    constants.ErrCodeInvalidDataFormat,
 			Message: "User ID cannot be empty",
 		}
 	}
-
 	if page < 1 {
 		return nil, 0, &ProviderError{
 			Code:    constants.ErrCodeInvalidDataFormat,
 			Message: "Page number must be greater than 0",
 		}
 	}
-
-	// Build endpoint
-	endpoint := fmt.Sprintf("/users/%s/flights?page=%d", userID, page)
-
-	// Make GET request
-	var rawResp dtos.UserFlightsRawResponse
-	status, err := p.doGET(ctx, endpoint, &rawResp)
-	if err != nil {
-		return nil, status, err
+	if err := p.validateReady(ctx); err != nil {
+		return nil, 0, err
 	}
 
-	return &rawResp.Result, status, nil
+	resp, status, err := p.client.GetUserFlights(userID, page)
+	if err != nil {
+		return nil, status, p.providerError(status, "user_flights", err)
+	}
+	return convertUserFlightsResponse(resp), status, nil
 }
 
-// ============================================================================
-// HTTP Helper Methods
-// ============================================================================
-
-// doGET performs a GET request with authentication
-func (p *LiveAPIProvider) doGET(ctx context.Context, endpoint string, result interface{}) (int, error) {
-	// Validate API key
-	if p.APIKey == "" {
-		return 0, &ProviderError{
-			Code:    constants.ErrCodeInvalidAPIKey,
-			Message: "IF_API_KEY environment variable is not set",
-		}
-	}
-
-	// Build request
-	url := p.BaseURL + endpoint
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return 0, &ProviderError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: "Failed to create request",
-			Err:     err,
-		}
-	}
-
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	resp, err := p.Client.Do(req)
-	if err != nil {
-		return 0, &ProviderError{
+func (p *LiveAPIProvider) validateReady(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return &ProviderError{
 			Code:    constants.ErrCodeNetworkError,
 			Message: constants.GetErrorMessage(constants.ErrCodeNetworkError),
 			Err:     err,
 		}
 	}
-	defer resp.Body.Close()
-
-	// Handle HTTP errors
-	if err := p.handleHTTPError(resp, endpoint); err != nil {
-		return resp.StatusCode, err
-	}
-
-	// Parse response
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, &ProviderError{
+	if p == nil || p.client == nil {
+		return &ProviderError{
 			Code:    constants.ErrCodeNetworkError,
-			Message: "Failed to decode response",
-			Details: string(bodyBytes),
-			Err:     err,
+			Message: "Live API client is not configured",
 		}
 	}
-
-	return resp.StatusCode, nil
-}
-
-// doPost performs a POST request with authentication and JSON body
-func (p *LiveAPIProvider) doPost(ctx context.Context, endpoint string, payload interface{}, result interface{}) (int, error) {
-	// Validate API key
-	if p.APIKey == "" {
-		return 0, &ProviderError{
+	if p.client.APIKey == "" {
+		return &ProviderError{
 			Code:    constants.ErrCodeInvalidAPIKey,
 			Message: "IF_API_KEY environment variable is not set",
 		}
 	}
-
-	// Serialize payload
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return 0, &ProviderError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: "Failed to marshal request body",
-			Err:     err,
-		}
-	}
-
-	// Build request
-	url := p.BaseURL + endpoint
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payloadBytes))
-	if err != nil {
-		return 0, &ProviderError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: "Failed to create request",
-			Err:     err,
-		}
-	}
-
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	resp, err := p.Client.Do(req)
-	if err != nil {
-		return 0, &ProviderError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: constants.GetErrorMessage(constants.ErrCodeNetworkError),
-			Err:     err,
-		}
-	}
-	defer resp.Body.Close()
-
-	// Read body for potential error messages
-	bodyBytes, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return resp.StatusCode, &ProviderError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: "Failed to read response body",
-			Err:     readErr,
-		}
-	}
-
-	// Handle HTTP errors
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.StatusCode, p.buildHTTPError(resp.StatusCode, endpoint, string(bodyBytes))
-	}
-
-	// Parse response
-	if err := json.Unmarshal(bodyBytes, result); err != nil {
-		return resp.StatusCode, &ProviderError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: "Failed to decode response",
-			Details: string(bodyBytes),
-			Err:     err,
-		}
-	}
-
-	return resp.StatusCode, nil
+	return nil
 }
 
-// handleHTTPError converts HTTP errors to ProviderError
-func (p *LiveAPIProvider) handleHTTPError(resp *http.Response, endpoint string) error {
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+func (p *LiveAPIProvider) providerError(statusCode int, endpointGroup string, err error) error {
+	if err == nil {
 		return nil
 	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &ProviderError{Code: constants.ErrCodeNetworkError, Message: constants.GetErrorMessage(constants.ErrCodeNetworkError), Err: err}
+	}
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	return p.buildHTTPError(resp.StatusCode, endpoint, string(bodyBytes))
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return &ProviderError{Code: constants.ErrCodeInvalidAPIKey, Message: fmt.Sprintf("Authentication failed for Live API %s", endpointGroup), Err: err}
+	case http.StatusNotFound:
+		return &ProviderError{Code: "RESOURCE_NOT_FOUND", Message: fmt.Sprintf("Live API resource not found: %s", endpointGroup), Err: err}
+	case http.StatusTooManyRequests:
+		return &ProviderError{Code: constants.ErrCodeRateLimited, Message: constants.GetErrorMessage(constants.ErrCodeRateLimited), Err: err}
+	case http.StatusBadRequest:
+		return &ProviderError{Code: constants.ErrCodeInvalidDataFormat, Message: fmt.Sprintf("Bad request to Live API %s", endpointGroup), Err: err}
+	default:
+		return &ProviderError{Code: constants.ErrCodeNetworkError, Message: fmt.Sprintf("Live API %s request failed", endpointGroup), Err: err}
+	}
 }
 
-// buildHTTPError creates appropriate error based on status code
-func (p *LiveAPIProvider) buildHTTPError(statusCode int, endpoint string, body string) error {
-	switch statusCode {
-	case http.StatusUnauthorized:
-		return &ProviderError{
-			Code:    constants.ErrCodeInvalidAPIKey,
-			Message: fmt.Sprintf("Authentication failed for endpoint %s", endpoint),
-			Details: body,
-		}
-	case http.StatusNotFound:
-		return &ProviderError{
-			Code:    "RESOURCE_NOT_FOUND",
-			Message: fmt.Sprintf("Resource not found: %s", endpoint),
-			Details: body,
-		}
-	case http.StatusTooManyRequests:
-		return &ProviderError{
-			Code:    constants.ErrCodeRateLimited,
-			Message: constants.GetErrorMessage(constants.ErrCodeRateLimited),
-			Details: body,
-		}
-	case http.StatusBadRequest:
-		return &ProviderError{
-			Code:    constants.ErrCodeInvalidDataFormat,
-			Message: fmt.Sprintf("Bad request to %s", endpoint),
-			Details: body,
-		}
-	default:
-		return &ProviderError{
-			Code:    constants.ErrCodeNetworkError,
-			Message: fmt.Sprintf("HTTP %d from %s: %s", statusCode, endpoint, body),
-			Details: body,
-		}
+func convertUserStatsResponse(resp *liveapi.UserStatsResponse) *dtos.UserStatsResponse {
+	if resp == nil {
+		return nil
+	}
+	result := make([]dtos.UserStats, 0, len(resp.Result))
+	for _, item := range resp.Result {
+		result = append(result, dtos.UserStats{
+			OnlineFlights:         item.OnlineFlights,
+			Violations:            item.Violations,
+			XP:                    item.XP,
+			LandingCount:          item.LandingCount,
+			FlightTime:            item.FlightTime,
+			ATCOperations:         item.ATCOperations,
+			ATCRank:               item.ATCRank,
+			Grade:                 item.Grade,
+			Hash:                  item.Hash,
+			ViolationCountByLevel: dtos.ViolationCountByLevel(item.ViolationCountByLevel),
+			Roles:                 item.Roles,
+			UserID:                item.UserID,
+			VirtualOrganization:   item.VirtualOrganization,
+			DiscourseUsername:     item.DiscourseUsername,
+			Groups:                item.Groups,
+			ErrorCode:             item.ErrorCode,
+		})
+	}
+	return &dtos.UserStatsResponse{ErrorCode: resp.ErrorCode, Result: result}
+}
+
+func convertUserFlightsResponse(resp *liveapi.UserFlightsResponse) *dtos.UserFlightsResponse {
+	if resp == nil {
+		return nil
+	}
+	flights := make([]dtos.UserFlightEntry, 0, len(resp.Flights))
+	for _, flight := range resp.Flights {
+		flights = append(flights, dtos.UserFlightEntry(flight))
+	}
+	return &dtos.UserFlightsResponse{
+		PageIndex:   resp.PageIndex,
+		TotalPages:  resp.TotalPages,
+		TotalCount:  resp.TotalCount,
+		HasPrevious: resp.HasPrevious,
+		HasNext:     resp.HasNext,
+		Flights:     flights,
 	}
 }

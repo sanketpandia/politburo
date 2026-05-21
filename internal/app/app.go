@@ -329,7 +329,7 @@ func (a *App) initFeatures() error {
 	logging.Info("Initializing features layer")
 
 	// Initialize providers
-	liveAPIProvider := providers.NewLiveAPIProvider()
+	liveAPIProvider := providers.NewLiveAPIProviderWithClient(a.Infra.LiveAPI)
 	logging.Debug("Live API provider initialized")
 
 	// Initialize pilot repository

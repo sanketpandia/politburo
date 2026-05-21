@@ -172,3 +172,31 @@
   - **Swagger/OpenAPI:** None.
   - **Observability:** Existing wrapper metrics/logging remain unchanged.
   - **Unit Testing:** If TTL behavior becomes product-critical, add tests around cache set calls or use fake cache services that capture TTLs.
+
+## Logical unit 9: LiveAPI provider adapter and common-service retirement
+
+- **Logical unit / commit intent:** Make `infra/providers.LiveAPIProvider` a feature-facing adapter over the canonical generated-client-backed `infra/liveapi.Client`, and retire `internal/common.LiveAPIService` into an explicit not-implemented compatibility stub.
+- **Changed files:**
+  - `infra/providers/live_api_provider.go`
+  - `infra/providers/live_api_provider_test.go`
+  - `internal/app/app.go`
+  - `internal/common/live_api_service.go`
+  - `internal/common/flight_data.go`
+  - `docs/dev/liveapi-openapi-client.md`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+- **Reused code / patterns / components:** Reused `infra/liveapi.Client` as the canonical upstream boundary, existing `ProviderError` semantics for feature-facing registration consumers, existing `internal/models/dtos` compatibility DTOs, and app DI so `LiveAPIProvider` uses the already-wired canonical `a.Infra.LiveAPI` instance.
+- **Logging added or affected:** No new logging. Provider calls now inherit `infra/liveapi.Client` wrapper logs/metrics instead of doing direct HTTP calls.
+- **Metrics added or affected:** No new metrics. Provider calls now flow through `infra/liveapi.Client` and therefore use `politburo_liveapi_requests_total` and `politburo_liveapi_request_duration_seconds`.
+- **Test surface touched or still needed:** Updated provider tests to exercise the adapter through `httptest.Server`, bearer auth, generated-wrapper content-type handling, and UUID-compatible fixtures. Legacy `internal/common.LiveAPIService` has no behavior tests because it is intentionally a stub. Runtime paths still wired to the stub need targeted migration tests before re-enabling behavior.
+- **Build/test command(s) run and status:**
+  - `gofmt -w infra/providers/live_api_provider.go infra/providers/live_api_provider_test.go internal/common/live_api_service.go internal/common/flight_data.go` — passed
+  - `go test ./infra/providers ./internal/common ./internal/pilots ./internal/pireps ./internal/services ./vizburo/ui` — passed
+  - `go test ./infra/providers ./internal/app ./internal/pilots ./internal/pireps ./internal/services ./vizburo/ui` — passed
+  - `go test ./...` — passed
+- **Deviations from plan, if any:** The user explicitly requested retiring `internal/common.LiveAPIService` into a MethodNotImplemented-style stub. This intentionally leaves any remaining legacy runtime consumers fail-fast instead of silently using the old direct HTTP client.
+- **Blast-radius notes / dependent surfaces checked:** Checked app DI, registration service interface use, provider tests, legacy common method surface, PIREP/services/Vizburo compile surfaces, and full Go test suite. No generated files, OpenAPI specs, cache keys, route wiring, Discord bot, Vizburo templates, or labour-bureau files were changed.
+- **Live API compliance notes:** Provider calls now inherit bearer-only auth and generated-wrapper observability from `infra/liveapi.Client`. `internal/common.LiveAPIService` no longer performs network calls.
+- **Follow-up notes:**
+  - **Developer:** Migrate remaining runtime consumers that still receive `*common.LiveAPIService` to feature services backed by `infra/liveapi.Client` when those flows are prioritized; use the stub comments as the behavior summary for rebuilding.
+  - **Unit Testing:** Add focused tests for PIREP validation/Vizburo/legacy service paths before replacing the stub in those flows.
+  - **Observability:** No additional wiring needed; provider adapter calls use the existing wrapper metrics/logs.
