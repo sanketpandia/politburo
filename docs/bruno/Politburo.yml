@@ -35,9 +35,9 @@ config:
           value: '123'
 request:
   headers:
-    - name: X-Discord-Id
+    - name: X-Discord-User-Id
       value: '{{D_User_id}}'
-    - name: X-Server-Id
+    - name: X-Discord-Server-Id
       value: '{{D_Server_Id}}'
     - name: X-API-Key
       value: '{{P_Api_Key}}'
@@ -95,7 +95,7 @@ items:
             - onboarding
         http:
           method: POST
-          url: '{{Base_Url}}/api/v1/pilots/register'
+          url: '{{Base_Url}}/api/v1/user/register'
           headers:
             - name: Content-Type
               value: application/json
@@ -127,7 +127,7 @@ items:
           Registers a Discord user as a pilot using IFC verification.
 
           Source: `api/openapi/registration.yaml`, operationId `registerPilot`.
-          Requires inherited bot headers: `X-API-Key`, `X-Server-Id`, and `X-Discord-Id`.
+          Requires inherited bot headers: `X-API-Key`, `X-Discord-Server-Id`, and `X-Discord-User-Id`.
 
       - info:
           name: Initialize Server
@@ -146,10 +146,7 @@ items:
             type: json
             data: |-
               {
-                "va_code": "{{VA_Code}}",
-                "va_name": "{{VA_Name}}",
-                "callsign_prefix": "{{VA_Code}}",
-                "callsign_suffix": ""
+                "va_code": "{{VA_Code}}"
               }
           auth: inherit
         runtime:
@@ -172,7 +169,7 @@ items:
           Initializes the current Discord server as a virtual airline.
 
           Source: `api/openapi/registration.yaml`, operationId `initServer`.
-          At least one of `callsign_prefix` or `callsign_suffix` must be supplied.
+          Requires the calling user to already be registered through `POST /api/v1/user/register`.
 
       - info:
           name: Join Membership
@@ -211,7 +208,7 @@ items:
           followRedirects: true
           maxRedirects: 5
         docs: |-
-          Joins the VA associated with the current `X-Server-Id`.
+          Joins the VA associated with the current `X-Discord-Server-Id`.
 
           Source: `api/openapi/registration.yaml`, operationId `joinMembership`.
           The callsign must exist in the VA's linked Airtable base.
