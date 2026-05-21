@@ -125,3 +125,22 @@
 - **Deviations from plan, if any:** None. User-facing docs remain intentionally unchanged because the feature is an internal upstream-client refactor.
 - **Blast-radius notes / dependent surfaces checked:** Rechecked `docs/dev/liveapi-openapi-client.md`, this dev log, `api/openapi/liveapi.yaml`, `api/openapi/liveapi.cfg.yaml`, `Makefile`, `infra/liveapi/client.go`, `infra/metrics/metrics.go`, `internal/app/app.go`, `README.md`, `docs/dev/commands_cheat_sheet.md`, `docs/dev/implementation.md`, `internal/platform/aircraft/README.md`, and workspace-level `TECHNICAL_STANDARDS.md` for stale or missing generated-client references.
 - **Live API compliance notes:** Real upstream API verification remains deferred by user request. The ATC/ATIS/world-status signature decision, 7-day TTL compliance decision, and provider/common consolidation parity decision remain explicit follow-ups.
+
+## Logical unit 7: LiveAPI wrapper observability classification tests
+
+- **Logical unit / commit intent:** Add focused unit coverage for the LiveAPI wrapper metrics classification paths introduced in logical unit 4.
+- **Changed files:**
+  - `infra/liveapi/client_test.go`
+  - `go.mod`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+- **Reused code / patterns / components:** Reused `httptest.Server`, the existing wrapper methods, the existing metrics registry type, and isolated Prometheus test registries/counters instead of calling the real Infinite Flight API or inspecting generated code internals.
+- **Logging added or affected:** No production logging changed. The tests assert the metric labels emitted by the same `observeLiveAPICall` path that also emits wrapper logs, without coupling to logger output formatting.
+- **Metrics added or affected:** No production metrics changed. Tests verify `politburo_liveapi_requests_total` label classifications for `rate_limited`, `auth`, `error_code_6`, `empty_response`, `decode_error`, and `network`.
+- **Test surface touched or still needed:** Added observability classification coverage for `429`, `401`, `403`, nonzero upstream `errorCode`, empty generated response, malformed JSON through the legacy wrapper decode path, and network failures. Generated-client malformed JSON returns before a parsed response is available, so this slice keeps decode-error assertion on a wrapper path that can observe the response status safely.
+- **Build/test command(s) run and status:**
+  - `gofmt -w infra/liveapi/client_test.go && go test ./infra/liveapi ./infra/metrics` — initially requested `go mod tidy` for the Prometheus test helper import.
+  - `go mod tidy && go test ./infra/liveapi ./infra/metrics` — passed.
+  - `go test ./...` — passed.
+- **Deviations from plan, if any:** None. No generated files, provider/common migrations, cache behavior, or public API behavior were changed.
+- **Blast-radius notes / dependent surfaces checked:** Limited to `infra/liveapi` tests and the existing metrics type. `infra/metrics` production code was not edited.
+- **Live API compliance notes:** All coverage uses local fakes/custom transports only; no real upstream API calls were made.

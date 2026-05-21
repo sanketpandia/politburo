@@ -11,6 +11,11 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
+	metricsinfra "infinite-experiment/politburo/infra/metrics"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -155,6 +160,101 @@ func TestGeneratedWrapperStatusAndErrorCodeHandling(t *testing.T) {
 	})
 }
 
+func TestLiveAPIObservabilityClassifiesStatusErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      int
+		errorType   string
+		statusClass string
+	}{
+		{name: "rate limited", status: http.StatusTooManyRequests, errorType: "rate_limited", statusClass: "4xx"},
+		{name: "unauthorized", status: http.StatusUnauthorized, errorType: "auth", statusClass: "4xx"},
+		{name: "forbidden", status: http.StatusForbidden, errorType: "auth", statusClass: "4xx"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, tt.status, map[string]any{"errorCode": 4, "result": nil})
+			}))
+			defer server.Close()
+
+			client, _ := testClientWithMetrics(server.URL)
+			_, err := client.GetSessions()
+			if err == nil {
+				t.Fatal("expected status error")
+			}
+			assertLiveAPICounter(t, client, "sessions", tt.statusClass, tt.errorType, 1)
+		})
+	}
+}
+
+func TestLiveAPIObservabilityClassifiesGeneratedResponseErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		handler   http.HandlerFunc
+		errorType string
+	}{
+		{
+			name: "nonzero error code",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, map[string]any{"errorCode": 6, "result": []any{}})
+			},
+			errorType: "error_code_6",
+		},
+		{
+			name: "empty generated response",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			},
+			errorType: "empty_response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+
+			client, _ := testClientWithMetrics(server.URL)
+			_, err := client.GetSessions()
+			if err == nil {
+				t.Fatal("expected response error")
+			}
+			assertLiveAPICounter(t, client, "sessions", "2xx", tt.errorType, 1)
+		})
+	}
+}
+
+func TestLiveAPIObservabilityClassifiesDecodeAndNetworkErrors(t *testing.T) {
+	t.Run("decode error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{`))
+		}))
+		defer server.Close()
+
+		client, _ := testClientWithMetrics(server.URL)
+		_, _, err := client.GetATIS()
+		if err == nil {
+			t.Fatal("expected decode error")
+		}
+		assertLiveAPICounter(t, client, "flights", "2xx", "decode_error", 1)
+	})
+
+	t.Run("network error", func(t *testing.T) {
+		client, _ := testClientWithMetrics("http://liveapi.test")
+		client.Client = &http.Client{Transport: errorRoundTripper{err: errors.New("dial failed")}}
+
+		_, err := client.GetSessions()
+		if err == nil {
+			t.Fatal("expected network error")
+		}
+		assertLiveAPICounter(t, client, "sessions", "none", "network", 1)
+	})
+}
+
 func TestGeneratedWrapperNullableFieldsMapSafely(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -258,6 +358,32 @@ func testClient(baseURL string) *Client {
 	}
 }
 
+func testClientWithMetrics(baseURL string) (*Client, *prometheus.Registry) {
+	reg := prometheus.NewRegistry()
+	requests := promauto.With(reg).NewCounterVec(
+		prometheus.CounterOpts{Name: "politburo_liveapi_requests_total", Help: "test LiveAPI requests"},
+		[]string{"provider", "endpoint_group", "status_class", "error_type"},
+	)
+	duration := promauto.With(reg).NewHistogramVec(
+		prometheus.HistogramOpts{Name: "politburo_liveapi_request_duration_seconds", Help: "test LiveAPI duration"},
+		[]string{"provider", "endpoint_group", "status_class", "error_type"},
+	)
+	client := testClient(baseURL)
+	client.SetMetrics(&metricsinfra.MetricsRegistry{
+		LiveAPIRequestsTotal:   *requests,
+		LiveAPIRequestDuration: *duration,
+	})
+	return client, reg
+}
+
+func assertLiveAPICounter(t *testing.T, client *Client, endpointGroup, statusClass, errorType string, want float64) {
+	t.Helper()
+	got := testutil.ToFloat64(client.metrics.LiveAPIRequestsTotal.WithLabelValues("liveapi", endpointGroup, statusClass, errorType))
+	if got != want {
+		t.Fatalf("LiveAPIRequestsTotal(%s, %s, %s) = %v, want %v", endpointGroup, statusClass, errorType, got, want)
+	}
+}
+
 func writeJSON(t *testing.T, w http.ResponseWriter, status int, value any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
@@ -274,4 +400,12 @@ type countingRoundTripper struct {
 func (rt *countingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	rt.count++
 	return nil, errors.New("unexpected request")
+}
+
+type errorRoundTripper struct {
+	err error
+}
+
+func (rt errorRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, rt.err
 }
