@@ -1,26 +1,6 @@
-# DEPRECATED: This Dockerfile is deprecated. Use Dockerfile.dev instead.
-# The application now uses a single unified deployable.
-# This file is kept for reference only and should not be used.
-#
-# Development Dockerfile for Vizburo UI service with hot reload
-FROM node:20-alpine
+# DEPRECATED: Vizburo is served by Politburo through Dockerfile.dev or the host
+# Go runtime. Active CSS is hand-authored in static/css/design-system.css; there
+# is no standalone Tailwind watcher for the retired legacy UI tree.
+FROM alpine:3.19
 
-WORKDIR /app
-
-# Install development dependencies
-RUN apk add --no-cache git bash
-
-# Copy vizburo UI files
-COPY vizburo/ui/package.json vizburo/ui/tailwind.config.js vizburo/ui/input.css vizburo/ui/postcss.config.js vizburo/ui/
-
-# Install npm dependencies (including Tailwind CSS)
-RUN cd vizburo/ui && npm install
-
-# Copy remaining files
-COPY . .
-
-# Expose port 3000 (Vizburo UI - not needed since we're running Tailwind in watch mode)
-EXPOSE 3000
-
-# Run Tailwind in watch mode for development
-CMD ["npm", "run", "watch:css", "--prefix", "vizburo/ui"]
+CMD ["sh", "-c", "echo 'Dockerfile.vizburo.dev is deprecated; run Politburo with Dockerfile.dev or go tool air -c .air.toml.'"]

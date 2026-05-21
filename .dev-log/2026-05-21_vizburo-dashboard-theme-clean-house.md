@@ -97,3 +97,36 @@
   - **Swagger/OpenAPI:** No API contract changes.
   - **Observability:** No metrics/logging impact.
   - **Unit Testing:** Update any external/local docs or agent guidance that still instructs `npm run css:build` for active Vizburo; current repository README now documents `design-system.css` as authoritative.
+
+## Logical unit 4: Delete verified legacy Vizburo UI tree and stale template copies
+
+- **Logical unit / commit intent:** Remove the verified-unused `vizburo/ui/**` duplicate package/templates/build files and stale `internal/platform/ui/templates/**`, then repair container build files so production/dev no longer reference the retired Tailwind/output path.
+- **Changed files:**
+  - `vizburo/ui/**` (deleted)
+  - `internal/platform/ui/templates/**` (deleted)
+  - `Dockerfile`
+  - `Dockerfile.dev`
+  - `Dockerfile.vizburo.dev`
+  - `TECHNICAL_STANDARDS.md`
+  - `infra/templates/renderer.go`
+  - `.dev-log/2026-05-21_vizburo-dashboard-theme-clean-house.md`
+- **Reused code / patterns / components:** Preserved active root `templates/**`, `static/css/design-system.css`, `infra/templates.Renderer`, and `internal/platform/ui.GetMenuItems`. Production image now copies root templates/static only.
+- **Logging added or affected:** None.
+- **Metrics added or affected:** None.
+- **Test surface touched or still needed:** Full Go test suite and both server/vizburo builds passed after deletion. Production container build smoke passed after updating Go base image to match `go.mod` (`go 1.25.0`). Authenticated browser smoke still needs a valid session.
+- **Build/test command(s) run and status:**
+  - `go list ./...` — passed; `infinite-experiment/politburo/vizburo/ui` is no longer listed.
+  - Grep verification — no remaining legacy package files; no Dockerfile/root package references to `vizburo/ui`, `static/css/output.css`, `tailwindcss`, or `css:build`. Remaining matches are historical plans/dev logs only.
+  - `gofmt -w infra/templates/renderer.go` — passed.
+  - `go test ./infra/templates ./internal/dashboard ./internal/routes` — passed.
+  - `go build -buildvcs=false -o .air_tmp/main ./cmd/server` — passed.
+  - `go build -buildvcs=false -o .air_tmp/vizburo ./cmd/vizburo` — passed; tracked build artifact restored afterward.
+  - `go test ./...` — passed.
+  - `docker build -t politburo-vizburo-theme-check .` — initially failed because the existing Dockerfile used `golang:1.24-alpine` while `go.mod` requires Go 1.25; passed after updating Dockerfile/Dockerfile.dev base images to Go 1.25.
+- **Deviations from plan, if any:** Deleted stale `internal/platform/ui/templates/**` in the same cleanup slice because it was an unused duplicate template copy still referencing `/static/css/output.css`; this was part of the discovered build/theme ambiguity blast radius.
+- **Blast-radius notes / dependent surfaces checked:** Checked Go package list/imports, root/static template replacement availability, Dockerfile production build, deprecated Vizburo dev Dockerfile, root package files, and active route/template renderer paths. No comrade-bot, JSON API, jobs, auth, generated code, DB migration, or labour-bureau changes were required.
+- **Live API compliance notes:** Not applicable.
+- **Follow-up notes:**
+  - **Swagger/OpenAPI:** No API contract changes.
+  - **Observability:** Infra/observability follow-up may decide whether to remove or update the deprecated `vizburo` service in `labour-bureau/docker-compose.dev.yml`; this implementation left labour-bureau unchanged and made `Dockerfile.vizburo.dev` a harmless deprecation stub.
+  - **Unit Testing:** Add optional static tests that fail if active templates reintroduce `<style>`, inline `style=`, or links to `output.css`.

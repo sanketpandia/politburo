@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1.4
 
-FROM golang:1.24 as dev
+FROM golang:1.25 as dev
 
 WORKDIR /app
 
 # Install Air (hot reload tool)
 RUN go install github.com/air-verse/air@latest
 
-# Install Node.js and npm for Tailwind CSS compilation
-RUN apt-get update && apt-get install -y nodejs npm git
+# Install git for module and VCS metadata access during local development
+RUN apt-get update && apt-get install -y git
 
 # Copy go.mod and go.sum first (for better caching)
 COPY go.mod go.sum ./

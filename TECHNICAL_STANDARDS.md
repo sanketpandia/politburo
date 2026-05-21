@@ -128,7 +128,7 @@ This document describes standards for new work across the Infinite Experiment wo
 - For registration/OpenAPI work, run the focused API regression set documented in `AGENTS.md` and regenerate with `make generate-api` after spec edits.
 - For upstream LiveAPI client work, run `make generate-liveapi-client`, focused `infra/liveapi` and LiveAPI consumer package tests, a server build, and a short worker-start validation when the wrapper behavior changes.
 - For Comrade Bot changes, run `npm run build` from `comrade-bot/`.
-- For Vizburo CSS changes, run `npm run css:build` from `politburo/` when stylesheet output is affected.
+- For Vizburo CSS changes, edit `static/css/design-system.css` directly and run focused Go template/build checks; the old Tailwind `npm run css:build` path is retired for active root Vizburo.
 - For infra changes, validate compose, scrape targets, dashboards, env templates, health checks, ports, volumes, and labels from `labour-bureau/`.
 - User-visible, admin-facing, config, deployment, and observability behavior changes should update the relevant docs or help text in the same feature slice.
 

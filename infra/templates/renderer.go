@@ -64,9 +64,9 @@ func resolvePath(relPath string) string {
 
 // Renderer handles template rendering with configurable paths
 type Renderer struct {
-	BasePath     string // e.g., "vizburo/ui/templates"
-	PartialsPath string // e.g., "vizburo/ui/templates/partials"
-	LayoutPath   string // e.g., "vizburo/ui/templates/layouts/base.html"
+	BasePath     string // e.g., "templates"
+	PartialsPath string // e.g., "templates/partials"
+	LayoutPath   string // e.g., "templates/layouts/base.html"
 
 	reloadTemplates bool
 	mu              sync.RWMutex
