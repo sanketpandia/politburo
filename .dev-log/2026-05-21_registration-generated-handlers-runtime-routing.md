@@ -53,3 +53,20 @@
 - **Blast-radius notes / dependent surfaces checked:** Checked OpenAPI response coverage, generated response object presence, adapter switch mapping, and registration service domain error mapping.
 - **Live API compliance notes:** LiveAPI may return 200 with an empty result for unknown IFC users; Politburo maps that expected domain outcome to `IFC_USER_NOT_FOUND` / 404.
 - **Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents:** No further follow-up required for this specific 404 propagation issue.
+
+## 2026-05-21 — Registration adapter host configuration
+
+- **Logical unit / commit intent:** Remove the hardcoded `example.com` host from the generated registration adapter's synthetic delegated requests and derive it from runtime configuration.
+- **Changed files:**
+  - `internal/api/registration/server.go`
+  - `internal/api/registration/server_test.go`
+- **Reused code / patterns / components:** Kept the existing adapter delegation pattern and `httptest.NewRequest` synthetic request construction; added environment-based host selection using `POLITBURO_BASE_URL`, `API_BASE_URL`, `API_URL`, then `PORT`.
+- **Logging added or affected:** No logging changes.
+- **Metrics added or affected:** No metrics changes.
+- **Test surface touched or still needed:** Added adapter tests for configured base URL host and `PORT` fallback host.
+- **Build/test command(s) run and status:**
+  - `go test ./internal/api/... ./internal/routes ./internal/pilots ./internal/middleware ./internal/memberships ./internal/servers ./internal/auth ./internal/platform/httpdto ./internal/platform/validation` from `politburo/` — passed.
+- **Deviations from plan, if any:** None. This fixes a discovered adapter correctness issue.
+- **Blast-radius notes / dependent surfaces checked:** Scoped to the internal adapter; real incoming request routing remains unchanged. This mainly affects delegated handlers such as signed-link generation when they inspect request host.
+- **Live API compliance notes:** Not applicable.
+- **Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents:** Document `POLITBURO_BASE_URL`/`API_BASE_URL` convention if it becomes a supported operator-facing environment variable beyond this adapter fallback.

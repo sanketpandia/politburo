@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
 
 	registrationgen "infinite-experiment/politburo/internal/api/generated/registration"
 	"infinite-experiment/politburo/internal/auth"
@@ -235,11 +238,35 @@ func newRequest(ctx context.Context, method string, path string, body any) (*htt
 
 	request := httptest.NewRequest(method, path, reader)
 	request = request.WithContext(ctx)
-	request.Host = "example.com"
+	request.Host = registrationRequestHost()
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	return request, nil
+}
+
+func registrationRequestHost() string {
+	for _, envName := range []string{"POLITBURO_BASE_URL", "API_BASE_URL", "API_URL"} {
+		if host := hostFromEnvURL(envName); host != "" {
+			return host
+		}
+	}
+	if port := strings.TrimSpace(os.Getenv("PORT")); port != "" {
+		return "localhost:" + port
+	}
+	return "localhost:8080"
+}
+
+func hostFromEnvURL(envName string) string {
+	value := strings.TrimSpace(os.Getenv(envName))
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Host
 }
 
 func decodeBody[T any](body []byte) (T, error) {

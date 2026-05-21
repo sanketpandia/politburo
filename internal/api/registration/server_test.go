@@ -274,6 +274,31 @@ func TestStrictServer_RegisterPilotNotFoundPropagatesEnvelope(t *testing.T) {
 	}
 }
 
+func TestNewRequestUsesConfiguredHost(t *testing.T) {
+	t.Setenv("POLITBURO_BASE_URL", "https://api.example.test:8443")
+	req, err := newRequest(context.Background(), http.MethodGet, "/api/v1/user/status", nil)
+	if err != nil {
+		t.Fatalf("newRequest: %v", err)
+	}
+	if req.Host != "api.example.test:8443" {
+		t.Fatalf("expected configured host, got %q", req.Host)
+	}
+}
+
+func TestNewRequestFallsBackToPortHost(t *testing.T) {
+	t.Setenv("POLITBURO_BASE_URL", "")
+	t.Setenv("API_BASE_URL", "")
+	t.Setenv("API_URL", "")
+	t.Setenv("PORT", "9090")
+	req, err := newRequest(context.Background(), http.MethodGet, "/api/v1/user/status", nil)
+	if err != nil {
+		t.Fatalf("newRequest: %v", err)
+	}
+	if req.Host != "localhost:9090" {
+		t.Fatalf("expected localhost port fallback, got %q", req.Host)
+	}
+}
+
 func TestStrictServer_LegacyPilotRegisterRouteRemoved(t *testing.T) {
 	pilotsHandler := pilots.NewHandler(nil, pilotServiceStub{}, nil, lookupStub{})
 	membershipsHandler := memberships.NewHandler(membershipServiceStub{}, nil, nil)
