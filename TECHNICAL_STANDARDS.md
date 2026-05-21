@@ -57,6 +57,7 @@ This document describes standards for new work across the Infinite Experiment wo
 - Run OpenAPI generation from `politburo/`. `make generate-api` regenerates all configured artifacts; use focused targets such as `make generate-registration-api` or `make generate-liveapi-client` when only one contract changed.
 - OpenAPI generation uses the module-pinned `go tool oapi-codegen`, not a global binary.
 - Handwritten generated-server adapters belong under `politburo/internal/api/<domain>/server.go` and should delegate to feature handlers, not reimplement business logic.
+- OpenAPI-covered JSON route domains should mount through generated handlers where available. Registration/onboarding routes are mounted through the generated strict Chi server under `/api/v1`; `POST /api/v1/user/register` is canonical and legacy `POST /api/v1/pilots/register` is not mounted.
 - New JSON routes should align router grouping, auth middleware, operation IDs, envelope schemas, and `/api/v1` path conventions.
 - Do not put Vizburo HTML/template routes in OpenAPI specs.
 - Do not mix external upstream API specs with Politburo public API specs; keep third-party client specs separate from bot-facing/server-facing contracts.
@@ -83,6 +84,7 @@ This document describes standards for new work across the Infinite Experiment wo
 - Route slash commands, modals, buttons, and select menus through `src/handlers/InteractionRouter.ts`.
 - Keep Discord custom IDs and repeated literals in `src/configs/constants.ts` where practical.
 - Centralize Politburo HTTP calls in `src/services/apiService.ts`; command modules should not call `fetch` directly.
+- Future Comrade Bot API client work should replace handwritten `fetch` wrappers with a TypeScript client generated from the same OpenAPI specs only after a generator/output/auth-header convention is defined.
 - Generate API auth/meta headers through `src/helpers/utils.ts`.
 - Parse Politburo response envelopes in `ApiService` and map common 401/403/404/409/422 behavior there, not in every command.
 - Keep commands thin and pilot-safe; do not implement complex admin setup workflows entirely in Discord.
