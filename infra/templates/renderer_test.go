@@ -94,6 +94,25 @@ func TestRenderTemplateReturnsMissingFileError(t *testing.T) {
 	}
 }
 
+func TestRenderTemplateIncludesAssetVersion(t *testing.T) {
+	renderer := newTestRenderer(t, true)
+	writeTestFile(t, filepath.Join(filepath.Dir(renderer.BasePath), "static", "css", "design-system.css"), `.app-shell { display: flex; }`)
+	writeTestFile(t, filepath.Join(renderer.BasePath, "layouts", "base.html"), `{{define "content"}}{{end}}<link rel="stylesheet" href="/static/css/design-system.css?v={{assetVersion "static/css/design-system.css"}}">{{template "content" .}}`)
+	writeTestFile(t, filepath.Join(renderer.BasePath, "pages", "dashboard.html"), `{{define "content"}}dashboard{{end}}`)
+
+	w := httptest.NewRecorder()
+	if err := renderer.RenderTemplate(w, "pages/dashboard.html", map[string]interface{}{}); err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+
+	if !strings.Contains(w.Body.String(), `/static/css/design-system.css?v=`) {
+		t.Fatalf("expected versioned design-system URL, got %q", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `?v=dev`) {
+		t.Fatalf("expected filesystem mtime asset version, got %q", w.Body.String())
+	}
+}
+
 func newTestRenderer(t *testing.T, reload bool) *Renderer {
 	t.Helper()
 	initLoggerOnce.Do(func() {

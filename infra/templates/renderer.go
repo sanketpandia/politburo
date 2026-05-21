@@ -381,6 +381,15 @@ func (r *Renderer) getFuncMap() template.FuncMap {
 		"dict":     DictFunction,
 		"json":     JSONFunction,
 		"jsEscape": JSEscapeFunction,
+		"assetVersion": func(assetPath string) string {
+			cleanPath := strings.TrimPrefix(assetPath, "/")
+			info, err := os.Stat(resolvePath(cleanPath))
+			if err != nil {
+				logging.Warn("Failed to resolve asset version", "asset", cleanPath, "error", err)
+				return "dev"
+			}
+			return fmt.Sprintf("%d", info.ModTime().Unix())
+		},
 		"default": func(defaultValue interface{}, value interface{}) interface{} {
 			if value == nil || value == "" || value == false {
 				return defaultValue
