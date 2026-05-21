@@ -205,7 +205,7 @@ func (a *App) initInfra() error {
 	logging.Info("URL signer service initialized")
 
 	// Initialize Live API client
-	liveAPI := liveapi.NewClient()
+	liveAPI := liveapi.NewClientWithMetrics(metricsReg)
 	logging.Info("Live API client initialized")
 
 	// Initialize scheduler

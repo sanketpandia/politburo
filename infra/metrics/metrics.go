@@ -21,19 +21,19 @@ type MetricsRegistry struct {
 	SyncJobDuration prometheus.HistogramVec
 
 	// Generic Queue Metrics (for all queue types)
-	QueueDepth              prometheus.GaugeVec   // Labels: queue_name, queue_type
-	QueuePending            prometheus.GaugeVec   // Labels: queue_name, queue_type
-	QueueEnqueuedTotal      prometheus.CounterVec // Labels: queue_name, queue_type
-	QueueDequeuedTotal      prometheus.CounterVec // Labels: queue_name, queue_type
+	QueueDepth              prometheus.GaugeVec     // Labels: queue_name, queue_type
+	QueuePending            prometheus.GaugeVec     // Labels: queue_name, queue_type
+	QueueEnqueuedTotal      prometheus.CounterVec   // Labels: queue_name, queue_type
+	QueueDequeuedTotal      prometheus.CounterVec   // Labels: queue_name, queue_type
 	QueueProcessingDuration prometheus.HistogramVec // Labels: queue_name, queue_type
-	QueueErrorsTotal        prometheus.CounterVec // Labels: queue_name, queue_type, error_type
-	QueueRetriesTotal       prometheus.CounterVec // Labels: queue_name, queue_type
-	QueueAcknowledgedTotal  prometheus.CounterVec // Labels: queue_name, queue_type
+	QueueErrorsTotal        prometheus.CounterVec   // Labels: queue_name, queue_type, error_type
+	QueueRetriesTotal       prometheus.CounterVec   // Labels: queue_name, queue_type
+	QueueAcknowledgedTotal  prometheus.CounterVec   // Labels: queue_name, queue_type
 
 	// Dead Letter Queue Metrics
-	DLQDepth                prometheus.GaugeVec   // Labels: queue_name, queue_type
-	DLQItemsTotal           prometheus.CounterVec // Labels: queue_name, queue_type, error_type
-	DLQRequeuedTotal        prometheus.CounterVec // Labels: queue_name, queue_type
+	DLQDepth         prometheus.GaugeVec   // Labels: queue_name, queue_type
+	DLQItemsTotal    prometheus.CounterVec // Labels: queue_name, queue_type, error_type
+	DLQRequeuedTotal prometheus.CounterVec // Labels: queue_name, queue_type
 
 	// Enhanced Sync Job Metrics
 	SyncJobRecordsProcessed prometheus.CounterVec // Labels: job_name, provider, entity_type, va_id, status
@@ -42,8 +42,8 @@ type MetricsRegistry struct {
 	SyncJobStatusUpdated    prometheus.CounterVec // Labels: provider, entity_type, va_id, status_value
 
 	// Rate Limiting Metrics
-	RateLimitThrottled      prometheus.CounterVec // Labels: provider, va_id
-	RateLimitAllowed        prometheus.CounterVec // Labels: provider, va_id
+	RateLimitThrottled prometheus.CounterVec // Labels: provider, va_id
+	RateLimitAllowed   prometheus.CounterVec // Labels: provider, va_id
 
 	// Webhook Delivery Metrics
 	WebhooksDeliveredTotal prometheus.CounterVec // Labels: webhook_target, status
@@ -55,6 +55,10 @@ type MetricsRegistry struct {
 
 	// Rate Limit Rejected Metrics (requests rejected before reaching the provider)
 	RateLimitRejectedTotal prometheus.CounterVec // Labels: provider, va_id
+
+	// Upstream LiveAPI Metrics
+	LiveAPIRequestsTotal   prometheus.CounterVec   // Labels: provider, endpoint_group, status_class, error_type
+	LiveAPIRequestDuration prometheus.HistogramVec // Labels: provider, endpoint_group, status_class, error_type
 }
 
 // NewMetricsRegistry initializes and returns a new MetricsRegistry with all metrics
@@ -282,6 +286,22 @@ func NewMetricsRegistry() *MetricsRegistry {
 				Help: "Total number of requests rejected by the rate limiter before reaching the provider",
 			},
 			[]string{"provider", "va_id"},
+		),
+
+		LiveAPIRequestsTotal: *promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "politburo_liveapi_requests_total",
+				Help: "Total upstream Infinite Flight LiveAPI wrapper calls by endpoint group, status class, and error type",
+			},
+			[]string{"provider", "endpoint_group", "status_class", "error_type"},
+		),
+		LiveAPIRequestDuration: *promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "politburo_liveapi_request_duration_seconds",
+				Help:    "Upstream Infinite Flight LiveAPI wrapper call latency distribution in seconds",
+				Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			},
+			[]string{"provider", "endpoint_group", "status_class", "error_type"},
 		),
 	}
 }

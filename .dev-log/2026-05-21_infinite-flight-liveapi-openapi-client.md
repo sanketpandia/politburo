@@ -69,3 +69,25 @@
 - **Blast-radius notes / dependent surfaces checked:** Checked `infra/liveapi` directly, then the current LiveAPI-dependent session, flight, aircraft, and pilot packages, then the full Go test suite.
 - **Live API compliance notes:** All tests use local fakes only. Bearer auth remains the only auth asserted by the generated-wrapper path.
 - **Follow-up notes:** Broader migrations into `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService`, observability metrics/logging, and real upstream verification remain out of scope for this unit.
+
+## Logical unit 4: LiveAPI wrapper observability and compliance follow-up
+
+- **Logical unit / commit intent:** Add low-cardinality wrapper-level observability for generated/legacy `infra/liveapi.Client` calls using the existing `infra/metrics.MetricsRegistry`, and document the LiveAPI cache-compliance findings without changing cache semantics.
+- **Changed files:**
+  - `infra/liveapi/client.go`
+  - `infra/metrics/metrics.go`
+  - `internal/app/app.go`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+- **Reused code / patterns / components:** Reused the existing shared MetricsRegistry and app DI path. `liveapi.NewClient()` remains backward-compatible for tests/standalone callers, while `app.initInfra` now uses `liveapi.NewClientWithMetrics(metricsReg)` so the canonical server runtime exposes wrapper metrics on the existing `/metrics` endpoint.
+- **Logging added or affected:** Added wrapper-level structured completion logs with `provider=liveapi`, `endpoint_group`, `status_class`, `status_code`, `error_type`, and `duration_ms`. Successful calls log at debug level; failed/non-2xx calls log at warn level. The wrapper logs do not add API keys, payloads, request IDs, Discord IDs, user IDs, flight IDs, session IDs, raw paths, or free-form error strings. Removed the previous wrapper-level `GetFlights` info log that included a session ID, and removed the previous wrapper-level `GetUserFlights` error log that included a user ID.
+- **Metrics added or affected:** Added `politburo_liveapi_requests_total` and `politburo_liveapi_request_duration_seconds` with labels `provider`, `endpoint_group`, `status_class`, and `error_type`. Endpoint groups currently used are `sessions`, `flights`, `flight_plan`, `aircraft`, and `users`. Error types are bounded strings such as `none`, `network`, `client_init`, `request_build`, `encode_error`, `read_error`, `decode_error`, `empty_response`, `rate_limited`, `auth`, `not_found`, `status_4xx`, `status_5xx`, and `error_code_<n>` for the generated LiveAPI enum values.
+- **Prometheus / Loki / prod infra impact:** No labour-bureau dev/prod monitoring files were changed. Politburo is already scraped through the existing `/metrics` target, so the new metrics are exposed without a new scrape target. No new log stream or container/service was introduced; existing Politburo log routing remains sufficient.
+- **Job metrics review:** Existing job/worker metrics in `internal/sessions/cache_job.go`, `internal/flights/cache_job.go`, `internal/flights/flight_plan_worker.go`, `internal/platform/aircraft/cache_job.go`, and `internal/platform/aircraft/worker.go` were reviewed. They continue to cover sync duration, cache sizes, queue activity, and aircraft record processing; wrapper metrics now add upstream-call status/duration visibility without widening every job constructor.
+- **Live API compliance notes:** The plan's 7-day LiveAPI-derived cache concern is still present in `internal/flights/cache_job.go` (`CompleteFlight` cache), `internal/flights/flight_plan_worker.go` (flight plan and complete-flight refresh caches), and `infra/cache/keys.go` comments. No TTL/cache semantic change was made because the plan requested review and did not clearly authorize a behavior change. Sessions and aircraft operational cache TTLs remain as-is.
+- **Build/test command(s) run and status:**
+  - `go test ./infra/liveapi ./infra/metrics ./internal/sessions ./internal/flights ./internal/platform/aircraft` — passed
+  - `go build -buildvcs=false -o .air_tmp/main ./cmd/server` — passed
+- **Follow-up notes:**
+  - **Developer:** Decide in a separate approved slice whether 7-day complete-flight and flight-plan TTLs are still acceptable under Infinite Flight's temporary-cache terms, and adjust product/cache behavior if needed.
+  - **Swagger/OpenAPI:** No spec changes needed for observability; continue avoiding generated-file hand edits.
+  - **Unit Testing:** Add httptest coverage for the new wrapper metrics/log classification paths, especially `429`, `401/403`, nonzero `errorCode`, empty response, decode errors, and network failures.
