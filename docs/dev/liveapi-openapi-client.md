@@ -44,6 +44,19 @@ The handwritten wrapper owns:
 
 Generated models are allowed to mirror upstream docs closely. Internal callers should not be forced to absorb generated type churn directly.
 
+## Runtime observability
+
+The server runtime wires `infra/liveapi.Client` with the shared `infra/metrics.MetricsRegistry` in `internal/app/app.go`, so upstream wrapper metrics are exposed on the existing Politburo `/metrics` endpoint. No separate Prometheus scrape target is required.
+
+Current LiveAPI wrapper metrics:
+
+- `politburo_liveapi_requests_total`
+- `politburo_liveapi_request_duration_seconds`
+
+Both metrics use the bounded labels `provider`, `endpoint_group`, `status_class`, and `error_type`. Current endpoint groups are `sessions`, `flights`, `flight_plan`, `aircraft`, and `users`; keep any future labels low-cardinality and do not use request IDs, Discord IDs, user IDs, flight IDs, session IDs, raw paths, payload values, or free-form error strings as labels.
+
+Wrapper completion logs use the same low-cardinality fields and do not include API keys or raw payloads. Successful calls log at debug level; failed or non-2xx calls log at warn level.
+
 ## Endpoints covered by the initial spec
 
 The initial spec covers endpoints already used or already represented by the existing `infra/liveapi` boundary:
@@ -92,6 +105,7 @@ After spec or wrapper changes, run the relevant subset from `politburo/`:
 
 ```bash
 make generate-liveapi-client
+go test ./infra/liveapi ./infra/metrics ./internal/sessions ./internal/flights ./internal/platform/aircraft ./internal/pilots
 ```
 
 For runtime confidence, start the server or dev stack long enough to confirm scheduled jobs and workers register/start. A `401` from LiveAPI during local startup usually indicates a missing or invalid local `IF_API_KEY`; it is not by itself a worker-start failure.
@@ -104,5 +118,6 @@ For runtime confidence, start the server or dev stack long enough to confirm sch
 ## Remaining decision-gated follow-up work
 
 - **ATC, ATIS, and world status:** no active callers were found outside `infra/liveapi.Client` and legacy `internal/common.LiveAPIService` method definitions. The generated upstream paths are session/airport-scoped, while the legacy wrapper methods are no-argument compatibility methods using `/atc`, `/atis`, and `/world/status`. Keep those methods unchanged until a follow-up plan defines the desired public wrapper signatures and response compatibility.
+- **Real upstream API verification:** generated-wrapper behavior has local `httptest` coverage only. Real Infinite Flight API verification was deferred by user request; do not add CI or routine local checks that consume the external rate limit without an explicit decision and non-secret operator setup.
 - **7-day Redis TTLs for LiveAPI-derived flight data:** `internal/flights/cache_job.go`, `internal/flights/flight_plan_worker.go`, and `infra/cache/keys.go` still cache `CompleteFlight` and flight-plan-derived data for 7 days. The implementation plan authorized review, not a behavior change. A product/compliance decision is still needed on whether 7 days qualifies as temporary operational caching under Infinite Flight terms or whether these TTLs should be shortened.
 - **Client consolidation:** do not migrate `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService` yet. `LiveAPIProvider` currently preserves context-aware calls, provider-specific `ProviderError` codes/details, empty-input/page validation, and tests with legacy DTO fixtures. `internal/common.LiveAPIService` is still wired through PIREP, Vizburo, and legacy services and includes broader method surface. Migrating either requires explicit parity tests and context/error-semantics decisions.

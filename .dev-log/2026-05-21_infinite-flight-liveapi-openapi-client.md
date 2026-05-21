@@ -110,3 +110,18 @@
   - **Swagger/OpenAPI:** If ATC/ATIS/world-status compatibility is revisited, define explicit session/airport-aware wrapper signatures and response conversion expectations before changing `infra/liveapi.Client`; do not retrofit behavior into no-arg methods without a product decision.
   - **Observability:** No new observability work remains from this triage. If duplicate-client migration is later approved, ensure calls delegated through `infra/liveapi.Client` keep low-cardinality wrapper metrics and do not duplicate provider-level metrics.
   - **Unit Testing:** Add behavior-parity tests before consolidating `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService`; include context/error semantics and active registration/PIREP/Vizburo consumer expectations.
+
+## Logical unit 6: Documentation reconciliation after LiveAPI follow-up passes
+
+- **Logical unit / commit intent:** Reconcile developer documentation after generated-client implementation, tests, observability, and follow-up-decision passes so the docs describe shipped wrapper metrics and only decision-gated remaining work.
+- **Changed files:**
+  - `docs/dev/liveapi-openapi-client.md`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+- **Reused code / patterns / components:** Reused the existing developer-doc surface and dev-log format. No generated files, OpenAPI specs, application code, dashboards, or tests were edited.
+- **Logging added or affected:** None; documentation-only logical unit. The documented runtime log behavior remains the wrapper-level completion logging from logical unit 4.
+- **Metrics added or affected:** None; documentation-only logical unit. Documented the shipped `politburo_liveapi_requests_total` and `politburo_liveapi_request_duration_seconds` metrics and their bounded labels.
+- **Test surface touched or still needed:** No runtime test surface changed. Docs-only diff inspection is sufficient for this unit.
+- **Build/test command(s) run and status:** Runtime tests not run because this unit changed docs/dev-log only. Diff inspection was performed before commit.
+- **Deviations from plan, if any:** None. User-facing docs remain intentionally unchanged because the feature is an internal upstream-client refactor.
+- **Blast-radius notes / dependent surfaces checked:** Rechecked `docs/dev/liveapi-openapi-client.md`, this dev log, `api/openapi/liveapi.yaml`, `api/openapi/liveapi.cfg.yaml`, `Makefile`, `infra/liveapi/client.go`, `infra/metrics/metrics.go`, `internal/app/app.go`, `README.md`, `docs/dev/commands_cheat_sheet.md`, `docs/dev/implementation.md`, `internal/platform/aircraft/README.md`, and workspace-level `TECHNICAL_STANDARDS.md` for stale or missing generated-client references.
+- **Live API compliance notes:** Real upstream API verification remains deferred by user request. The ATC/ATIS/world-status signature decision, 7-day TTL compliance decision, and provider/common consolidation parity decision remain explicit follow-ups.
