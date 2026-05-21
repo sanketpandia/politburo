@@ -116,7 +116,7 @@ func TestStrictServer_ComradeBotFlowEndpoints(t *testing.T) {
 		claims     auth.UserClaims
 		wantStatus int
 	}{
-		{name: "register pilot", method: http.MethodPost, path: "/pilots/register", body: map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
+		{name: "register pilot", method: http.MethodPost, path: "/user/register", body: map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
 		{name: "init server", method: http.MethodPost, path: "/server/init", body: map[string]string{"va_code": "IFE"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
 		{name: "join membership", method: http.MethodPost, path: "/memberships/join", body: map[string]string{"callsign": "IFE123"}, claims: apiKeyClaims("", "", false), wantStatus: http.StatusCreated},
 		{name: "user status", method: http.MethodGet, path: "/user/status", claims: apiKeyClaims(uuid.MustParse("1cfa3e1e-5de1-4eff-ad0c-6fcb1bcd510a").String(), roles.RolePilot.String(), true), wantStatus: http.StatusOK},
@@ -150,7 +150,7 @@ func TestStrictServer_UnauthorizedWithoutBotHeaders(t *testing.T) {
 	router := chi.NewRouter()
 	registrationgen.HandlerFromMux(strictServer, router)
 
-	req := httptest.NewRequest(http.MethodPost, "/pilots/register", bytes.NewBufferString(`{"ifc_id":"ifc-user","last_flight":"KJFK-KLAX"}`))
+	req := httptest.NewRequest(http.MethodPost, "/user/register", bytes.NewBufferString(`{"ifc_id":"ifc-user","last_flight":"KJFK-KLAX"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -182,7 +182,7 @@ func TestStrictServer_ForbiddenDiscordContextMapsErrorEnvelope(t *testing.T) {
 		path   string
 		body   any
 	}{
-		{name: "register pilot", method: http.MethodPost, path: "/pilots/register", body: map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"}},
+		{name: "register pilot", method: http.MethodPost, path: "/user/register", body: map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"}},
 		{name: "init server", method: http.MethodPost, path: "/server/init", body: map[string]string{"va_code": "IFE"}},
 		{name: "join membership", method: http.MethodPost, path: "/memberships/join", body: map[string]string{"callsign": "IFE123"}},
 		{name: "user status", method: http.MethodGet, path: "/user/status"},
@@ -221,7 +221,7 @@ func TestStrictServer_ValidationFailureMatchesHandlerEnvelope(t *testing.T) {
 	router := chi.NewRouter()
 	registrationgen.HandlerFromMux(strictServer, router)
 
-	req := newComradeBotRequest(t, http.MethodPost, "/pilots/register", map[string]string{"last_flight": "KJFK-KLAX"})
+	req := newComradeBotRequest(t, http.MethodPost, "/user/register", map[string]string{"last_flight": "KJFK-KLAX"})
 	req = req.WithContext(auth.SetUserClaims(req.Context(), apiKeyClaims("", "", false)))
 	rr := httptest.NewRecorder()
 
@@ -237,6 +237,27 @@ func TestStrictServer_ValidationFailureMatchesHandlerEnvelope(t *testing.T) {
 	}
 	if response.Error == nil || response.Error.Code != registrationgen.VALIDATIONFAILED {
 		t.Fatalf("unexpected validation response: %+v", response)
+	}
+}
+
+func TestStrictServer_LegacyPilotRegisterRouteRemoved(t *testing.T) {
+	pilotsHandler := pilots.NewHandler(nil, pilotServiceStub{}, nil, lookupStub{})
+	membershipsHandler := memberships.NewHandler(membershipServiceStub{}, nil, nil)
+	serversHandler := servers.NewHandler(serverServiceStub{})
+	authHandler := auth.NewHandler(authServiceStub{}, nil)
+
+	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler), nil)
+	router := chi.NewRouter()
+	registrationgen.HandlerFromMux(strictServer, router)
+
+	req := newComradeBotRequest(t, http.MethodPost, "/pilots/register", map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"})
+	req = req.WithContext(auth.SetUserClaims(req.Context(), apiKeyClaims("", "", false)))
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected legacy /pilots/register to be removed with 404, got %d (%s)", rr.Code, rr.Body.String())
 	}
 }
 

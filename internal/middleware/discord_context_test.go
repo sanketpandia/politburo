@@ -79,7 +79,7 @@ func TestRequireDiscordBotContextMiddleware(t *testing.T) {
 				w.WriteHeader(http.StatusNoContent)
 			})
 
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/pilots/register", nil)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/user/register", nil)
 			req = req.WithContext(auth.SetUserClaims(req.Context(), claims))
 			for name, value := range tt.headers {
 				req.Header.Set(name, value)

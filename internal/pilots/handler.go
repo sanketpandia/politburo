@@ -46,7 +46,7 @@ func NewHandler(statsSvc *StatsService, regSvc registrationHandlerService, logbo
 	}
 }
 
-// RegisterPilot handles POST /api/v1/pilots/register
+// RegisterPilot handles POST /api/v1/user/register
 // Registers a new pilot with IFC credentials and returns VA registration status
 func (h *Handler) RegisterPilot() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +55,7 @@ func (h *Handler) RegisterPilot() http.HandlerFunc {
 		// 1. Extract and validate claims
 		claims := auth.GetUserClaims(r.Context())
 		if claims == nil {
-			logging.Warn("Unauthorized request to /pilots/register - missing claims")
+			logging.Warn("Unauthorized request to /user/register - missing claims")
 			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Missing authentication claims", http.StatusUnauthorized)
 			return
 		}

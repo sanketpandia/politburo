@@ -86,7 +86,7 @@ func (s *Server) JoinMembership(ctx context.Context, request registrationgen.Joi
 }
 
 func (s *Server) RegisterPilot(ctx context.Context, request registrationgen.RegisterPilotRequestObject) (registrationgen.RegisterPilotResponseObject, error) {
-	statusCode, body, err := s.serveJSON(ctx, http.MethodPost, "/api/v1/pilots/register", request.Body, s.handlers.RegisterPilot)
+	statusCode, body, err := s.serveJSON(ctx, http.MethodPost, "/api/v1/user/register", request.Body, s.handlers.RegisterPilot)
 	if err != nil {
 		return nil, err
 	}

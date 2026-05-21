@@ -10,6 +10,8 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
+	registrationgen "infinite-experiment/politburo/internal/api/generated/registration"
+	registration "infinite-experiment/politburo/internal/api/registration"
 	"infinite-experiment/politburo/internal/app"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/flights"
@@ -116,21 +118,7 @@ func NewRouter(application *app.App) http.Handler {
 
 		v1.Group(func(bot chi.Router) {
 			bot.Use(middleware.RequireDiscordBotContextMiddleware())
-
-			// User status endpoint
-			bot.Get("/user/status", application.Features.MembershipsHandler.GetUserStatus())
-
-			// Pilot registration endpoint
-			bot.Post("/pilots/register", application.Features.PilotsHandler.RegisterPilot())
-
-			// Server initialization endpoint
-			bot.Post("/server/init", application.Features.ServersHandler.InitServer())
-
-			// Membership join endpoint
-			bot.Post("/memberships/join", application.Features.MembershipsHandler.JoinVA())
-
-			// Signed link generation endpoint
-			bot.Post("/signed-link", application.Features.AuthHandler.GenerateSignedLink())
+			registerRegistrationRoutes(bot, application)
 		})
 
 		// Pilot stats endpoint
@@ -220,7 +208,7 @@ func NewRouter(application *app.App) http.Handler {
 			})
 		})
 
-		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/pilots/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/user/{ifc_id}/flights, GET /api/v1/pireps/config, POST /api/v1/pireps/submit, GET /api/v1/admin/verify-god, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, GET /api/v1/admin/airtable/credentials, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
+		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/user/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/user/{ifc_id}/flights, GET /api/v1/pireps/config, POST /api/v1/pireps/submit, GET /api/v1/admin/verify-god, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, GET /api/v1/admin/airtable/credentials, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
 	})
 
 	// Dashboard routes (require authentication)
@@ -369,6 +357,17 @@ func handleMethodNotAllowed(templateRenderer *templates.Renderer) http.HandlerFu
 			logging.Error("Failed to render 405 page", "error", err)
 		}
 	}
+}
+
+func registerRegistrationRoutes(bot chi.Router, application *app.App) {
+	registrationServer := registration.NewServer(
+		application.Features.PilotsHandler,
+		application.Features.MembershipsHandler,
+		application.Features.ServersHandler,
+		application.Features.AuthHandler,
+	)
+	strictServer := registrationgen.NewStrictHandler(registrationServer, nil)
+	registrationgen.HandlerFromMux(strictServer, bot)
 }
 
 // uiAuthMiddleware checks for a valid session directly and renders the 401 error page

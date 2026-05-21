@@ -53,6 +53,7 @@ The `App` struct is the single DI container. All dependencies flow through it. T
 Generated registration contract coverage lives in:
 - `internal/api/generated/registration/server.gen.go` — committed generated strict Chi server
 - `internal/api/registration/server.go` — handwritten adapter that maps generated strict handlers onto the active registration feature handlers
+- `internal/routes/router.go` — mounts the bot-facing registration/onboarding routes through the generated strict server under `/api/v1`; canonical account registration is `POST /api/v1/user/register` (legacy `/api/v1/pilots/register` is not mounted)
 
 Route groups:
 - `/static/*` — static file serving

@@ -394,29 +394,29 @@ type serverIdContextKey string
 // JoinMembershipJSONRequestBody defines body for JoinMembership for application/json ContentType.
 type JoinMembershipJSONRequestBody = JoinMembershipRequest
 
-// RegisterPilotJSONRequestBody defines body for RegisterPilot for application/json ContentType.
-type RegisterPilotJSONRequestBody = RegisterPilotRequest
-
 // InitServerJSONRequestBody defines body for InitServer for application/json ContentType.
 type InitServerJSONRequestBody = InitServerRequest
 
 // GenerateSignedLinkJSONRequestBody defines body for GenerateSignedLink for application/json ContentType.
 type GenerateSignedLinkJSONRequestBody = GenerateSignedLinkRequest
 
+// RegisterPilotJSONRequestBody defines body for RegisterPilot for application/json ContentType.
+type RegisterPilotJSONRequestBody = RegisterPilotRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Join the VA associated with the current Discord server
 	// (POST /memberships/join)
 	JoinMembership(w http.ResponseWriter, r *http.Request)
-	// Register a pilot with IFC credentials
-	// (POST /pilots/register)
-	RegisterPilot(w http.ResponseWriter, r *http.Request)
 	// Bootstrap a Discord server with a VA Code / ID
 	// (POST /server/init)
 	InitServer(w http.ResponseWriter, r *http.Request)
 	// Generate a time-limited signed URL for dashboard access
 	// (POST /signed-link)
 	GenerateSignedLink(w http.ResponseWriter, r *http.Request)
+	// Register a pilot with IFC credentials
+	// (POST /user/register)
+	RegisterPilot(w http.ResponseWriter, r *http.Request)
 	// Get authenticated user's registration and membership status
 	// (GET /user/status)
 	GetUserStatus(w http.ResponseWriter, r *http.Request)
@@ -432,12 +432,6 @@ func (_ Unimplemented) JoinMembership(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Register a pilot with IFC credentials
-// (POST /pilots/register)
-func (_ Unimplemented) RegisterPilot(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // Bootstrap a Discord server with a VA Code / ID
 // (POST /server/init)
 func (_ Unimplemented) InitServer(w http.ResponseWriter, r *http.Request) {
@@ -447,6 +441,12 @@ func (_ Unimplemented) InitServer(w http.ResponseWriter, r *http.Request) {
 // Generate a time-limited signed URL for dashboard access
 // (POST /signed-link)
 func (_ Unimplemented) GenerateSignedLink(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register a pilot with IFC credentials
+// (POST /user/register)
+func (_ Unimplemented) RegisterPilot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -480,30 +480,6 @@ func (siw *ServerInterfaceWrapper) JoinMembership(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.JoinMembership(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RegisterPilot operation middleware
-func (siw *ServerInterfaceWrapper) RegisterPilot(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyScopes, []string{})
-
-	ctx = context.WithValue(ctx, DiscordIdScopes, []string{})
-
-	ctx = context.WithValue(ctx, ServerIdScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RegisterPilot(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -552,6 +528,30 @@ func (siw *ServerInterfaceWrapper) GenerateSignedLink(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GenerateSignedLink(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegisterPilot operation middleware
+func (siw *ServerInterfaceWrapper) RegisterPilot(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiKeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, DiscordIdScopes, []string{})
+
+	ctx = context.WithValue(ctx, ServerIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegisterPilot(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -702,13 +702,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/memberships/join", wrapper.JoinMembership)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/pilots/register", wrapper.RegisterPilot)
-	})
-	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/server/init", wrapper.InitServer)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/signed-link", wrapper.GenerateSignedLink)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/user/register", wrapper.RegisterPilot)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/user/status", wrapper.GetUserStatus)
@@ -826,112 +826,6 @@ func (response JoinMembership422JSONResponse) VisitJoinMembershipResponse(w http
 type JoinMembership500JSONResponse ErrorResponse
 
 func (response JoinMembership500JSONResponse) VisitJoinMembershipResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RegisterPilotRequestObject struct {
-	Body *RegisterPilotJSONRequestBody
-}
-
-type RegisterPilotResponseObject interface {
-	VisitRegisterPilotResponse(w http.ResponseWriter) error
-}
-
-type RegisterPilot201JSONResponse RegisterPilotResponse
-
-func (response RegisterPilot201JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RegisterPilot400JSONResponse ErrorResponse
-
-func (response RegisterPilot400JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RegisterPilot401JSONResponse ErrorResponse
-
-func (response RegisterPilot401JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RegisterPilot403JSONResponse ErrorResponse
-
-func (response RegisterPilot403JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RegisterPilot409JSONResponse ErrorResponse
-
-func (response RegisterPilot409JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RegisterPilot422JSONResponse ValidationErrorResponse
-
-func (response RegisterPilot422JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RegisterPilot500JSONResponse ErrorResponse
-
-func (response RegisterPilot500JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1141,6 +1035,112 @@ func (response GenerateSignedLink500JSONResponse) VisitGenerateSignedLinkRespons
 	return err
 }
 
+type RegisterPilotRequestObject struct {
+	Body *RegisterPilotJSONRequestBody
+}
+
+type RegisterPilotResponseObject interface {
+	VisitRegisterPilotResponse(w http.ResponseWriter) error
+}
+
+type RegisterPilot201JSONResponse RegisterPilotResponse
+
+func (response RegisterPilot201JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterPilot400JSONResponse ErrorResponse
+
+func (response RegisterPilot400JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterPilot401JSONResponse ErrorResponse
+
+func (response RegisterPilot401JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterPilot403JSONResponse ErrorResponse
+
+func (response RegisterPilot403JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterPilot409JSONResponse ErrorResponse
+
+func (response RegisterPilot409JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterPilot422JSONResponse ValidationErrorResponse
+
+func (response RegisterPilot422JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterPilot500JSONResponse ErrorResponse
+
+func (response RegisterPilot500JSONResponse) VisitRegisterPilotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetUserStatusRequestObject struct {
 }
 
@@ -1209,15 +1209,15 @@ type StrictServerInterface interface {
 	// Join the VA associated with the current Discord server
 	// (POST /memberships/join)
 	JoinMembership(ctx context.Context, request JoinMembershipRequestObject) (JoinMembershipResponseObject, error)
-	// Register a pilot with IFC credentials
-	// (POST /pilots/register)
-	RegisterPilot(ctx context.Context, request RegisterPilotRequestObject) (RegisterPilotResponseObject, error)
 	// Bootstrap a Discord server with a VA Code / ID
 	// (POST /server/init)
 	InitServer(ctx context.Context, request InitServerRequestObject) (InitServerResponseObject, error)
 	// Generate a time-limited signed URL for dashboard access
 	// (POST /signed-link)
 	GenerateSignedLink(ctx context.Context, request GenerateSignedLinkRequestObject) (GenerateSignedLinkResponseObject, error)
+	// Register a pilot with IFC credentials
+	// (POST /user/register)
+	RegisterPilot(ctx context.Context, request RegisterPilotRequestObject) (RegisterPilotResponseObject, error)
 	// Get authenticated user's registration and membership status
 	// (GET /user/status)
 	GetUserStatus(ctx context.Context, request GetUserStatusRequestObject) (GetUserStatusResponseObject, error)
@@ -1283,37 +1283,6 @@ func (sh *strictHandler) JoinMembership(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// RegisterPilot operation middleware
-func (sh *strictHandler) RegisterPilot(w http.ResponseWriter, r *http.Request) {
-	var request RegisterPilotRequestObject
-
-	var body RegisterPilotJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RegisterPilot(ctx, request.(RegisterPilotRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RegisterPilot")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RegisterPilotResponseObject); ok {
-		if err := validResponse.VisitRegisterPilotResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // InitServer operation middleware
 func (sh *strictHandler) InitServer(w http.ResponseWriter, r *http.Request) {
 	var request InitServerRequestObject
@@ -1369,6 +1338,37 @@ func (sh *strictHandler) GenerateSignedLink(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GenerateSignedLinkResponseObject); ok {
 		if err := validResponse.VisitGenerateSignedLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RegisterPilot operation middleware
+func (sh *strictHandler) RegisterPilot(w http.ResponseWriter, r *http.Request) {
+	var request RegisterPilotRequestObject
+
+	var body RegisterPilotJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RegisterPilot(ctx, request.(RegisterPilotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RegisterPilot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegisterPilotResponseObject); ok {
+		if err := validResponse.VisitRegisterPilotResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

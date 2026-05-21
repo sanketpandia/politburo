@@ -38,7 +38,7 @@ func (fakeLogbookUserLookup) GetByDiscordID(context.Context, string) (*users.Use
 
 func TestRegisterPilot_MissingClaims(t *testing.T) {
 	handler := NewHandler(nil, &fakeRegistrationHandlerService{}, nil, fakeLogbookUserLookup{})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/pilots/register", bytes.NewBufferString(`{"ifc_id":"ifc-user","last_flight":"KJFK-KLAX"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/register", bytes.NewBufferString(`{"ifc_id":"ifc-user","last_flight":"KJFK-KLAX"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -146,7 +146,7 @@ func newPilotRequest(t *testing.T, body RegisterPilotRequest, claims auth.UserCl
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/pilots/register", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/register", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	if claims != nil {
 		req = req.WithContext(auth.SetUserClaims(req.Context(), claims))

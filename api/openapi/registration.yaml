@@ -18,7 +18,7 @@ security:
     DiscordId: []
 
 paths:
-  /pilots/register:
+  /user/register:
     post:
       operationId: registerPilot
       summary: Register a pilot with IFC credentials
@@ -84,7 +84,7 @@ paths:
       summary: Bootstrap a Discord server with a VA Code / ID
       description: |
         Creates a minimal VA record linked to the Discord server in X-Discord-Server-Id.
-        Requires the calling user to already be registered (/pilots/register) and
+        Requires the calling user to already be registered (/user/register) and
         makes that user the VA admin. Discord collects only the VA Code / ID;
         flight matching setup continues in Vizburo.
       tags: [registration]
@@ -376,7 +376,7 @@ components:
           type: integer
           format: int64
 
-    # ── /pilots/register ────────────────────────────────────────────────────
+    # ── /user/register ──────────────────────────────────────────────────────
 
     RegisterPilotRequest:
       type: object
