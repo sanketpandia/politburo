@@ -1,138 +1,4 @@
 {{define "content"}}
-<style>
-    .dashboard-container {
-        display: flex;
-        flex-direction: column;
-        gap: 1.5rem;
-    }
-
-    .dashboard-header {
-        margin-bottom: 0.5rem;
-    }
-
-    .dashboard-cards {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 1.5rem;
-    }
-
-    .dashboard-card {
-        display: flex;
-        flex-direction: column;
-        padding: 1.5rem;
-        border-radius: 0.5rem;
-        border: 1px solid var(--border-color);
-        background-color: var(--bg-surface);
-        transition: all 0.2s ease;
-        text-decoration: none;
-        color: inherit;
-        min-height: 160px;
-    }
-
-    .dashboard-card:hover {
-        border-color: var(--accent-primary);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    .dashboard-card-header {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-    }
-
-    .dashboard-card-icon {
-        width: 2.5rem;
-        height: 2.5rem;
-        border-radius: 0.5rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: var(--accent-primary);
-        color: white;
-        font-size: 1.25rem;
-        flex-shrink: 0;
-    }
-
-    .dashboard-card-title {
-        font-size: 1.125rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 0;
-    }
-
-    .dashboard-card-description {
-        font-size: 0.875rem;
-        color: var(--text-muted);
-        line-height: 1.5;
-        margin: 0;
-        flex: 1;
-    }
-
-    .dashboard-card-footer {
-        margin-top: auto;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border-color);
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    /* Pilot Stats Card Styles */
-    .pilot-stats-card {
-        /* Remove max-height to allow natural expansion */
-    }
-
-    .pilot-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1.5rem;
-    }
-
-    .pilot-stats-section {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .pilot-stats-fields {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .pilot-stats-field {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.5rem 0;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .pilot-stats-field:last-child {
-        border-bottom: none;
-    }
-
-    .pilot-stats-label {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-        font-weight: 500;
-    }
-
-    .pilot-stats-value {
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        font-weight: 600;
-    }
-
-    @media (max-width: 768px) {
-        .pilot-stats-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-
 <!-- Secondary Navigation -->
 {{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" .CurrentPage "MenuItems" .MenuItems}}
 
@@ -147,51 +13,50 @@
 
 <!-- Leaderboard Section -->
 {{if .ActiveEvent}}
-<div class="card" style="margin-bottom: 1.5rem;">
-    <div style="margin-bottom: 1rem;">
-        <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;">{{.ActiveEvent.Name}} Leaderboard</h3>
-        <p class="page-subtitle" style="font-size: 0.875rem;">Current standings for the active event</p>
+<div class="card section-card">
+    <div class="section-header">
+        <h3 class="section-title">{{.ActiveEvent.Name}} Leaderboard</h3>
+        <p class="section-subtitle">Current standings for the active event</p>
     </div>
     {{if .Leaderboard}}
-    <div style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse;">
+    <div class="table-scroll">
+        <table class="data-table leaderboard-table">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: var(--text-primary); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Rank</th>
-                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: var(--text-primary); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Pilot</th>
-                    <th style="padding: 0.75rem; text-align: right; font-weight: 600; color: var(--text-primary); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Routes</th>
+                <tr>
+                    <th>Rank</th>
+                    <th>Pilot</th>
+                    <th class="text-right">Routes</th>
                 </tr>
             </thead>
             <tbody id="leaderboard-tbody">
                 {{range .Leaderboard}}
-                <tr class="pilot-row" 
-                    style="border-bottom: 1px solid var(--border-color); transition: background-color 0.2s ease; cursor: pointer;"
+                <tr class="pilot-row leaderboard-row"
                     data-pilot-at-id="{{.PilotATID}}"
                     data-pilot-name="{{.PilotCallsign}}{{if .IFCommunityID}} ({{.IFCommunityID}}){{end}}"
                     hx-get="/dashboard/leaderboard/pilot/logs?pilot_at_id={{.PilotATID}}"
                     hx-target="#pilot-logs-modal-content"
                     hx-swap="innerHTML"
                     hx-trigger="click"
-                    hx-on::before-request="const row = event.target.closest('.pilot-row'); const modal = document.getElementById('pilot-logs-modal'); const nameEl = document.getElementById('modal-pilot-name'); if (modal) modal.style.display = 'flex'; if (nameEl && row) nameEl.textContent = row.dataset.pilotName + ' - Logs';">
-                    <td style="padding: 0.75rem; color: var(--text-secondary); font-size: 0.875rem; font-weight: 600;">
+                    hx-on::before-request="const row = event.target.closest('.pilot-row'); const modal = document.getElementById('pilot-logs-modal'); const nameEl = document.getElementById('modal-pilot-name'); if (modal) modal.classList.add('open'); if (nameEl && row) nameEl.textContent = row.dataset.pilotName + ' - Logs';">
+                    <td class="rank-cell">
                         {{if eq .Rank 1}}
-                        <span style="color: #FFD700;">🥇</span>
+                        <span class="rank-medal rank-first">🥇</span>
                         {{else if eq .Rank 2}}
-                        <span style="color: #C0C0C0;">🥈</span>
+                        <span class="rank-medal rank-second">🥈</span>
                         {{else if eq .Rank 3}}
-                        <span style="color: #CD7F32;">🥉</span>
+                        <span class="rank-medal rank-third">🥉</span>
                         {{else}}
                         #{{.Rank}}
                         {{end}}
                     </td>
-                    <td style="padding: 0.75rem; color: var(--text-primary); font-size: 0.875rem; font-weight: 500;">
+                    <td class="leaderboard-pilot-cell">
                         {{if .PilotCallsign}}
                             {{.PilotCallsign}}{{if .IFCommunityID}} ({{.IFCommunityID}}){{end}}
                         {{else}}
                             Unknown
                         {{end}}
                     </td>
-                    <td style="padding: 0.75rem; text-align: right; color: var(--text-secondary); font-size: 0.875rem;">
+                    <td class="text-right leaderboard-count-cell">
                         {{.PirepCount}}
                     </td>
                 </tr>
@@ -200,10 +65,17 @@
         </table>
     </div>
     {{else}}
-    <div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+    <div class="empty-state compact">
         <p>No leaderboard data available yet. Start filing PIREPs to see rankings!</p>
     </div>
     {{end}}
+</div>
+{{else}}
+<div class="card section-card">
+    <div class="empty-state compact">
+        <h3>No active event</h3>
+        <p>Leaderboards appear here when an event is active.</p>
+    </div>
 </div>
 {{end}}
 
@@ -291,75 +163,20 @@
 </div>
 
 <!-- Pilot Logs Modal -->
-<div id="pilot-logs-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center; flex-direction: column;">
-    <div class="card" style="max-width: 800px; max-height: 80vh; overflow-y: auto; margin: 2rem; position: relative; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 1.5rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+<div id="pilot-logs-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pilot-name">
+    <div class="card modal-card">
+        <div class="modal-header">
             <div>
-                <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;" id="modal-pilot-name">Pilot Logs</h3>
-                <p class="page-subtitle" style="font-size: 0.875rem;" id="modal-pilot-info">PIREP logs sorted by completion time</p>
+                <h3 class="section-title" id="modal-pilot-name">Pilot Logs</h3>
+                <p class="section-subtitle" id="modal-pilot-info">PIREP logs sorted by completion time</p>
             </div>
-            <button onclick="document.getElementById('pilot-logs-modal').style.display='none';" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; padding: 0.5rem; line-height: 1;">×</button>
+            <button class="modal-close" type="button" onclick="document.getElementById('pilot-logs-modal').classList.remove('open');" aria-label="Close pilot logs">×</button>
         </div>
         <div id="pilot-logs-modal-content">
-            <div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+            <div class="empty-state compact">
                 <p>Loading logs...</p>
             </div>
         </div>
     </div>
 </div>
-
-<style>
-    .pilot-row:hover {
-        background-color: rgba(255, 255, 255, 0.05);
-    }
-
-    .pilot-log-item {
-        padding: 0.75rem;
-        border-bottom: 1px solid var(--border-color);
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        gap: 1rem;
-        align-items: center;
-        cursor: pointer;
-    }
-
-    .pilot-log-item:last-child {
-        border-bottom: none;
-    }
-
-    .pilot-log-item:hover {
-        background-color: rgba(255, 255, 255, 0.05);
-    }
-
-    .pilot-log-leg {
-        font-weight: 600;
-        color: var(--accent-primary);
-        font-size: 0.875rem;
-    }
-
-    .pilot-log-details {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .pilot-log-route {
-        font-weight: 500;
-        color: var(--text-primary);
-        font-size: 0.875rem;
-    }
-
-    .pilot-log-meta {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-    }
-
-    .pilot-log-time {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        text-align: right;
-        font-family: monospace;
-    }
-</style>
 {{end}}
-

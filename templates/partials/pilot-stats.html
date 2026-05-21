@@ -1,15 +1,15 @@
 {{define "pilot-stats"}}
 {{if .PilotStats}}
-<div class="pilot-stats-card card" style="margin-bottom: 1.5rem;">
-    <div style="margin-bottom: 1rem;">
-        <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;">Your Stats</h3>
-        <p class="page-subtitle" style="font-size: 0.875rem;">Your pilot statistics and progress</p>
+<div class="pilot-stats-card card section-card">
+    <div class="section-header">
+        <h3 class="section-title">Your Stats</h3>
+        <p class="section-subtitle">Your pilot statistics and progress</p>
     </div>
 
     <div class="pilot-stats-grid">
         {{if .PilotStats.GameStats}}
         <div class="pilot-stats-section">
-            <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Game Stats</h4>
+            <h4 class="pilot-stats-section-title">Game Stats</h4>
             <div class="pilot-stats-fields">
                 {{if .PilotStats.GameStats.FlightTime}}
                 <div class="pilot-stats-field">
@@ -47,7 +47,7 @@
 
         {{if .PilotStats.ProviderData}}
         <div class="pilot-stats-section">
-            <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">VA Stats</h4>
+            <h4 class="pilot-stats-section-title">VA Stats</h4>
             <div class="pilot-stats-fields">
                 {{if .PilotStats.ProviderData.FlightHours}}
                 <div class="pilot-stats-field">
@@ -117,7 +117,7 @@
 
         {{if .PilotStats.CareerModeData}}
         <div class="pilot-stats-section">
-            <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Career Mode</h4>
+            <h4 class="pilot-stats-section-title">Career Mode</h4>
             <div class="pilot-stats-fields">
                 {{if .PilotStats.CareerModeData.TotalCMHours}}
                 <div class="pilot-stats-field">
@@ -192,6 +192,13 @@
             </div>
         </div>
         {{end}}
+    </div>
+</div>
+{{else}}
+<div class="card section-card">
+    <div class="empty-state compact">
+        <h3>No pilot stats yet</h3>
+        <p>Your pilot statistics will appear here when data is available.</p>
     </div>
 </div>
 {{end}}

@@ -1,6 +1,6 @@
 {{define "pilot-logs"}}
 {{if .logs}}
-<div style="display: flex; flex-direction: column; gap: 0;">
+<div class="pilot-log-list">
     {{range .logs}}
     <div class="pilot-log-item" 
          hx-get="/dashboard/test-click" 
@@ -21,7 +21,7 @@
     {{end}}
 </div>
 {{else}}
-<div style="padding: 2rem; text-align: center; color: var(--text-muted);">
+<div class="empty-state compact">
     <p>No logs found for this pilot.</p>
 </div>
 {{end}}

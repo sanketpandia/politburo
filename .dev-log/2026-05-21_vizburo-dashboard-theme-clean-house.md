@@ -44,3 +44,28 @@
   - **Swagger/OpenAPI:** No API contract changes.
   - **Observability:** Optional follow-up can review whether the warning log should be startup-only; no metrics added.
   - **Unit Testing:** Current test covers helper output. Browser/manual smoke still needed for actual network URL and cache behavior with authenticated `/dashboard`.
+
+## Logical unit 2: Consolidate active dashboard styles into design-system CSS
+
+- **Logical unit / commit intent:** Move active dashboard page-local CSS and inline dashboard/pilot-stats/leaderboard/modal styles into `static/css/design-system.css` component classes.
+- **Changed files:**
+  - `static/css/design-system.css`
+  - `templates/pages/dashboard.html`
+  - `templates/partials/pilot-stats.html`
+  - `templates/partials/pilot-logs.html`
+  - `.dev-log/2026-05-21_vizburo-dashboard-theme-clean-house.md`
+- **Reused code / patterns / components:** Reused existing `.card`, `.page-header`, `.page-title`, `.page-subtitle`, `.empty-state`, token variables (`--bg-*`, `--text-*`, `--border-*`, `--accent-*`, `--status-*`), and existing HTMX request-triggered leaderboard modal flow.
+- **Logging added or affected:** None.
+- **Metrics added or affected:** None.
+- **Test surface touched or still needed:** No unit tests added for visual classes. Focused template/route packages still parse/build. Manual desktop/mobile dashboard smoke remains needed with authenticated session.
+- **Build/test command(s) run and status:**
+  - `go test ./infra/templates ./internal/dashboard ./internal/routes` — passed.
+  - `go build -buildvcs=false -o .air_tmp/main ./cmd/server` — passed.
+  - Grep checks for `style=`, `<style>`, hex colors, and `rgba(` in active dashboard/pilot-stats/pilot-logs templates — no matches.
+- **Deviations from plan, if any:** Added graceful dashboard empty cards for missing active event and missing pilot stats as allowed by Phase 6 empty-state cleanup. Did not alter backend data fetching or route authorization.
+- **Blast-radius notes / dependent surfaces checked:** Touched only active root dashboard templates/partial and design-system CSS. No `vizburo/ui/**`, bot, JSON API, jobs, auth, generated contracts, or infra files changed.
+- **Live API compliance notes:** Not applicable.
+- **Follow-up notes:**
+  - **Swagger/OpenAPI:** No API contract changes.
+  - **Observability:** No metrics/logging added; visual-only cleanup.
+  - **Unit Testing:** Add optional template static tests for dashboard no-inline-style policy and authenticated browser smoke for leaderboard modal open/close behavior.
