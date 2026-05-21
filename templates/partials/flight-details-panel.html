@@ -1,22 +1,50 @@
 {{define "flight-details-panel"}}
-<aside class="flight-details-panel" data-flight-details-panel aria-live="polite">
-    <button class="panel-close" type="button" data-close-flight-details aria-label="Close flight details">×</button>
+<aside class="flight-details-panel" data-flight-details-panel data-live-section="details" aria-live="polite">
+    <div class="inspector-header">
+        <div>
+            <h2>Inspector</h2>
+            <p>Selected flight details</p>
+        </div>
+        <button class="panel-close" type="button" data-close-flight-details aria-label="Collapse inspector">‹</button>
+    </div>
     <div class="empty-state compact" data-flight-details-empty>
         <h3>Select a flight</h3>
         <p>Flight details appear here after selecting a list row or map marker.</p>
     </div>
     <div class="flight-details-content hidden" data-flight-details-content>
-        <p class="eyebrow" data-detail-phase></p>
-        <h2 data-detail-callsign></h2>
-        <p class="detail-muted" data-detail-pilot></p>
-        <dl class="detail-grid">
-            <div><dt>Route</dt><dd data-detail-route></dd></div>
-            <div><dt>Aircraft</dt><dd data-detail-aircraft></dd></div>
+        <div class="aircraft-summary-card">
+            <div>
+                <h3 data-detail-callsign></h3>
+                <p class="detail-muted" data-detail-pilot></p>
+            </div>
+            <span class="status-pill" data-detail-phase></span>
+            <p class="aircraft-line" data-detail-aircraft></p>
+            <div class="route-strip">
+                <strong data-detail-origin>—</strong>
+                <span>→</span>
+                <strong data-detail-destination>—</strong>
+            </div>
+            <p class="detail-muted" data-detail-session></p>
+        </div>
+        <dl class="detail-grid metric-grid">
             <div><dt>Altitude</dt><dd data-detail-altitude></dd></div>
             <div><dt>Speed</dt><dd data-detail-speed></dd></div>
             <div><dt>Vertical speed</dt><dd data-detail-vs></dd></div>
+            <div><dt>Track</dt><dd data-detail-track></dd></div>
+            <div><dt>Position</dt><dd data-detail-position></dd></div>
+            <div><dt>Max altitude</dt><dd data-detail-max-altitude></dd></div>
+            <div><dt>Max speed</dt><dd data-detail-max-speed></dd></div>
+            <div><dt>Takeoff</dt><dd data-detail-takeoff></dd></div>
             <div><dt>Last report</dt><dd data-detail-report></dd></div>
         </dl>
+        <section class="phase-history-card">
+            <div class="section-title-row">
+                <h3>Phase History</h3>
+                <span class="detail-muted">Preview</span>
+            </div>
+            <div class="phase-timeline" data-detail-phase-history></div>
+        </section>
     </div>
+    <button class="btn btn-secondary inspector-reopen hidden" type="button" data-reopen-flight-details>Open inspector</button>
 </aside>
 {{end}}

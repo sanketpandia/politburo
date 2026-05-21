@@ -60,11 +60,14 @@ function createFlightIcon(flight, color) {
   const rotation = track; // Track is already in degrees from north (0-360)
   
   // Create SVG for rotatable triangle (heading indicator)
+  const selected = flight._selected === true;
+  const stroke = selected ? '#f8fafc' : '#0f111a';
+  const strokeWidth = selected ? 3 : 2;
   const svg = `
     <svg width="32" height="28" viewBox="0 0 32 28" xmlns="http://www.w3.org/2000/svg">
       <g transform="rotate(${rotation} 16 14)">
-        <path d="M 16 2 L 28 26 L 16 22 Z" fill="${color}" stroke="#0f111a" stroke-width="2"/>
-        <path d="M 16 2 L 4 26 L 16 22 Z" fill="${color}" stroke="#0f111a" stroke-width="2"/>
+        <path d="M 16 2 L 28 26 L 16 22 Z" fill="${color}" stroke="${stroke}" stroke-width="${strokeWidth}"/>
+        <path d="M 16 2 L 4 26 L 16 22 Z" fill="${color}" stroke="${stroke}" stroke-width="${strokeWidth}"/>
       </g>
     </svg>
   `;
@@ -72,7 +75,7 @@ function createFlightIcon(flight, color) {
   return L.divIcon({
     html: svg,
     className: 'flight-marker',
-    iconSize: [32, 28],
+    iconSize: selected ? [38, 34] : [32, 28],
     iconAnchor: [16, 14], // Center of the icon
     popupAnchor: [0, -14]
   });
@@ -145,6 +148,7 @@ export class FlightMap {
     // Store flight markers and route polylines for management
     this.flightMarkers = new Map(); // flight_id -> marker
     this.routePolylines = [];
+    this.namedRouteLayers = new Map();
 
     // Click handler callback
     this.onFlightClickCallback = null;
@@ -494,6 +498,40 @@ export class FlightMap {
       this.routeLayerGroup.removeLayer(polyline);
     });
     this.routePolylines = [];
+    this.namedRouteLayers.forEach((layers) => layers.forEach((layer) => this.routeLayerGroup.removeLayer(layer)));
+    this.namedRouteLayers.clear();
+  }
+
+  addPath(name, waypoints, options = {}) {
+    if (!Array.isArray(waypoints) || waypoints.length < 2 || !this.map) return;
+    this.clearPath(name);
+
+    const { color = '#3b82f6', weight = 3, opacity = 0.85, dashArray = null, fit = false } = options;
+    const validPoints = waypoints
+      .map((wp) => [Number(wp.latitude), Number(wp.longitude)])
+      .filter(([lat, lng]) => !Number.isNaN(lat) && !Number.isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180);
+    if (validPoints.length < 2) return;
+
+    const polyline = L.polyline(validPoints, {
+      color,
+      weight,
+      opacity,
+      dashArray,
+      lineCap: 'round',
+      lineJoin: 'round',
+      interactive: false,
+    }).addTo(this.routeLayerGroup);
+    this.namedRouteLayers.set(name, [polyline]);
+
+    if (fit) {
+      this.map.fitBounds(validPoints, { padding: [50, 50], maxZoom: 10 });
+    }
+  }
+
+  clearPath(name) {
+    if (!this.namedRouteLayers.has(name)) return;
+    this.namedRouteLayers.get(name).forEach((layer) => this.routeLayerGroup.removeLayer(layer));
+    this.namedRouteLayers.delete(name);
   }
 
   /**
@@ -523,6 +561,12 @@ export class FlightMap {
       // Use marker if it exists
       position = marker.getLatLng();
       data = marker._flightData;
+      this.flightMarkers.forEach((flightMarker) => {
+        const flight = flightMarker._flightData;
+        if (!flight) return;
+        flight._selected = flight.flight_id === flightId;
+        flightMarker.setIcon(createFlightIcon(flight, getFlightPhaseColor(flight.phase)));
+      });
     } else if (flightData && flightData.latitude != null && flightData.longitude != null) {
       // Fallback to flight data if marker doesn't exist
       position = [flightData.latitude, flightData.longitude];

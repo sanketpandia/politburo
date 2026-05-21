@@ -7,8 +7,8 @@
     <header class="page-header live-page-header">
         <div>
             <p class="eyebrow">Live operations</p>
-            <h1 class="page-title">{{if .ActiveVA}}{{.ActiveVA.VAName}}{{else}}VA{{end}} Live Flights</h1>
-            <p class="page-subtitle">List-first view of active VA flights with map context.</p>
+            <h1 class="page-title">Live Flights</h1>
+            <p class="page-subtitle">Monitor active VA flights in real time with map context.</p>
         </div>
         <div class="live-header-metrics" aria-label="Live flight summary">
             <span class="status-pill status-pill-info">{{.FlightCount}} active</span>
@@ -16,15 +16,27 @@
         </div>
     </header>
 
-    <div class="live-mobile-toggle" role="tablist" aria-label="Live view mode">
-        <button class="live-toggle-btn active" type="button" data-live-view="list">List</button>
-        <button class="live-toggle-btn" type="button" data-live-view="map">Map</button>
-    </div>
+    <nav class="live-mobile-tabs" aria-label="Live flights sections">
+        <button class="live-tab-btn active" type="button" data-live-tab="list" aria-pressed="true">List</button>
+        <button class="live-tab-btn" type="button" data-live-tab="map" aria-pressed="false">Map</button>
+        <button class="live-tab-btn" type="button" data-live-tab="details" aria-pressed="false">Details</button>
+    </nav>
 
     <div class="live-workspace" data-live-workspace>
         {{template "flight-list" dict "Flights" .Flights}}
         {{template "live-map-shell" dict}}
         {{template "flight-details-panel" dict}}
+    </div>
+
+    <div class="mobile-selected-flight-dock hidden" data-selected-flight-dock>
+        <div class="dock-icon" aria-hidden="true">✈</div>
+        <div class="dock-summary">
+            <strong data-dock-callsign>Selected flight</strong>
+            <span data-dock-meta>Route and metrics</span>
+            <small data-dock-phase></small>
+        </div>
+        <button class="btn btn-primary" type="button" data-open-mobile-map>Open map</button>
+        <button class="dock-collapse" type="button" data-collapse-mobile-dock aria-label="Hide selected flight dock">⌄</button>
     </div>
 
     {{template "flight-details-sheet" dict}}

@@ -1,10 +1,11 @@
 {{define "live-map-shell"}}
-<section class="live-map-panel" aria-label="Flight map" data-live-map-panel>
+<section class="live-map-panel" aria-label="Flight map" data-live-map-panel data-live-section="map">
     <div class="panel-header live-map-toolbar">
         <div>
             <h2>Map</h2>
             <p>Marker color follows current flight phase.</p>
         </div>
+        <button class="btn btn-secondary live-return-btn" type="button" data-return-to-flight-list>Return to list</button>
         {{template "map-legend" dict}}
     </div>
     <div class="live-map-shell">
@@ -12,6 +13,11 @@
         <div class="map-loading-state" data-map-loading>
             <span class="spinner"></span>
             <span>Loading map context…</span>
+        </div>
+        <div class="map-actions" aria-label="Map actions">
+            <button class="btn btn-secondary" type="button" data-center-selected-flight>Center on aircraft</button>
+            <button class="btn btn-secondary" type="button" data-follow-selected-flight>Follow flight</button>
+            <button class="btn btn-secondary" type="button" data-view-selected-route>View route</button>
         </div>
     </div>
 </section>
