@@ -97,7 +97,8 @@ Future LiveAPI work must preserve these constraints unless a specific policy dec
 - Do not use LiveAPI data for AI/ML training, evaluation, or grounding.
 - Keep caches operational and temporary; do not warehouse raw upstream responses in PostgreSQL.
 - Respect upstream polling guidance. Existing job cadences were preserved in this baseline, but any new interactive UI must avoid polling loops and stop refresh behavior when idle.
-- Review long TTLs before extending cached LiveAPI-derived data.
+- Keep LiveAPI-derived TTLs centralized in `infra/cache/ttl.go`; do not hardcode TTL durations at call sites.
+- Complete-flight and flight-plan-derived cache data use a standardized 48-hour operational TTL.
 
 ## Validation expectations
 
@@ -119,5 +120,5 @@ For runtime confidence, start the server or dev stack long enough to confirm sch
 
 - **ATC, ATIS, and world status:** no active callers were found outside `infra/liveapi.Client` and legacy `internal/common.LiveAPIService` method definitions. The generated upstream paths are session/airport-scoped, while the legacy wrapper methods are no-argument compatibility methods using `/atc`, `/atis`, and `/world/status`. Keep those methods unchanged until a follow-up plan defines the desired public wrapper signatures and response compatibility.
 - **Real upstream API verification:** generated-wrapper behavior has local `httptest` coverage only. Real Infinite Flight API verification was deferred by user request; do not add CI or routine local checks that consume the external rate limit without an explicit decision and non-secret operator setup.
-- **7-day Redis TTLs for LiveAPI-derived flight data:** `internal/flights/cache_job.go`, `internal/flights/flight_plan_worker.go`, and `infra/cache/keys.go` still cache `CompleteFlight` and flight-plan-derived data for 7 days. The implementation plan authorized review, not a behavior change. A product/compliance decision is still needed on whether 7 days qualifies as temporary operational caching under Infinite Flight terms or whether these TTLs should be shortened.
+- **LiveAPI-derived TTLs:** complete-flight and flight-plan-derived data now use centralized 48-hour TTL constants. Future TTL changes should update `infra/cache/ttl.go` and avoid hardcoded durations at cache call sites.
 - **Client consolidation:** do not migrate `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService` yet. `LiveAPIProvider` currently preserves context-aware calls, provider-specific `ProviderError` codes/details, empty-input/page validation, and tests with legacy DTO fixtures. `internal/common.LiveAPIService` is still wired through PIREP, Vizburo, and legacy services and includes broader method surface. Migrating either requires explicit parity tests and context/error-semantics decisions.

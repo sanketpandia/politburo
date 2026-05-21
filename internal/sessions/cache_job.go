@@ -53,17 +53,17 @@ func (j *CacheJob) Run(ctx context.Context) error {
 
 	sessionIDs := make([]string, 0, len(sessionsResp.Result))
 
-	// Cache each session with 24-hour TTL
+	// Cache each session with the standardized session TTL.
 	for _, server := range sessionsResp.Result {
 		sessionIDs = append(sessionIDs, server.ID)
 
 		// Cache full session object using helper function
 		cacheKey := cache.SessionKey(server.ID)
-		j.redisCache.Set(cacheKey, server, 24*time.Hour)
+		j.redisCache.Set(cacheKey, server, cache.SessionTTL)
 
 		// Cache session name separately for quick lookups
 		nameKey := cache.SessionNameKey(server.ID)
-		j.redisCache.Set(nameKey, server.Name, 24*time.Hour)
+		j.redisCache.Set(nameKey, server.Name, cache.SessionTTL)
 
 		logging.Debug("Cached session",
 			"sessionID", server.ID,
@@ -73,7 +73,7 @@ func (j *CacheJob) Run(ctx context.Context) error {
 
 	// Cache the list of all session IDs for iteration by other jobs
 	sessionListStr := strings.Join(sessionIDs, "|")
-	j.redisCache.Set(cache.KeySessionList, sessionListStr, 24*time.Hour)
+	j.redisCache.Set(cache.KeySessionList, sessionListStr, cache.SessionTTL)
 
 	if j.metrics != nil {
 		j.metrics.CacheSize.WithLabelValues("session_cache").Set(float64(len(sessionIDs)))

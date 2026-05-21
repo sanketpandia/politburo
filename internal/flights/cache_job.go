@@ -147,9 +147,9 @@ func (j *CacheJob) Run(ctx context.Context) error {
 			// Append waypoint if needed (checks 100-second interval internally)
 			j.appendWaypoint(completeFlight)
 
-			// Cache complete flight with 7-day TTL
+			// Cache complete flight with the standardized LiveAPI-derived TTL.
 			flightKey := cache.LiveFlightKey(apiFlight.FlightID)
-			j.redisCache.Set(flightKey, completeFlight, 7*24*time.Hour)
+			j.redisCache.Set(flightKey, completeFlight, cache.LiveFlightTTL)
 
 			// Check if we should fetch flight plan based on phase and timing
 			// Only enqueue if enough time has passed since last fetch
@@ -205,14 +205,14 @@ func (j *CacheJob) Run(ctx context.Context) error {
 	for sessionID, flightIDs := range sessionFlights {
 		flightIDsStr := strings.Join(flightIDs, "|")
 		sessionKey := cache.LiveFlightsKey(sessionID)
-		j.redisCache.Set(sessionKey, flightIDsStr, 5*time.Minute)
+		j.redisCache.Set(sessionKey, flightIDsStr, cache.LiveFlightListTTL)
 	}
 
 	// 6. Write VA flight lists (atomic, end of run)
 	for vaID, flightIDs := range vaFlights {
 		flightIDsStr := strings.Join(flightIDs, "|")
 		vaKey := cache.LiveVAFlightsKey(vaID)
-		j.redisCache.Set(vaKey, flightIDsStr, 5*time.Minute)
+		j.redisCache.Set(vaKey, flightIDsStr, cache.LiveFlightListTTL)
 	}
 
 	duration := time.Since(startTime)

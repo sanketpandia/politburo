@@ -164,11 +164,11 @@ func (w *Worker) refillWorldStatus() {
 	}
 
 	c := *w.c
-	c.Set(string(constants.CachePrefixWorldDetails), resp.Result, 60000*time.Minute)
+	c.Set(string(constants.CachePrefixWorldDetails), resp.Result, cache.WorldDetailsTTL)
 	for _, world := range resp.Result {
 		// Get expert server
 		if world.WorldType == 3 {
-			c.Set(string(constants.CachePrefixExpertServer), world.ID, 60000*time.Minute)
+			c.Set(string(constants.CachePrefixExpertServer), world.ID, cache.WorldDetailsTTL)
 			break
 		}
 	}

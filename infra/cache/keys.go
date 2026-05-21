@@ -18,22 +18,22 @@ const (
 	// Live flight tracking keys
 	// All flights in a session - pipe-separated flight IDs
 	// Format: game:live:flights:<session_id>
-	// TTL: 5 minutes
+	// TTL: LiveFlightListTTL
 	KeyLiveFlightsPrefix = "game:live:flights:"
 
 	// Complete flight data (position + state + waypoints)
 	// Format: game:live:flight:<flight_id>
-	// TTL: 7 days
+	// TTL: LiveFlightTTL
 	KeyLiveFlightPrefix = "game:live:flight:"
 
 	// VA-specific flight list - pipe-separated flight IDs
 	// Format: game:live:vaflights:<va_id>
-	// TTL: 5 minutes
+	// TTL: LiveFlightListTTL
 	KeyLiveVAFlightsPrefix = "game:live:vaflights:"
 
 	// Flight plan data (full FPL response)
 	// Format: game:flightplan:<flight_id>
-	// TTL: 7 days
+	// TTL: FlightPlanTTL
 	KeyFlightPlanPrefix = "game:flightplan:"
 )
 

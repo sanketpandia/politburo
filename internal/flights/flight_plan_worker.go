@@ -343,7 +343,7 @@ func (w *FlightPlanWorker) processFlightPlan(ctx context.Context, item *queue.Fl
 		return nil
 	}
 
-	// Fetch flight plan with caching (7 days)
+	// Fetch flight plan with the standardized LiveAPI-derived TTL.
 	// This uses the same cache key as flights.Service for consistency
 	fpl, err := w.getFlightPlanCached(sessionID, flightID)
 	if err != nil {
@@ -353,9 +353,9 @@ func (w *FlightPlanWorker) processFlightPlan(ctx context.Context, item *queue.Fl
 	// Extract origin and destination from waypoints
 	origin, destination := w.extractRouteFromFPL(fpl)
 
-	// Store full flight plan in separate cache key (7 days) for direct access
+	// Store full flight plan in separate cache key for direct access.
 	fplKey := cache.FlightPlanKey(flightID)
-	w.cache.Set(fplKey, fpl, 7*24*time.Hour)
+	w.cache.Set(fplKey, fpl, cache.FlightPlanTTL)
 
 	// Update the CompleteFlight with route information
 	now := time.Now().UTC()
@@ -365,7 +365,7 @@ func (w *FlightPlanWorker) processFlightPlan(ctx context.Context, item *queue.Fl
 	// Note: Don't update LastUpdated here - that's managed by cache_job.go
 
 	// Save updated flight back to cache (preserve existing TTL)
-	w.cache.Set(flightKey, completeFlight, 7*24*time.Hour)
+	w.cache.Set(flightKey, completeFlight, cache.LiveFlightTTL)
 
 	logging.Debug("Updated flight plan",
 		"flightID", flightID,
@@ -398,10 +398,10 @@ func (w *FlightPlanWorker) getFlightPlanCached(sessionID, flightID string) (*liv
 		return nil, err
 	}
 
-	// Update cache with fresh data (7 days TTL) for other parts of the system
+	// Update cache with fresh data for other parts of the system.
 	// Use same cache key pattern as flights.Service for consistency
 	cacheKey := string(constants.CachePrefixFPL) + sessionID + "_" + flightID
-	w.cache.Set(cacheKey, *fpl, 7*24*time.Hour)
+	w.cache.Set(cacheKey, *fpl, cache.FlightPlanTTL)
 
 	return fpl, nil
 }

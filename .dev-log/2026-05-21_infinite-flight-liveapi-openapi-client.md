@@ -144,3 +144,31 @@
 - **Deviations from plan, if any:** None. No generated files, provider/common migrations, cache behavior, or public API behavior were changed.
 - **Blast-radius notes / dependent surfaces checked:** Limited to `infra/liveapi` tests and the existing metrics type. `infra/metrics` production code was not edited.
 - **Live API compliance notes:** All coverage uses local fakes/custom transports only; no real upstream API calls were made.
+
+## Logical unit 8: LiveAPI-derived TTL standardization
+
+- **Logical unit / commit intent:** Apply the product/compliance decision to keep LiveAPI-derived complete-flight and flight-plan cache data for 48 hours, and centralize cache TTL durations instead of hardcoding them at call sites.
+- **Changed files:**
+  - `infra/cache/ttl.go`
+  - `infra/cache/keys.go`
+  - `internal/flights/cache_job.go`
+  - `internal/flights/flight_plan_worker.go`
+  - `internal/sessions/cache_job.go`
+  - `internal/platform/aircraft/cache_job.go`
+  - `internal/platform/aircraft/worker.go`
+  - `docs/dev/liveapi-openapi-client.md`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+- **Reused code / patterns / components:** Reused the existing `infra/cache` package as the cache-key/Redis-cache boundary and moved TTL values next to cache key ownership. Existing jobs/workers still use the same cache keys and cache services.
+- **Logging added or affected:** None.
+- **Metrics added or affected:** None.
+- **Test surface touched or still needed:** No behavior tests existed for TTL values. Focused compile/package tests covered all touched packages.
+- **Build/test command(s) run and status:**
+  - `gofmt -w infra/cache/ttl.go infra/cache/keys.go internal/flights/cache_job.go internal/flights/flight_plan_worker.go internal/sessions/cache_job.go internal/platform/aircraft/cache_job.go internal/platform/aircraft/worker.go` — passed
+  - `go test ./infra/cache ./internal/sessions ./internal/flights ./internal/platform/aircraft` — passed
+- **Deviations from plan, if any:** The original plan requested review of the 7-day TTL. The user clarified the decision in this follow-up: LiveAPI-derived TTLs should be 48 hours and standardized in constants.
+- **Blast-radius notes / dependent surfaces checked:** Updated CompleteFlight, flight-plan, session, aircraft/livery, live-flight-list, and world/session-details TTL call sites that were directly using hardcoded LiveAPI-related cache durations. No cache keys, job cadence, queue behavior, API contracts, generated files, or database persistence behavior changed.
+- **Live API compliance notes:** Complete-flight and flight-plan-derived data now use `cache.LiveFlightTTL` and `cache.FlightPlanTTL` set to 48 hours. Other LiveAPI-related operational TTLs are also named constants: `SessionTTL`, `AircraftTTL`, `LiveFlightListTTL`, and `WorldDetailsTTL`.
+- **Follow-up notes:**
+  - **Swagger/OpenAPI:** None.
+  - **Observability:** Existing wrapper metrics/logging remain unchanged.
+  - **Unit Testing:** If TTL behavior becomes product-critical, add tests around cache set calls or use fake cache services that capture TTLs.

@@ -53,16 +53,16 @@ func (j *CacheJob) Run(ctx context.Context) error {
 	aircraftCount := make(map[string]int) // Track unique aircraft
 	liveryCount := 0
 
-	// Cache each aircraft and livery with 24-hour TTL
+	// Cache each aircraft and livery with the standardized aircraft TTL.
 	for _, livery := range resp.Liveries {
 		// Cache aircraft data
 		aircraftKey := cache.AircraftKey(livery.AircraftID)
-		j.redisCache.Set(aircraftKey, livery.AircraftName, 24*time.Hour)
+		j.redisCache.Set(aircraftKey, livery.AircraftName, cache.AircraftTTL)
 		aircraftCount[livery.AircraftID]++
 
 		// Cache livery data
 		liveryKey := cache.LiveryKey(livery.LiveryId)
-		j.redisCache.Set(liveryKey, livery.LiveryName, 24*time.Hour)
+		j.redisCache.Set(liveryKey, livery.LiveryName, cache.AircraftTTL)
 		liveryCount++
 
 		logging.Debug("Cached aircraft/livery",
