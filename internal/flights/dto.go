@@ -26,9 +26,10 @@ type VALiveFlightDTO struct {
 	LiveryName   string `json:"livery_name"`
 
 	// Flight phase tracking
-	Phase       FlightPhase `json:"phase"`
-	TakeoffTime *time.Time  `json:"takeoff_time"` // null if not yet detected
-	LandingTime *time.Time  `json:"landing_time,omitempty"`
+	Phase        FlightPhase               `json:"phase"`
+	PhaseHistory []FlightPhaseHistoryEntry `json:"phase_history,omitempty"`
+	TakeoffTime  *time.Time                `json:"takeoff_time"` // null if not yet detected
+	LandingTime  *time.Time                `json:"landing_time,omitempty"`
 
 	// Route information
 	Origin      string `json:"origin,omitempty"`
@@ -70,9 +71,10 @@ func ToVALiveFlightDTO(flight *CompleteFlight) *VALiveFlightDTO {
 		LiveryName:   flight.LiveryName,
 
 		// Flight phase tracking
-		Phase:       flight.Phase,
-		TakeoffTime: flight.TakeoffTime,
-		LandingTime: flight.LandingTime,
+		Phase:        flight.Phase,
+		PhaseHistory: flight.PhaseHistory,
+		TakeoffTime:  flight.TakeoffTime,
+		LandingTime:  flight.LandingTime,
 
 		// Route information
 		Origin:      flight.Origin,
@@ -95,6 +97,9 @@ func ToVALiveFlightDTO(flight *CompleteFlight) *VALiveFlightDTO {
 	if flight.TakeoffTime != nil {
 		utcTime := flight.TakeoffTime.UTC()
 		dto.TakeoffTime = &utcTime
+	}
+	for i := range dto.PhaseHistory {
+		dto.PhaseHistory[i].ChangedAt = dto.PhaseHistory[i].ChangedAt.UTC()
 	}
 
 	// Convert LandingTime to UTC if present

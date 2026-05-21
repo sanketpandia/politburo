@@ -12,31 +12,55 @@
 <form hx-post="/dashboard/vaadmin/setup/basic" hx-target="#basic-setup-panel" hx-swap="innerHTML" hx-indicator="#global-spinner">
     <div class="setup-field">
         <label for="va_code">VA Code / ID</label>
-        <input id="va_code" type="text" value="{{.VA.Code}}" readonly>
+        <input id="va_code" class="form-input" type="text" value="{{.VA.Code}}" readonly>
         <span class="setup-muted">This is the short code entered in Discord.</span>
     </div>
     <div class="setup-field">
         <label for="display_name">Display name</label>
-        <input id="display_name" name="display_name" type="text" value="{{.DisplayName}}" placeholder="Your VA display name">
+        <input id="display_name" class="form-input" name="display_name" type="text" value="{{.DisplayName}}" placeholder="Your VA display name">
         <span class="setup-muted">Optional. You can keep the VA Code / ID as the name for now.</span>
     </div>
     <div class="setup-field">
         <label for="callsign_prefix">Callsign start</label>
-        <input id="callsign_prefix" name="callsign_prefix" type="text" value="{{.CallsignPrefix}}" placeholder="IFE">
+        <input id="callsign_prefix" class="form-input" name="callsign_prefix" type="text" value="{{.CallsignPrefix}}" placeholder="IFE">
         <span class="setup-muted">Example: if pilots fly as IFE123, enter IFE.</span>
     </div>
     <div class="setup-field">
         <label for="callsign_suffix">Callsign end</label>
-        <input id="callsign_suffix" name="callsign_suffix" type="text" value="{{.CallsignSuffix}}" placeholder="VA">
+        <input id="callsign_suffix" class="form-input" name="callsign_suffix" type="text" value="{{.CallsignSuffix}}" placeholder="VA">
         <span class="setup-muted">Example: if pilots fly as 123VA, enter VA.</span>
     </div>
     <div class="setup-field">
         <label for="enabled_server_ids">Enabled servers</label>
-        <select id="enabled_server_ids" name="enabled_server_ids" multiple size="{{if .Servers}}{{len .Servers}}{{else}}1{{end}}">
+        <div id="enabled_server_ids" class="choice-menu ui-choice-menu" data-ui-dropdown data-ui-multiselect data-placeholder="Use all available servers">
+            <button class="choice-menu-trigger ui-choice-trigger" type="button" aria-haspopup="true" aria-expanded="false" data-ui-dropdown-trigger>
+                <span class="choice-menu-label ui-choice-label">Live servers</span>
+                <span class="choice-menu-name ui-choice-name" data-ui-multiselect-label>Choose enabled servers</span>
+            </button>
+            <div class="choice-menu-panel ui-choice-panel" role="group" aria-label="Enabled servers" data-ui-dropdown-panel>
+                <div class="choice-menu-title ui-choice-title">Enabled servers</div>
+                {{if .Servers}}
+                {{range .Servers}}
+                <label class="choice-option ui-choice-option" data-ui-option>
+                    <input type="checkbox" name="enabled_server_ids" value="{{.ID}}" {{if index $.SelectedServerIDs .ID}}checked{{end}}>
+                    <span class="choice-option-body ui-option-body">
+                        <span class="choice-option-name ui-option-name" data-ui-option-name>{{.Name}}</span>
+                        <span class="choice-option-meta ui-option-meta">{{.ID}}</span>
+                    </span>
+                </label>
+                {{end}}
+                {{else}}
+                <div class="choice-option-meta ui-option-meta" style="padding: 0.625rem 0.75rem;">No live servers are available right now.</div>
+                {{end}}
+            </div>
+        </div>
+        <noscript>
+        <select class="form-select" name="enabled_server_ids" multiple size="{{if .Servers}}{{len .Servers}}{{else}}1{{end}}">
             {{range .Servers}}
             <option value="{{.ID}}" {{if index $.SelectedServerIDs .ID}}selected{{end}}>{{.Name}}</option>
             {{end}}
         </select>
+        </noscript>
         <span class="setup-muted">Leave empty to use all available servers. Missing old selections are removed on the next save.</span>
     </div>
     <div class="setup-action-row">

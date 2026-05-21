@@ -163,14 +163,14 @@
 </div>
 
 <!-- Pilot Logs Modal -->
-<div id="pilot-logs-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pilot-name">
-    <div class="card modal-card">
-        <div class="modal-header">
+<div id="pilot-logs-modal" class="modal ui-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modal-pilot-name" data-ui-modal>
+    <div class="card modal-card ui-modal-card">
+        <div class="modal-header ui-modal-header">
             <div>
                 <h3 class="section-title" id="modal-pilot-name">Pilot Logs</h3>
                 <p class="section-subtitle" id="modal-pilot-info">PIREP logs sorted by completion time</p>
             </div>
-            <button class="modal-close" type="button" onclick="document.getElementById('pilot-logs-modal').classList.remove('open');" aria-label="Close pilot logs">×</button>
+            <button class="modal-close ui-modal-close" type="button" data-ui-modal-close aria-label="Close pilot logs">×</button>
         </div>
         <div id="pilot-logs-modal-content">
             <div class="empty-state compact">

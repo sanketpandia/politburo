@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/liveapi"
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
@@ -22,6 +23,23 @@ type Handler struct {
 	svc         *Service
 	vaConfigSvc *platformVA.ConfigService
 	legacyCache *cache.CacheService
+}
+
+type FlightPathPoint struct {
+	Latitude  float64   `json:"latitude"`
+	Longitude float64   `json:"longitude"`
+	Altitude  float64   `json:"altitude,omitempty"`
+	Timestamp time.Time `json:"timestamp,omitempty"`
+	Name      string    `json:"name,omitempty"`
+}
+
+type CachedFlightPathsResponse struct {
+	FlightID          string            `json:"flight_id"`
+	FlightPlanPresent bool              `json:"flight_plan_present"`
+	FlightPlan        []FlightPathPoint `json:"flight_plan"`
+	FlownRoute        []FlightPathPoint `json:"flown_route"`
+	MaxSpeed          *int              `json:"max_speed"`
+	MaxAltitude       *int              `json:"max_altitude"`
 }
 
 // NewHandler creates a new Handler instance
@@ -330,6 +348,97 @@ func GetFlightWaypoints(redisCache *cache.RedisCacheService) http.HandlerFunc {
 	}
 }
 
+// GetCachedFlightPaths handles GET /dashboard/flights/{flight_id}/paths.
+// It returns only cached data: planned flight-plan coordinates if present and flown waypoint history.
+func GetCachedFlightPaths(redisCache *cache.RedisCacheService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		initTime := time.Now()
+		flightID := chi.URLParam(r, "flight_id")
+		if flightID == "" {
+			common.RespondError(w, initTime, nil, "Missing flight_id parameter", http.StatusBadRequest)
+			return
+		}
+
+		flight, found := getCachedCompleteFlightForHandler(redisCache, flightID)
+		if !found {
+			common.RespondError(w, initTime, nil, "Flight not found", http.StatusNotFound)
+			return
+		}
+
+		flightPlan := []FlightPathPoint{}
+		flightPlanPresent := false
+		if planVal, found := redisCache.Get(cache.FlightPlanKey(flightID)); found {
+			if points, err := cachedFlightPlanPoints(planVal); err != nil {
+				logging.Warn("Failed to parse cached flight plan", "flightID", flightID, "error", err)
+			} else {
+				flightPlan = points
+				flightPlanPresent = len(points) > 0
+			}
+		}
+
+		flownRoute := make([]FlightPathPoint, 0, len(flight.Waypoints))
+		var maxSpeed, maxAltitude *int
+		if len(flight.Waypoints) > 0 {
+			maxSpeedVal := flight.Waypoints[0].Speed
+			maxAltitudeVal := flight.Waypoints[0].Altitude
+			for _, wp := range flight.Waypoints {
+				flownRoute = append(flownRoute, FlightPathPoint{Latitude: wp.Latitude, Longitude: wp.Longitude, Altitude: float64(wp.Altitude), Timestamp: wp.Timestamp.UTC()})
+				if wp.Speed > maxSpeedVal {
+					maxSpeedVal = wp.Speed
+				}
+				if wp.Altitude > maxAltitudeVal {
+					maxAltitudeVal = wp.Altitude
+				}
+			}
+			maxSpeed = &maxSpeedVal
+			maxAltitude = &maxAltitudeVal
+		}
+
+		common.RespondSuccess(w, initTime, "Flight paths fetched", CachedFlightPathsResponse{FlightID: flightID, FlightPlanPresent: flightPlanPresent, FlightPlan: flightPlan, FlownRoute: flownRoute, MaxSpeed: maxSpeed, MaxAltitude: maxAltitude})
+	}
+}
+
+func getCachedCompleteFlightForHandler(redisCache *cache.RedisCacheService, flightID string) (*CompleteFlight, bool) {
+	flightVal, found := redisCache.Get(cache.LiveFlightKey(flightID))
+	if !found {
+		return nil, false
+	}
+	jsonBytes, err := json.Marshal(flightVal)
+	if err != nil {
+		return nil, false
+	}
+	var flight CompleteFlight
+	if err := json.Unmarshal(jsonBytes, &flight); err != nil {
+		return nil, false
+	}
+	return &flight, true
+}
+
+func cachedFlightPlanPoints(planVal interface{}) ([]FlightPathPoint, error) {
+	jsonBytes, err := json.Marshal(planVal)
+	if err != nil {
+		return nil, err
+	}
+	var plan liveapi.FlightPlanResponse
+	if err := json.Unmarshal(jsonBytes, &plan); err != nil {
+		return nil, err
+	}
+	points := make([]FlightPathPoint, 0, len(plan.FlightPlanItems))
+	appendFlightPlanItemPoints(&points, plan.FlightPlanItems)
+	return points, nil
+}
+
+func appendFlightPlanItemPoints(points *[]FlightPathPoint, items []liveapi.FlightPlanItem) {
+	for _, item := range items {
+		if item.Location.Latitude != 0 || item.Location.Longitude != 0 {
+			*points = append(*points, FlightPathPoint{Latitude: item.Location.Latitude, Longitude: item.Location.Longitude, Altitude: item.Location.Altitude, Name: item.Name})
+		}
+		if len(item.Children) > 0 {
+			appendFlightPlanItemPoints(points, item.Children)
+		}
+	}
+}
+
 // LivePageHandler renders the server-side Live flights dashboard page.
 type LivePageHandler struct {
 	redisCache       *cache.RedisCacheService
@@ -372,8 +481,11 @@ func (h *LivePageHandler) LiveFlightsPageHandler() http.HandlerFunc {
 			http.Error(w, "No active VA found", http.StatusInternalServerError)
 			return
 		}
-		// Get VA ID from claims
-		vaID := claims.ServerID()
+		// Use the active VA UUID so the lookup matches game:live:vaflights:<va_id>.
+		vaID := activeVA.VAID
+		if vaID == "" {
+			vaID = claims.ServerID()
+		}
 		if vaID == "" {
 			http.Error(w, "VA ID not found in claims", http.StatusInternalServerError)
 			return

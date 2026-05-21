@@ -12,20 +12,20 @@
         <span class="topnav-wordmark">Vizburo</span>
     </a>
 
-    <div class="va-selector" data-component="va-selector">
-        <button class="va-selector-trigger" type="button" aria-haspopup="true" aria-expanded="false">
-            <span class="va-selector-label">Active VA</span>
-            <span class="va-selector-name">{{if .ActiveVA}}{{.ActiveVA.VAName}}{{else}}Dashboard{{end}}</span>
+    <div class="va-selector ui-dropdown" data-component="va-selector" data-ui-dropdown>
+        <button class="va-selector-trigger ui-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false" data-ui-dropdown-trigger>
+            <span class="va-selector-label ui-dropdown-label">Active VA</span>
+            <span class="va-selector-name ui-dropdown-name">{{if .ActiveVA}}{{.ActiveVA.VAName}}{{else}}Dashboard{{end}}</span>
         </button>
-        <div class="va-selector-menu" role="menu">
-            <div class="va-selector-menu-title">Switch VA</div>
+        <div class="va-selector-menu ui-dropdown-panel" role="menu" data-ui-dropdown-panel>
+            <div class="va-selector-menu-title ui-dropdown-title">Switch VA</div>
             <div id="va-switch-error" class="va-switch-error" aria-live="polite"></div>
             {{range .VirtualAirlines}}
             <form method="POST" action="/dashboard/switch-va" hx-post="/dashboard/switch-va" hx-target="#va-switch-error" hx-swap="innerHTML" role="none">
                 <input type="hidden" name="va_id" value="{{.VAID}}">
-                <button type="submit" class="va-option {{if eq $.ActiveVAID .VAID}}active{{end}}" role="menuitem">
-                    <span class="va-option-name">{{.VAName}}</span>
-                    <span class="va-option-meta">{{.VACode}} · {{.Role}}</span>
+                <button type="submit" class="va-option ui-option {{if eq $.ActiveVAID .VAID}}active{{end}}" role="menuitem">
+                    <span class="va-option-name ui-option-name">{{.VAName}}</span>
+                    <span class="va-option-meta ui-option-meta">{{.VACode}} · {{.Role}}</span>
                 </button>
             </form>
             {{end}}

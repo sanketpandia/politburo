@@ -68,7 +68,7 @@ func (j *CacheJob) processSession(ctx context.Context, sessionID string) FlightA
 func (j *CacheJob) enqueueFlightPlanIfDue(ctx context.Context, sessionID string, flightID string, flight *CompleteFlight) {
 	shouldFetch, _ := ShouldFetchFlightPlan(flight)
 	if !shouldFetch {
-		logging.Debug("Skipping flight plan enqueue - too soon",
+		logging.Debug("Skipping flight plan enqueue",
 			"phase", flight.Phase,
 			"lastFlightPlanFetch", flight.LastFlightPlanFetch,
 		)

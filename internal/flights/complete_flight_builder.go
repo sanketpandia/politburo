@@ -97,6 +97,10 @@ func preserveFlightState(flight *CompleteFlight, existing *CompleteFlight, now t
 		takeoffTime := existing.TakeoffTime.UTC()
 		flight.TakeoffTime = &takeoffTime
 	}
+	flight.PhaseHistory = existing.PhaseHistory
+	for i := range flight.PhaseHistory {
+		flight.PhaseHistory[i].ChangedAt = flight.PhaseHistory[i].ChangedAt.UTC()
+	}
 	if existing.LandingTime != nil {
 		landingTime := existing.LandingTime.UTC()
 		flight.LandingTime = &landingTime

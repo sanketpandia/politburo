@@ -2,13 +2,21 @@ package flights
 
 import "time"
 
-func updateFlightPhase(flight *CompleteFlight, speed int, altitude int) {
+const (
+	groundSpeedThreshold  = 50
+	flightSpeedThreshold  = 120
+	landingSpeedThreshold = 160
+)
+
+func updateFlightPhase(flight *CompleteFlight, speed int, _ int) {
 	now := time.Now().UTC()
 	prevPhase := flight.Phase
 	trend := calculateTrendFromQueue(flight.TrendQueue)
+	nearZeroVerticalSpeed := flight.VerticalSpeed > -150 && flight.VerticalSpeed < 150
 
 	if prevPhase == PhaseUnknown || prevPhase == "" {
-		flight.Phase = determineInitialPhase(speed, altitude)
+		flight.Phase = determineInitialPhase(speed, trend, nearZeroVerticalSpeed)
+		markPhaseChange(flight, prevPhase, now)
 		if flight.Phase != PhaseOnGround && flight.Phase != PhaseUnknown && flight.TakeoffTime == nil {
 			takeoffTime := now.UTC()
 			flight.TakeoffTime = &takeoffTime
@@ -16,57 +24,81 @@ func updateFlightPhase(flight *CompleteFlight, speed int, altitude int) {
 		return
 	}
 
-	switch {
-	case speed < 50:
-		if prevPhase == PhaseDescent || prevPhase == PhaseCruise || prevPhase == PhaseClimb {
-			flight.Phase = PhaseLanded
-			if flight.LandingTime == nil {
-				landingTime := now.UTC()
-				flight.LandingTime = &landingTime
-			}
-			return
+	nextPhase := prevPhase
+	switch prevPhase {
+	case PhaseOnGround:
+		if trend.SpeedIncreasing && trend.AltitudeRising {
+			nextPhase = PhaseTakeoff
 		}
-		flight.Phase = PhaseOnGround
+	case PhaseTakeoff:
+		if speed >= flightSpeedThreshold && trend.AltitudeRising {
+			nextPhase = PhaseClimb
+		} else if trend.SpeedDecreasing && trend.AltitudeStable && nearZeroVerticalSpeed {
+			nextPhase = PhaseOnGround
+		}
+	case PhaseClimb:
+		if trend.AltitudeStable && trend.SpeedStable {
+			nextPhase = PhaseCruise
+		} else if trend.AltitudeFalling {
+			nextPhase = PhaseDescent
+		}
+	case PhaseCruise:
+		if trend.AltitudeFalling {
+			nextPhase = PhaseDescent
+		} else if trend.AltitudeRising {
+			nextPhase = PhaseClimb
+		}
+	case PhaseDescent:
+		if trend.AltitudeRising {
+			nextPhase = PhaseClimb
+		} else if trend.SpeedDecreasing && trend.AltitudeFalling && speed <= landingSpeedThreshold {
+			nextPhase = PhaseLanded
+		}
+	case PhaseLanded:
+		if speed <= groundSpeedThreshold && trend.AltitudeStable && nearZeroVerticalSpeed {
+			nextPhase = PhaseOnGround
+		} else if trend.AltitudeRising && speed >= flightSpeedThreshold {
+			nextPhase = PhaseClimb
+		}
+	}
 
-	case (prevPhase == PhaseOnGround || prevPhase == PhaseLanded) && speed > 80 && (trend.AltitudeRising || trend.SpeedIncreasing):
+	flight.Phase = nextPhase
+	markPhaseChange(flight, prevPhase, now)
+	if flight.Phase == PhaseTakeoff && flight.TakeoffTime == nil {
 		flight.Phase = PhaseTakeoff
-		if flight.TakeoffTime == nil {
-			takeoffTime := now.UTC()
-			flight.TakeoffTime = &takeoffTime
-		}
-
-	case (prevPhase == PhaseTakeoff || prevPhase == PhaseOnGround) && trend.AltitudeRising && altitude > 1000:
-		flight.Phase = PhaseClimb
-
-	case (prevPhase == PhaseClimb || prevPhase == PhaseTakeoff) && trend.AltitudeStable && (altitude > 8000 || speed > 250):
-		flight.Phase = PhaseCruise
-
-	case (prevPhase == PhaseCruise || prevPhase == PhaseClimb) && trend.AltitudeFalling:
-		flight.Phase = PhaseDescent
-
-	default:
-		flight.Phase = prevPhase
-		if flight.Phase == "" {
-			flight.Phase = PhaseUnknown
-		}
+		takeoffTime := now.UTC()
+		flight.TakeoffTime = &takeoffTime
+	}
+	if flight.Phase == PhaseLanded && flight.LandingTime == nil {
+		landingTime := now.UTC()
+		flight.LandingTime = &landingTime
 	}
 }
 
-func determineInitialPhase(speed int, altitude int) FlightPhase {
+func determineInitialPhase(speed int, trend FlightTrend, nearZeroVerticalSpeed bool) FlightPhase {
 	switch {
-	case speed < 50:
+	case speed <= groundSpeedThreshold && trend.AltitudeStable && nearZeroVerticalSpeed:
 		return PhaseOnGround
-	case altitude > 30000 || speed > 300:
-		return PhaseCruise
-	case altitude > 8000 && speed > 80:
+	case speed >= flightSpeedThreshold && trend.AltitudeRising:
 		return PhaseClimb
-	case altitude < 15000 && speed > 50 && altitude > 1000:
+	case speed >= flightSpeedThreshold && trend.AltitudeStable:
+		return PhaseCruise
+	case speed >= flightSpeedThreshold && trend.AltitudeFalling:
 		return PhaseDescent
-	case speed > 80 && altitude < 1000:
-		return PhaseTakeoff
-	case speed > 80:
-		return PhaseTakeoff
 	default:
 		return PhaseUnknown
 	}
+}
+
+func markPhaseChange(flight *CompleteFlight, previous FlightPhase, changedAt time.Time) {
+	if flight.Phase == "" {
+		flight.Phase = PhaseUnknown
+	}
+	if flight.Phase == previous {
+		if len(flight.PhaseHistory) == 0 && flight.Phase != PhaseUnknown {
+			flight.PhaseHistory = append(flight.PhaseHistory, FlightPhaseHistoryEntry{Phase: flight.Phase, ChangedAt: changedAt.UTC()})
+		}
+		return
+	}
+	flight.PhaseHistory = append(flight.PhaseHistory, FlightPhaseHistoryEntry{Phase: flight.Phase, ChangedAt: changedAt.UTC()})
 }

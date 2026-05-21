@@ -241,6 +241,7 @@ func NewRouter(application *app.App) http.Handler {
 
 			// Get flight waypoints for route mapping (all members)
 			member.Get("/flights/{flight_id}/waypoints", flights.GetFlightWaypoints(application.Infra.RedisCache))
+			member.Get("/flights/{flight_id}/paths", flights.GetCachedFlightPaths(application.Infra.RedisCache))
 
 			// Dashboard signed link endpoint (all members)
 			member.Get("/link", application.Features.DashboardHandler.GetDashboardLinkHandler(authSvc))

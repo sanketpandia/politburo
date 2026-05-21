@@ -21,6 +21,8 @@ const (
 	flightPlanConsumer   = "worker_1"
 	maxRetryAttempts     = 2             // Maximum retry attempts for any error
 	retryKeyTTL          = 1 * time.Hour // TTL for retry tracking keys
+	flightPlanAPIDelay   = 2 * time.Second
+	flightPlan429Backoff = 1 * time.Minute
 )
 
 // isPermanentError checks if an error is a permanent error that shouldn't be retried
@@ -42,6 +44,10 @@ func isPermanentError(err error) (bool, int) {
 	}
 
 	return true, status
+}
+
+func isRateLimitError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "unexpected status 429")
 }
 
 // getRetryCount gets the current retry count for a message
@@ -94,6 +100,7 @@ type FlightPlanWorker struct {
 	liveAPI      *liveapi.Client
 	metrics      *metrics.MetricsRegistry
 	ctx          context.Context
+	nextAPIAt    time.Time
 }
 
 // NewFlightPlanWorker creates a new flight plan worker
@@ -276,7 +283,7 @@ func (w *FlightPlanWorker) Start(ctx context.Context) error {
 			}
 
 			// Add delay between processing (spacing out API calls)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(flightPlanAPIDelay)
 		}
 	}
 }
@@ -335,7 +342,7 @@ func (w *FlightPlanWorker) processFlightPlan(ctx context.Context, item *queue.Fl
 	// but it's kept as a safety check in case flight state changed
 	shouldFetch, delay := ShouldFetchFlightPlan(&completeFlight)
 	if !shouldFetch {
-		logging.Debug("Skipping flight plan fetch - too soon (safety check)",
+		logging.Debug("Skipping flight plan fetch (safety check)",
 			"flightID", flightID,
 			"phase", completeFlight.Phase,
 			"lastFlightPlanFetch", completeFlight.LastFlightPlanFetch,
@@ -386,9 +393,21 @@ func (w *FlightPlanWorker) processFlightPlan(ctx context.Context, item *queue.Fl
 // Returns the flight plan or an error (which may be a permanent error for 400/404 status codes)
 // The worker always fetches fresh data to ensure flight plans are up-to-date
 func (w *FlightPlanWorker) getFlightPlanCached(sessionID, flightID string) (*liveapi.FlightPlanResponse, error) {
+	if sleepFor := time.Until(w.nextAPIAt); sleepFor > 0 {
+		select {
+		case <-w.ctx.Done():
+			return nil, w.ctx.Err()
+		case <-time.After(sleepFor):
+		}
+	}
+	w.nextAPIAt = time.Now().Add(flightPlanAPIDelay)
+
 	// Always fetch fresh data from API (bypass cache)
 	fpl, status, err := w.liveAPI.GetFlightPlan(sessionID, flightID)
 	if err != nil {
+		if status == http.StatusTooManyRequests || isRateLimitError(err) {
+			w.nextAPIAt = time.Now().Add(flightPlan429Backoff)
+		}
 		// Preserve status code in error for permanent error detection
 		// The error from liveapi.Client already includes status in the message
 		// but we can enhance it for better detection

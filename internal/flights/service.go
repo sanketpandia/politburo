@@ -637,9 +637,7 @@ func (svc *Service) GetVALiveFlights(ctx context.Context, vaId string) (*[]dtos.
 
 }
 
-// GetVALiveFlightsFromCache retrieves VA flights from cache with API fallback
-// This method tries to read from the cache populated by FlightsCacheJob first,
-// then falls back to the direct API call (GetVALiveFlights) if cache is unavailable
+// GetVALiveFlightsFromCache retrieves VA flights only from cache populated by FlightsCacheJob.
 func (svc *Service) GetVALiveFlightsFromCache(ctx context.Context, vaId string) (*[]dtos.LiveFlight, error) {
 	pfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignPrefix)
 	sfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignSuffix)
@@ -649,13 +647,7 @@ func (svc *Service) GetVALiveFlightsFromCache(ctx context.Context, vaId string) 
 		return nil, errors.New("callsign prefix or suffix not configured for airline")
 	}
 
-	cachedFlights, err := svc.getVAFlightsFromCache(vaId)
-	if err == nil && cachedFlights != nil && len(*cachedFlights) > 0 {
-		return cachedFlights, nil
-	}
-
-	// Cache miss - fallback to direct API call
-	return svc.GetVALiveFlights(ctx, vaId)
+	return svc.getVAFlightsFromCache(vaId)
 }
 
 func (svc *Service) getVAFlightsFromCache(vaID string) (*[]dtos.LiveFlight, error) {
