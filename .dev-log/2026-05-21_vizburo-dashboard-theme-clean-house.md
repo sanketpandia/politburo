@@ -69,3 +69,31 @@
   - **Swagger/OpenAPI:** No API contract changes.
   - **Observability:** No metrics/logging added; visual-only cleanup.
   - **Unit Testing:** Add optional template static tests for dashboard no-inline-style policy and authenticated browser smoke for leaderboard modal open/close behavior.
+
+## Logical unit 3: Retire ambiguous Tailwind root build path
+
+- **Logical unit / commit intent:** Remove the root Tailwind build path that generated unused `static/css/output.css` from legacy `vizburo/ui/input.css`, making `static/css/design-system.css` the active root Vizburo styling source.
+- **Changed files:**
+  - `package.json`
+  - `package-lock.json`
+  - `tailwind.config.js` (deleted)
+  - `static/css/output.css` (deleted)
+  - `README.md`
+  - `.dev-log/2026-05-21_vizburo-dashboard-theme-clean-house.md`
+- **Reused code / patterns / components:** Preserved active root layout's `design-system.css` link and the existing `gleo` package dependency. Did not change static file serving or active templates.
+- **Logging added or affected:** None.
+- **Metrics added or affected:** None.
+- **Test surface touched or still needed:** Root Tailwind build is intentionally retired, so `npm run css:build` is no longer a valid active check. Manual CSS review and Go template/build checks remain the validation surface.
+- **Build/test command(s) run and status:**
+  - `npm uninstall --save-dev tailwindcss @tailwindcss/typography` — passed; updated `package.json` and `package-lock.json`.
+  - `npm install --package-lock-only` — passed; audited 2 packages with 0 vulnerabilities.
+  - Grep checks found no `output.css`, `css:build`, `tailwindcss`, or `vizburo/ui/input.css` references in active root `templates/**`, `internal/**` active code paths, root `package.json`, or root JS config. Remaining matches are legacy/quarantine candidates under `vizburo/ui/**` and stale `internal/platform/ui/templates/**`.
+  - `go test ./infra/templates ./internal/dashboard ./internal/routes` — passed.
+  - `go build -buildvcs=false -o .air_tmp/main ./cmd/server` — passed.
+- **Deviations from plan, if any:** Retired Tailwind rather than rewiring it because active root templates do not link generated output and dashboard styles are now hand-authored in `design-system.css`.
+- **Blast-radius notes / dependent surfaces checked:** Checked root templates, active Go packages, root package files, and legacy references. `vizburo/ui/**` still has its own Tailwind/package files and is handled in the next dedicated legacy verification/cleanup slice.
+- **Live API compliance notes:** Not applicable.
+- **Follow-up notes:**
+  - **Swagger/OpenAPI:** No API contract changes.
+  - **Observability:** No metrics/logging impact.
+  - **Unit Testing:** Update any external/local docs or agent guidance that still instructs `npm run css:build` for active Vizburo; current repository README now documents `design-system.css` as authoritative.

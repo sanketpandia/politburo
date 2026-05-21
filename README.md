@@ -28,6 +28,9 @@ This project serves as the backend for a Discord bot, managing communication bet
 - **Environment Configuration:**  
   Easily switch between local (`.env.local`) and production (`.env.production`) settings.
 
+- **Vizburo UI Styling:**
+  Active Vizburo templates use hand-authored design-system CSS from `static/css/design-system.css`. Tailwind is not part of the active root Vizburo build path; edit the design-system stylesheet directly and rely on the versioned `/static/css/design-system.css?v=...` URL for cache refreshes.
+
 ## Getting Started
 
 ### Local Development
@@ -70,4 +73,3 @@ To build a production-ready image:
     docker run -p 8080:8080 politburo:latest
 
     Alternatively, push this image to a container registry and deploy it on your target VM or cloud platform.
-
