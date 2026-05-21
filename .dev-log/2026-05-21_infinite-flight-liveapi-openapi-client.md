@@ -50,3 +50,22 @@
   - **Swagger/OpenAPI:** Keep `liveapi.yaml` reviewed against upstream raw docs before regeneration; do not blend upstream external API specs with Politburo public API specs.
   - **Observability:** Future LiveAPI wrapper metrics/log additions should update both the implementation log and developer docs with endpoint group/status/error label guidance.
   - **Unit Testing:** Add LiveAPI wrapper contract tests before making broader migrations into `infra/providers` or `internal/common`.
+
+## Logical unit 3: LiveAPI generated-wrapper unit tests
+
+- **Logical unit / commit intent:** Add focused `infra/liveapi` unit tests for the handwritten wrapper around the generated upstream LiveAPI client, without calling the real Infinite Flight API or editing generated code.
+- **Changed files:**
+  - `infra/liveapi/client_test.go`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+- **Reused code / patterns / components:** Used `httptest.Server` for generated-client request/response paths, a custom `RoundTripper` for pre-request UUID validation, existing compatibility DTOs, existing wrapper methods, and existing private `parseAPITime` / `APITime` parsing behavior.
+- **Logging added or affected:** No production logging added. Tests initialize the existing package logger because `GetFlights` logs through the global logger.
+- **Metrics added or affected:** None.
+- **Test surface touched or still needed:** Added coverage for bearer auth with no query-string API key, base URL path handling, generated-wrapper mappings for sessions/session flights/flight plan/aircraft liveries/user stats/user flights/user grade, explicit `429` rate-limit errors, nonzero upstream `errorCode`, nullable generated fields mapping into compatibility DTOs, UUID validation before HTTP requests, and LiveAPI date parsing for `YYYY-MM-DD HH:mm:ssZ`, RFC3339, and RFC3339Nano. No real upstream API verification was run by request.
+- **Build/test command(s) run and status:**
+  - `gofmt -w infra/liveapi/client_test.go && go test ./infra/liveapi` — passed
+  - `go test ./internal/sessions ./internal/flights ./internal/platform/aircraft ./internal/pilots` — passed
+  - `go test ./...` — passed
+- **Deviations from plan, if any:** None for the testing slice. Existing uncommitted production-file modifications were present in the worktree and were left untouched.
+- **Blast-radius notes / dependent surfaces checked:** Checked `infra/liveapi` directly, then the current LiveAPI-dependent session, flight, aircraft, and pilot packages, then the full Go test suite.
+- **Live API compliance notes:** All tests use local fakes only. Bearer auth remains the only auth asserted by the generated-wrapper path.
+- **Follow-up notes:** Broader migrations into `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService`, observability metrics/logging, and real upstream verification remain out of scope for this unit.
