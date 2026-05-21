@@ -1,6 +1,6 @@
 # Infinite Flight LiveAPI OpenAPI Client
 
-Status: implemented baseline as of 2026-05-21.
+Status: implemented baseline as of 2026-05-21; remaining items below are decision-gated follow-ups.
 
 This document explains the external Infinite Flight Live API client structure added to Politburo. It describes the generated-client boundary, generation commands, and follow-up rules for future migrations.
 
@@ -40,7 +40,7 @@ The handwritten wrapper owns:
 - context propagation when method signatures are expanded
 - status and `errorCode` normalization
 - conversion from generated models into existing compatibility DTOs
-- sanitized logging and future low-cardinality metrics
+- sanitized logging and low-cardinality metrics through `infra/metrics.MetricsRegistry`
 
 Generated models are allowed to mirror upstream docs closely. Internal callers should not be forced to absorb generated type churn directly.
 
@@ -96,9 +96,13 @@ make generate-liveapi-client
 
 For runtime confidence, start the server or dev stack long enough to confirm scheduled jobs and workers register/start. A `401` from LiveAPI during local startup usually indicates a missing or invalid local `IF_API_KEY`; it is not by itself a worker-start failure.
 
-## Follow-up work
+## Completed follow-up work
 
-- Add `infra/liveapi` `httptest` coverage for bearer auth, status handling, `429`, nonzero `errorCode`, nullable fields, UUID validation, and custom date strings.
-- Decide whether to add session/airport-aware ATC, ATIS, and world-status wrapper methods.
-- Add wrapper-level metrics/log review through `infra/metrics.MetricsRegistry` if observability work is assigned.
-- Migrate `infra/providers.LiveAPIProvider` and `internal/common.LiveAPIService` only after behavior-parity tests exist.
+- Added focused `infra/liveapi` `httptest` coverage for bearer auth, status handling, `429`, nonzero `errorCode`, nullable fields, UUID validation, and custom date strings.
+- Added wrapper-level sanitized logs and low-cardinality request count/duration metrics through the existing `infra/metrics.MetricsRegistry`.
+
+## Remaining decision-gated follow-up work
+
+- **ATC, ATIS, and world status:** no active callers were found outside `infra/liveapi.Client` and legacy `internal/common.LiveAPIService` method definitions. The generated upstream paths are session/airport-scoped, while the legacy wrapper methods are no-argument compatibility methods using `/atc`, `/atis`, and `/world/status`. Keep those methods unchanged until a follow-up plan defines the desired public wrapper signatures and response compatibility.
+- **7-day Redis TTLs for LiveAPI-derived flight data:** `internal/flights/cache_job.go`, `internal/flights/flight_plan_worker.go`, and `infra/cache/keys.go` still cache `CompleteFlight` and flight-plan-derived data for 7 days. The implementation plan authorized review, not a behavior change. A product/compliance decision is still needed on whether 7 days qualifies as temporary operational caching under Infinite Flight terms or whether these TTLs should be shortened.
+- **Client consolidation:** do not migrate `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService` yet. `LiveAPIProvider` currently preserves context-aware calls, provider-specific `ProviderError` codes/details, empty-input/page validation, and tests with legacy DTO fixtures. `internal/common.LiveAPIService` is still wired through PIREP, Vizburo, and legacy services and includes broader method surface. Migrating either requires explicit parity tests and context/error-semantics decisions.

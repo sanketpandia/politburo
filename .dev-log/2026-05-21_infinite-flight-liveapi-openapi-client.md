@@ -91,3 +91,22 @@
   - **Developer:** Decide in a separate approved slice whether 7-day complete-flight and flight-plan TTLs are still acceptable under Infinite Flight's temporary-cache terms, and adjust product/cache behavior if needed.
   - **Swagger/OpenAPI:** No spec changes needed for observability; continue avoiding generated-file hand edits.
   - **Unit Testing:** Add httptest coverage for the new wrapper metrics/log classification paths, especially `429`, `401/403`, nonzero `errorCode`, empty response, decode errors, and network failures.
+
+## Logical unit 5: Remaining LiveAPI follow-up triage and documentation refresh
+
+- **Logical unit / commit intent:** Evaluate the remaining approved-plan follow-ups for ATC/ATIS/world-status mismatch, 7-day cache TTL compliance, and duplicate-client consolidation; update developer documentation with completed vs remaining work and record blockers instead of inventing product/API behavior.
+- **Changed files:**
+  - `docs/dev/liveapi-openapi-client.md`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+- **Reused code / patterns / components:** Reused existing grep-based caller inspection, existing developer-docs surface, and established dev-log structure. No generated files were edited, and the generated package remains hidden behind `infra/liveapi.Client`.
+- **Logging added or affected:** None; documentation-only logical unit. Existing wrapper logs from logical unit 4 remain the active logging surface.
+- **Metrics added or affected:** None; documentation-only logical unit. Existing `politburo_liveapi_requests_total` and `politburo_liveapi_request_duration_seconds` remain the active wrapper metrics.
+- **Test surface touched or still needed:** No runtime test surface changed. Follow-up testing is still needed before any migration of `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService`, specifically parity coverage for context cancellation, provider error codes/details, non-UUID legacy DTO fixtures, generated-wrapper UUID validation, and registration/PIREP/Vizburo consumers.
+- **Build/test command(s) run and status:** Runtime tests not run because this unit changed docs/dev-log only. Diff inspection was performed before commit.
+- **Deviations from plan, if any:** None. The plan authorized review of these follow-ups but did not clearly authorize ATC/ATIS/world-status API behavior changes, 7-day TTL semantic changes, or broad legacy-client refactors.
+- **Blast-radius notes / dependent surfaces checked:** Checked `infra/liveapi/client.go`, generated method presence in `infra/liveapi/generated/client.gen.go` without editing it, `api/openapi/liveapi.yaml` path shape, `internal/common/live_api_service.go`, `infra/providers/live_api_provider.go`, `infra/providers/live_api_provider_test.go`, `internal/models/dtos/responses.go`, `internal/flights/cache_job.go`, `internal/flights/flight_plan_worker.go`, `infra/cache/keys.go`, `internal/app/app.go`, `internal/pilots/registration_service.go`, `internal/pilots/stats_service.go`, and `internal/common/flight_data.go`.
+- **Live API compliance notes:** No real Infinite Flight API calls were made. The 7-day `CompleteFlight` and flight-plan TTLs remain unchanged because the approved plan called for review and an explicit decision is still needed on whether 7 days qualifies as temporary operational caching. No new public Politburo API, Vizburo, bot, infra, or database behavior was introduced.
+- **Follow-up notes:**
+  - **Swagger/OpenAPI:** If ATC/ATIS/world-status compatibility is revisited, define explicit session/airport-aware wrapper signatures and response conversion expectations before changing `infra/liveapi.Client`; do not retrofit behavior into no-arg methods without a product decision.
+  - **Observability:** No new observability work remains from this triage. If duplicate-client migration is later approved, ensure calls delegated through `infra/liveapi.Client` keep low-cardinality wrapper metrics and do not duplicate provider-level metrics.
+  - **Unit Testing:** Add behavior-parity tests before consolidating `infra/providers.LiveAPIProvider` or `internal/common.LiveAPIService`; include context/error semantics and active registration/PIREP/Vizburo consumer expectations.
