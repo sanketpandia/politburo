@@ -30,3 +30,23 @@
   - **Swagger/OpenAPI:** Review whether ATC/ATIS/world-status legacy wrapper compatibility should get new explicit session/airport-aware methods in a separate approved slice. Keep `registration.yaml` and `internal/api/generated/registration/server.gen.go` untouched for this external upstream client work.
   - **Observability:** Add wrapper-level low-cardinality metrics/log review for upstream endpoint group, status class, error code, duration, and repeated `429`/auth failures through `infra/metrics.MetricsRegistry` if assigned. Do not log API keys or full payloads.
   - **Unit Testing:** Add httptest contract tests for generated-wrapper mappings and decode samples for sessions, flights, flight plan, aircraft liveries, user stats/history/grade, plus explicit `429`, nonzero `errorCode`, nullable field, UUID validation, and custom time parsing tests.
+
+## Logical unit 2: Developer documentation and standards alignment
+
+- **Logical unit / commit intent:** Document the new upstream LiveAPI spec/client structure, refresh the living technical standards with the standards implied by the LiveAPI implementation and May 20 dev logs, and record the follow-up documentation pass.
+- **Changed files:**
+  - `docs/dev/liveapi-openapi-client.md`
+  - `.dev-log/2026-05-21_infinite-flight-liveapi-openapi-client.md`
+  - Workspace-level `TECHNICAL_STANDARDS.md` outside the Politburo repository
+- **Reused code / patterns / components:** Reused the existing `docs/dev/` developer-docs surface, the established dev-log structure, and standards already represented in `AGENTS.md`, `politburo/CLAUDE.md`, and the May 20 logs.
+- **Logging added or affected:** None; documentation only.
+- **Metrics added or affected:** None; documentation only.
+- **Test surface touched or still needed:** No runtime test surface changed. Documentation was reviewed for alignment with generated-client ownership, bot header standards, Vizburo setup/readiness standards, and template caching guidance.
+- **Build/test command(s) run and status:** Not run for this docs-only logical unit.
+- **Deviations from plan, if any:** None. This is the documentation follow-up requested after implementation.
+- **Blast-radius notes / dependent surfaces checked:** Reviewed May 20 dev logs for initserver minimal web setup, Vizburo UI architecture, and Discord onboarding/help/status. The previously untracked `2026-05-20_discord-bot-required-headers-middleware.md` log was not present on this isolated branch after stashing/restoring only LiveAPI work, so standards were derived from the committed/available May 20 logs and current `TECHNICAL_STANDARDS.md` content.
+- **Live API compliance notes:** Documented bearer-only auth, temporary-cache/no-real-world-flight/no-AI-training constraints, generated-client boundary, and the ATC/ATIS/world-status mismatch as a follow-up decision.
+- **Follow-up notes:**
+  - **Swagger/OpenAPI:** Keep `liveapi.yaml` reviewed against upstream raw docs before regeneration; do not blend upstream external API specs with Politburo public API specs.
+  - **Observability:** Future LiveAPI wrapper metrics/log additions should update both the implementation log and developer docs with endpoint group/status/error label guidance.
+  - **Unit Testing:** Add LiveAPI wrapper contract tests before making broader migrations into `infra/providers` or `internal/common`.
