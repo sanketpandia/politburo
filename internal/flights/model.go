@@ -46,15 +46,40 @@ type FlightState struct {
 	LastPhase    FlightPhase `json:"last_phase,omitempty"`
 }
 
+type FlightTrendPoint struct {
+	Timestamp time.Time `json:"ts"`
+	Altitude  int       `json:"alt"`
+	Speed     int       `json:"spd"`
+}
+
+type FlightTrendQueue struct {
+	Items []FlightTrendPoint `json:"i,omitempty"`
+}
+
+type FlightTrend struct {
+	AltitudeRateFpm float64
+	SpeedRateKpm    float64
+
+	AltitudeRising  bool
+	AltitudeFalling bool
+	AltitudeStable  bool
+
+	SpeedIncreasing bool
+	SpeedDecreasing bool
+	SpeedStable     bool
+}
+
+const maxFlightTrendPoints = 6
+
 // WaypointSnapshot represents a point-in-time flight position for logbook
 // All values are normalized: coordinates to 4 decimals, altitude in feet (int), speed in m/s (int), track to 1 decimal
 type WaypointSnapshot struct {
-	Timestamp time.Time `json:"timestamp"`
-	Latitude  float64   `json:"latitude"`  // Normalized to 4 decimal places
-	Longitude float64   `json:"longitude"` // Normalized to 4 decimal places
-	Altitude  int       `json:"altitude"`  // Normalized: feet rounded to int (can be negative)
-	Speed     int       `json:"speed"`     // Normalized: knots rounded to int
-	Track     float64   `json:"track"`     // Normalized to 1 decimal place
+	Timestamp time.Time `json:"ts"`
+	Latitude  float64   `json:"lat"` // Normalized to 4 decimal places
+	Longitude float64   `json:"lon"` // Normalized to 4 decimal places
+	Altitude  int       `json:"alt"` // Normalized: feet rounded to int (can be negative)
+	Speed     int       `json:"spd"` // Normalized: knots rounded to int
+	Track     float64   `json:"trk"` // Normalized to 1 decimal place
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for WaypointSnapshot
@@ -63,17 +88,31 @@ type WaypointSnapshot struct {
 func (ws *WaypointSnapshot) UnmarshalJSON(data []byte) error {
 	// Use a temporary struct with flexible types for altitude and speed
 	type Alias struct {
+		Timestamp time.Time       `json:"ts"`
+		Latitude  float64         `json:"lat"`
+		Longitude float64         `json:"lon"`
+		Altitude  json.RawMessage `json:"alt"`
+		Speed     json.RawMessage `json:"spd"`
+		Track     float64         `json:"trk"`
+	}
+	type LegacyAlias struct {
 		Timestamp time.Time       `json:"timestamp"`
 		Latitude  float64         `json:"latitude"`
 		Longitude float64         `json:"longitude"`
-		Altitude  json.RawMessage `json:"altitude"` // Use RawMessage to handle both int and float
-		Speed     json.RawMessage `json:"speed"`    // Use RawMessage to handle both int and float
+		Altitude  json.RawMessage `json:"altitude"`
+		Speed     json.RawMessage `json:"speed"`
 		Track     float64         `json:"track"`
 	}
 
 	var alias Alias
 	if err := json.Unmarshal(data, &alias); err != nil {
 		return err
+	}
+	if alias.Timestamp.IsZero() {
+		var legacy LegacyAlias
+		if err := json.Unmarshal(data, &legacy); err == nil {
+			alias = Alias{Timestamp: legacy.Timestamp, Latitude: legacy.Latitude, Longitude: legacy.Longitude, Altitude: legacy.Altitude, Speed: legacy.Speed, Track: legacy.Track}
+		}
 	}
 
 	// Copy all fields
@@ -123,50 +162,51 @@ func (ws *WaypointSnapshot) UnmarshalJSON(data []byte) error {
 // Stored at: game:live:flight:<flight_id> with 7-day TTL
 type CompleteFlight struct {
 	// Core flight data
-	FlightID string `json:"flight_id"`
-	Callsign string `json:"callsign"`
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
+	FlightID string `json:"fid"`
+	Callsign string `json:"cs"`
+	UserID   string `json:"uid"`
+	Username string `json:"un"`
 
 	// Session context (IMPORTANT: store session for multi-session support)
-	SessionID   string `json:"session_id"`
-	SessionName string `json:"session_name"`
+	SessionID   string `json:"sid"`
+	SessionName string `json:"sn"`
 
 	// Current position data (all normalized)
-	Latitude      float64 `json:"latitude"`       // Normalized to 4 decimal places
-	Longitude     float64 `json:"longitude"`      // Normalized to 4 decimal places
-	Altitude      int     `json:"altitude"`       // Normalized: feet rounded to int (can be negative)
-	Speed         int     `json:"speed"`          // Normalized: knots rounded to int
-	Track         float64 `json:"track"`          // Normalized to 1 decimal place
-	VerticalSpeed float64 `json:"vertical_speed"` // Normalized: ft/min rounded to 1 decimal place
+	Latitude      float64 `json:"lat"` // Normalized to 4 decimal places
+	Longitude     float64 `json:"lon"` // Normalized to 4 decimal places
+	Altitude      int     `json:"alt"` // Normalized: feet rounded to int (can be negative)
+	Speed         int     `json:"spd"` // Normalized: knots rounded to int
+	Track         float64 `json:"trk"` // Normalized to 1 decimal place
+	VerticalSpeed float64 `json:"vs"`  // Normalized: ft/min rounded to 1 decimal place
 
 	// Aircraft identifiers
-	AircraftID   string `json:"aircraft_id"`
-	LiveryID     string `json:"livery_id"`
-	AircraftName string `json:"aircraft_name,omitempty"` // Cached from aircraft cache job
-	LiveryName   string `json:"livery_name,omitempty"`   // Cached from aircraft cache job
+	AircraftID   string `json:"aid"`
+	LiveryID     string `json:"lid"`
+	AircraftName string `json:"an,omitempty"` // Cached from aircraft cache job
+	LiveryName   string `json:"ln,omitempty"` // Cached from aircraft cache job
 
 	// Flight phase tracking (embedded state)
-	Phase       FlightPhase `json:"phase"`
-	TakeoffTime *time.Time  `json:"takeoff_time,omitempty"`
-	LandingTime *time.Time  `json:"landing_time,omitempty"`
+	Phase       FlightPhase `json:"ph"`
+	TakeoffTime *time.Time  `json:"to,omitempty"`
+	LandingTime *time.Time  `json:"ld,omitempty"`
 
 	// VA associations (can belong to multiple VAs)
-	VAIDs []string `json:"va_ids,omitempty"`
+	VAIDs []string `json:"vas,omitempty"`
 
 	// Route information (from flight plan)
-	Origin      string `json:"origin,omitempty"`
-	Destination string `json:"destination,omitempty"`
+	Origin      string `json:"org,omitempty"`
+	Destination string `json:"dst,omitempty"`
 
 	// Waypoints history (max 600 entries = ~20 hours)
-	Waypoints           []WaypointSnapshot `json:"waypoints"`
-	LastUpdatedWaypoint time.Time          `json:"last_updated_waypoint"`
+	Waypoints           []WaypointSnapshot `json:"wps"`
+	LastUpdatedWaypoint time.Time          `json:"luw"`
 
 	// Metadata
-	DetectedAt          time.Time `json:"detected_at"`  // When we first detected/created this flight record
-	LastUpdated         time.Time `json:"last_updated"` // When we last updated this record in cache
-	LastReport          time.Time `json:"last_report"`  // When pilot last reported position to game servers
-	LastFlightPlanFetch time.Time `json:"last_flight_plan_fetch,omitempty"`
+	DetectedAt          time.Time        `json:"da"` // When we first detected/created this flight record
+	LastUpdated         time.Time        `json:"lu"` // When we last updated this record in cache
+	LastReport          time.Time        `json:"lr"` // When pilot last reported position to game servers
+	LastFlightPlanFetch time.Time        `json:"lfp,omitempty"`
+	TrendQueue          FlightTrendQueue `json:"tq,omitempty"`
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for CompleteFlight
@@ -203,11 +243,49 @@ func (cf *CompleteFlight) UnmarshalJSON(data []byte) error {
 		LastUpdated         time.Time          `json:"last_updated"`
 		LastReport          time.Time          `json:"last_report"`
 		LastFlightPlanFetch time.Time          `json:"last_flight_plan_fetch,omitempty"`
+		TrendQueue          FlightTrendQueue   `json:"tq,omitempty"`
+	}
+	type ShortAlias struct {
+		FlightID            string             `json:"fid"`
+		Callsign            string             `json:"cs"`
+		UserID              string             `json:"uid"`
+		Username            string             `json:"un"`
+		SessionID           string             `json:"sid"`
+		SessionName         string             `json:"sn"`
+		Latitude            float64            `json:"lat"`
+		Longitude           float64            `json:"lon"`
+		Altitude            json.RawMessage    `json:"alt"`
+		Speed               json.RawMessage    `json:"spd"`
+		Track               float64            `json:"trk"`
+		VerticalSpeed       float64            `json:"vs"`
+		AircraftID          string             `json:"aid"`
+		LiveryID            string             `json:"lid"`
+		AircraftName        string             `json:"an,omitempty"`
+		LiveryName          string             `json:"ln,omitempty"`
+		Phase               FlightPhase        `json:"ph"`
+		TakeoffTime         *time.Time         `json:"to,omitempty"`
+		LandingTime         *time.Time         `json:"ld,omitempty"`
+		VAIDs               []string           `json:"vas,omitempty"`
+		Origin              string             `json:"org,omitempty"`
+		Destination         string             `json:"dst,omitempty"`
+		Waypoints           []WaypointSnapshot `json:"wps"`
+		LastUpdatedWaypoint time.Time          `json:"luw"`
+		DetectedAt          time.Time          `json:"da"`
+		LastUpdated         time.Time          `json:"lu"`
+		LastReport          time.Time          `json:"lr"`
+		LastFlightPlanFetch time.Time          `json:"lfp,omitempty"`
+		TrendQueue          FlightTrendQueue   `json:"tq,omitempty"`
 	}
 
 	var alias Alias
 	if err := json.Unmarshal(data, &alias); err != nil {
 		return err
+	}
+	if alias.FlightID == "" {
+		var short ShortAlias
+		if err := json.Unmarshal(data, &short); err == nil {
+			alias = Alias{FlightID: short.FlightID, Callsign: short.Callsign, UserID: short.UserID, Username: short.Username, SessionID: short.SessionID, SessionName: short.SessionName, Latitude: short.Latitude, Longitude: short.Longitude, Altitude: short.Altitude, Speed: short.Speed, Track: short.Track, VerticalSpeed: short.VerticalSpeed, AircraftID: short.AircraftID, LiveryID: short.LiveryID, AircraftName: short.AircraftName, LiveryName: short.LiveryName, Phase: short.Phase, TakeoffTime: short.TakeoffTime, LandingTime: short.LandingTime, VAIDs: short.VAIDs, Origin: short.Origin, Destination: short.Destination, Waypoints: short.Waypoints, LastUpdatedWaypoint: short.LastUpdatedWaypoint, DetectedAt: short.DetectedAt, LastUpdated: short.LastUpdated, LastReport: short.LastReport, LastFlightPlanFetch: short.LastFlightPlanFetch, TrendQueue: short.TrendQueue}
+		}
 	}
 
 	// Copy all fields
@@ -237,6 +315,7 @@ func (cf *CompleteFlight) UnmarshalJSON(data []byte) error {
 	cf.LastUpdated = alias.LastUpdated
 	cf.LastReport = alias.LastReport
 	cf.LastFlightPlanFetch = alias.LastFlightPlanFetch
+	cf.TrendQueue = alias.TrendQueue
 
 	// Handle altitude: can be int or float (or null)
 	if len(alias.Altitude) > 0 && string(alias.Altitude) != "null" {
@@ -322,6 +401,46 @@ func ShouldFetchFlightPlan(flight *CompleteFlight) (bool, time.Duration) {
 	// Calculate delay for next fetch (spacing out API calls)
 	// Use a small delay to prevent hammering the API
 	return true, 200 * time.Millisecond
+}
+
+func appendTrendPoint(q FlightTrendQueue, timestamp time.Time, altitude int, speed int) FlightTrendQueue {
+	q.Items = append(q.Items, FlightTrendPoint{Timestamp: timestamp.UTC(), Altitude: altitude, Speed: speed})
+	if len(q.Items) > maxFlightTrendPoints {
+		q.Items = q.Items[len(q.Items)-maxFlightTrendPoints:]
+	}
+	return q
+}
+
+func calculateTrendFromQueue(q FlightTrendQueue) FlightTrend {
+	if len(q.Items) < 2 {
+		return FlightTrend{}
+	}
+
+	first := q.Items[0]
+	last := q.Items[len(q.Items)-1]
+	minutes := last.Timestamp.Sub(first.Timestamp).Minutes()
+	if minutes <= 0 {
+		minutes = float64(len(q.Items) - 1)
+	}
+	if minutes <= 0 {
+		return FlightTrend{}
+	}
+
+	altitudeRateFpm := float64(last.Altitude-first.Altitude) / minutes
+	speedRateKpm := float64(last.Speed-first.Speed) / minutes
+
+	return FlightTrend{
+		AltitudeRateFpm: altitudeRateFpm,
+		SpeedRateKpm:    speedRateKpm,
+
+		AltitudeRising:  altitudeRateFpm > 300,
+		AltitudeFalling: altitudeRateFpm < -300,
+		AltitudeStable:  math.Abs(altitudeRateFpm) < 150,
+
+		SpeedIncreasing: speedRateKpm > 10,
+		SpeedDecreasing: speedRateKpm < -10,
+		SpeedStable:     math.Abs(speedRateKpm) < 10,
+	}
 }
 
 // normalizeAltitude rounds altitude from feet to int

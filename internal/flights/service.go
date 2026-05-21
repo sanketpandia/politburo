@@ -12,6 +12,7 @@ import (
 	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
+	"infinite-experiment/politburo/internal/sessions"
 	"math"
 	"regexp"
 	"strings"
@@ -137,15 +138,15 @@ func convertUserStatsResponse(resp *liveapi.UserStatsResponse) *dtos.UserStatsRe
 	result := make([]dtos.UserStats, len(resp.Result))
 	for i, stat := range resp.Result {
 		result[i] = dtos.UserStats{
-			OnlineFlights:         stat.OnlineFlights,
-			Violations:            stat.Violations,
-			XP:                    stat.XP,
-			LandingCount:          stat.LandingCount,
-			FlightTime:            stat.FlightTime,
-			ATCOperations:         stat.ATCOperations,
-			ATCRank:               stat.ATCRank,
-			Grade:                 stat.Grade,
-			Hash:                  stat.Hash,
+			OnlineFlights: stat.OnlineFlights,
+			Violations:    stat.Violations,
+			XP:            stat.XP,
+			LandingCount:  stat.LandingCount,
+			FlightTime:    stat.FlightTime,
+			ATCOperations: stat.ATCOperations,
+			ATCRank:       stat.ATCRank,
+			Grade:         stat.Grade,
+			Hash:          stat.Hash,
 			ViolationCountByLevel: dtos.ViolationCountByLevel{
 				Level1: stat.ViolationCountByLevel.Level1,
 				Level2: stat.ViolationCountByLevel.Level2,
@@ -513,12 +514,12 @@ func convertFlightPlanResponse(resp *liveapi.FlightPlanResponse) dtos.FlightPlan
 	if resp == nil {
 		return dtos.FlightPlanResponse{}
 	}
-	
+
 	items := make([]dtos.FlightPlanItem, len(resp.FlightPlanItems))
 	for i, item := range resp.FlightPlanItems {
 		items[i] = convertFlightPlanItem(item)
 	}
-	
+
 	return dtos.FlightPlanResponse{
 		FlightPlanID:    resp.FlightPlanID,
 		FlightID:        resp.FlightID,
@@ -534,7 +535,7 @@ func convertFlightPlanItem(item liveapi.FlightPlanItem) dtos.FlightPlanItem {
 	for i, child := range item.Children {
 		children[i] = convertFlightPlanItem(child)
 	}
-	
+
 	return dtos.FlightPlanItem{
 		Name:       item.Name,
 		Type:       item.Type,
@@ -568,7 +569,6 @@ func (svc *Service) GetFlightRoute(ifSid string, flightId string) (string, strin
 		if wl > 1 {
 			x := wayp[0]
 			y := wayp[wl-1]
-
 
 			if len(x) == 4 {
 				org = x
@@ -641,12 +641,6 @@ func (svc *Service) GetVALiveFlights(ctx context.Context, vaId string) (*[]dtos.
 // This method tries to read from the cache populated by FlightsCacheJob first,
 // then falls back to the direct API call (GetVALiveFlights) if cache is unavailable
 func (svc *Service) GetVALiveFlightsFromCache(ctx context.Context, vaId string) (*[]dtos.LiveFlight, error) {
-	// Get VA config (prefix/suffix patterns and session ID)
-	sId, ok := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyIFServerID)
-	if !ok || sId == "" {
-		return nil, errors.New("Game server not configured")
-	}
-
 	pfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignPrefix)
 	sfx, _ := svc.Cfg.GetConfigVal(ctx, vaId, platformVA.ConfigKeyCallsignSuffix)
 
@@ -655,16 +649,62 @@ func (svc *Service) GetVALiveFlightsFromCache(ctx context.Context, vaId string) 
 		return nil, errors.New("callsign prefix or suffix not configured for airline")
 	}
 
-	// Try to get flights from cache first
-	cachedFlights, err := svc.getFlightsFromCache(sId, pfx, sfx)
+	cachedFlights, err := svc.getVAFlightsFromCache(vaId)
 	if err == nil && cachedFlights != nil && len(*cachedFlights) > 0 {
-		// Cache hit - enrich and return
-		enriched := svc.enrichFlightData(cachedFlights)
-		return enriched, nil
+		return cachedFlights, nil
 	}
 
 	// Cache miss - fallback to direct API call
 	return svc.GetVALiveFlights(ctx, vaId)
+}
+
+func (svc *Service) getVAFlightsFromCache(vaID string) (*[]dtos.LiveFlight, error) {
+	val, found := svc.Cache.Get(cache.LiveVAFlightsKey(vaID))
+	if !found {
+		return nil, errors.New("cache miss: no VA flight index")
+	}
+	flightIDList, ok := val.(string)
+	if !ok || flightIDList == "" {
+		return nil, errors.New("invalid VA flight index")
+	}
+
+	flights := make([]dtos.LiveFlight, 0)
+	for _, flightID := range strings.Split(flightIDList, "|") {
+		flightID = strings.TrimSpace(flightID)
+		if flightID == "" {
+			continue
+		}
+		flightVal, found := svc.Cache.Get(cache.LiveFlightKey(flightID))
+		if !found {
+			continue
+		}
+		completeFlight, err := convertCachedToCompleteFlight(flightVal)
+		if err != nil {
+			continue
+		}
+		flights = append(flights, completeFlightToLiveFlight(completeFlight))
+	}
+	if len(flights) == 0 {
+		return nil, errors.New("no flights found in cache")
+	}
+	return &flights, nil
+}
+
+func convertCachedToCompleteFlight(cachedData interface{}) (*CompleteFlight, error) {
+	data, err := json.Marshal(cachedData)
+	if err != nil {
+		return nil, err
+	}
+	var flight CompleteFlight
+	if err := json.Unmarshal(data, &flight); err != nil {
+		return nil, err
+	}
+	return &flight, nil
+}
+
+func completeFlightToLiveFlight(flight *CompleteFlight) dtos.LiveFlight {
+	variable, prefix, suffix := SplitCallsign(flight.Callsign)
+	return dtos.LiveFlight{FlightID: flight.FlightID, Callsign: flight.Callsign, CallsignVar: variable, CallsignPrefix: prefix, CallsignSuffix: suffix, SessionID: flight.SessionID, SpeedKts: flight.Speed, AltitudeFt: flight.Altitude, FlightPhase: string(flight.Phase), LastUpdated: flight.LastUpdated.Format(time.RFC3339), Origin: flight.Origin, Destination: flight.Destination}
 }
 
 // getFlightsFromCache reads flights from Redis cache populated by FlightsCacheJob
@@ -776,6 +816,15 @@ func (svc *Service) convertCachedToLiveFlight(cachedData interface{}) (dtos.Live
 }
 
 func (svc *Service) GetLiveServers() (*[]dtos.Session, error) {
+	servers, err := sessions.GetAllServers(svc.Cache)
+	if err == nil && len(servers) > 0 {
+		dtoServers := make([]dtos.Session, 0, len(servers))
+		for _, server := range servers {
+			dtoServers = append(dtoServers, dtos.Session{ID: server.ID, Name: server.Name})
+		}
+		return &dtoServers, nil
+	}
+
 	const cacheKey = string(constants.CacheKeyServers)
 
 	if val, found := svc.Cache.Get(cacheKey); found {

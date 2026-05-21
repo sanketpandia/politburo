@@ -30,6 +30,15 @@
         <input id="callsign_suffix" name="callsign_suffix" type="text" value="{{.CallsignSuffix}}" placeholder="VA">
         <span class="setup-muted">Example: if pilots fly as 123VA, enter VA.</span>
     </div>
+    <div class="setup-field">
+        <label for="enabled_server_ids">Enabled servers</label>
+        <select id="enabled_server_ids" name="enabled_server_ids" multiple size="{{if .Servers}}{{len .Servers}}{{else}}1{{end}}">
+            {{range .Servers}}
+            <option value="{{.ID}}" {{if index $.SelectedServerIDs .ID}}selected{{end}}>{{.Name}}</option>
+            {{end}}
+        </select>
+        <span class="setup-muted">Leave empty to use all available servers. Missing old selections are removed on the next save.</span>
+    </div>
     <div class="setup-action-row">
         <button type="submit" class="setup-button setup-button-primary">
             <span class="setup-button-icon" aria-hidden="true">✓</span>

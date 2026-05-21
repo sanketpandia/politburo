@@ -18,6 +18,7 @@ import (
 
 const (
 	ConfigKeyIFServerID                   = "if_server_id"
+	ConfigKeyEnabledServerIDs             = "enabled_server_ids"
 	ConfigKeyTest                         = "test"
 	ConfigKeyCallsignPrefix               = "callsign_prefix"
 	ConfigKeyCallsignSuffix               = "callsign_suffix"
@@ -50,6 +51,7 @@ const (
 
 var AllowedVAConfigKeys = map[string]struct{}{
 	ConfigKeyIFServerID:                   {},
+	ConfigKeyEnabledServerIDs:             {},
 	ConfigKeyTest:                         {},
 	ConfigKeyCallsignPrefix:               {},
 	ConfigKeyCallsignSuffix:               {},
@@ -124,6 +126,8 @@ func configCacheKey(vaID string) string {
 
 // Expose constants to API callers
 func (s *ConfigService) ListPossibleKeys() []string { return ListAllowedVAConfigKeys() }
+
+func (s *ConfigService) CacheStore() cache.CacheInterface { return s.cacheStore }
 
 // ---------------------------------------------------------------------------
 // Set VA config and return updated map

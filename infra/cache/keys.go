@@ -8,6 +8,7 @@ const (
 	KeySessionPrefix     = "game:session:"      // game:session:<session_id> -> Full session object
 	KeySessionNamePrefix = "game:session:name:" // game:session:name:<session_id> -> Session name string
 	KeySessionList       = "game:sessions"      // game:sessions -> pipe-separated list of session IDs
+	KeyServerList        = "game:servers"       // game:servers -> [{id,name}] for UI selection
 
 	// Aircraft keys - Infinite Flight aircraft data
 	KeyAircraftPrefix = "game:aircraft:" // game:aircraft:<aircraft_id> -> Aircraft object/name
@@ -34,7 +35,8 @@ const (
 	// Flight plan data (full FPL response)
 	// Format: game:flightplan:<flight_id>
 	// TTL: FlightPlanTTL
-	KeyFlightPlanPrefix = "game:flightplan:"
+	KeyFlightPlanPrefix  = "game:flightplan:"
+	KeyFlightRoutePrefix = "game:flightroute:"
 )
 
 // Helper functions to build cache keys
@@ -77,4 +79,9 @@ func LiveVAFlightsKey(vaID string) string {
 // FlightPlanKey returns the cache key for a flight plan
 func FlightPlanKey(flightID string) string {
 	return KeyFlightPlanPrefix + flightID
+}
+
+// FlightRouteKey returns the cache key for a flight route.
+func FlightRouteKey(flightID string) string {
+	return KeyFlightRoutePrefix + flightID
 }

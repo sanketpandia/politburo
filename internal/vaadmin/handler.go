@@ -2,6 +2,7 @@ package vaadmin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/roles"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
+	"infinite-experiment/politburo/internal/sessions"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -110,6 +112,12 @@ func (h *Handler) SetupPageHandler() http.HandlerFunc {
 		data["CurrentPage"] = "vaadmin-setup"
 		data["VA"] = vaEntity
 		data["Readiness"] = readiness
+		servers, err := sessions.GetAllServers(h.vaConfigSvc.CacheStore())
+		if err != nil {
+			logging.Warn("Failed to load live servers for setup page", "error", err, "va_id", activeVA.VAID)
+		}
+		data["Servers"] = servers
+		data["SelectedServerIDs"] = selectedSet(readiness.EnabledServerIDs)
 
 		if err := h.templateRenderer.RenderTemplate(w, "pages/vaadmin-setup.html", data); err != nil {
 			logging.Error("Error rendering VA setup page", "error", err)
@@ -141,8 +149,8 @@ func (h *Handler) SaveBasicSetupHandler() http.HandlerFunc {
 		}
 
 		displayName := strings.TrimSpace(r.FormValue("display_name"))
-		prefix := strings.ToUpper(strings.TrimSpace(r.FormValue("callsign_prefix")))
-		suffix := strings.ToUpper(strings.TrimSpace(r.FormValue("callsign_suffix")))
+		prefix := strings.TrimSpace(r.FormValue("callsign_prefix"))
+		suffix := strings.TrimSpace(r.FormValue("callsign_suffix"))
 		if prefix == "" && suffix == "" {
 			h.renderBasicSetupForm(w, r, activeVA.VAID, "Enter a callsign start or callsign end so Infinite Experiment can recognize your flights.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
 			return
@@ -171,6 +179,16 @@ func (h *Handler) SaveBasicSetupHandler() http.HandlerFunc {
 		if err := h.vaConfigSvc.SetConfigValue(r.Context(), activeVA.VAID, platformVA.ConfigKeyCallsignSuffix, suffix); err != nil {
 			logging.Error("Failed to save callsign suffix", "error", err, "va_id", activeVA.VAID)
 			h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not save the callsign end.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
+			return
+		}
+		enabledServerIDsJSON, err := json.Marshal(compactFormValues(r.Form["enabled_server_ids"]))
+		if err != nil {
+			h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not save enabled servers.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
+			return
+		}
+		if err := h.vaConfigSvc.SetConfigValue(r.Context(), activeVA.VAID, platformVA.ConfigKeyEnabledServerIDs, string(enabledServerIDsJSON)); err != nil {
+			logging.Error("Failed to save enabled server IDs", "error", err, "va_id", activeVA.VAID)
+			h.renderBasicSetupForm(w, r, activeVA.VAID, "Could not save enabled servers.", map[string]string{"display_name": displayName, "callsign_prefix": prefix, "callsign_suffix": suffix})
 			return
 		}
 
@@ -231,7 +249,11 @@ func (h *Handler) renderBasicSetupForm(w http.ResponseWriter, r *http.Request, v
 		http.Error(w, "Failed to load setup form", http.StatusInternalServerError)
 		return
 	}
-	data := map[string]interface{}{"VA": vaEntity, "Readiness": readiness, "FormError": formError, "Saved": formError == "" && values == nil && r.Method == http.MethodPost}
+	servers, err := sessions.GetAllServers(h.vaConfigSvc.CacheStore())
+	if err != nil {
+		logging.Warn("Failed to load live servers for setup form", "error", err, "va_id", vaID)
+	}
+	data := map[string]interface{}{"VA": vaEntity, "Readiness": readiness, "FormError": formError, "Saved": formError == "" && values == nil && r.Method == http.MethodPost, "Servers": servers, "SelectedServerIDs": selectedSet(readiness.EnabledServerIDs)}
 	if values != nil {
 		data["DisplayName"] = values["display_name"]
 		data["CallsignPrefix"] = values["callsign_prefix"]
@@ -245,6 +267,31 @@ func (h *Handler) renderBasicSetupForm(w http.ResponseWriter, r *http.Request, v
 		logging.Error("Error rendering basic setup form", "error", err)
 		http.Error(w, "Error rendering basic setup form", http.StatusInternalServerError)
 	}
+}
+
+func compactFormValues(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func selectedSet(values []string) map[string]bool {
+	set := make(map[string]bool, len(values))
+	for _, value := range values {
+		set[value] = true
+	}
+	return set
 }
 
 func (h *Handler) renderSetupChecklist(w http.ResponseWriter, r *http.Request, vaID string) {
