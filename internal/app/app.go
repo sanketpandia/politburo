@@ -89,11 +89,12 @@ type PlatformDeps struct {
 	AircraftRepo    *aircraft.Repository
 
 	// Services
-	UsersSvc       *users.Service
-	VASvc          *va.Service
-	VAConfigSvc    *va.ConfigService
-	MembershipsSvc *memberships.Service
-	AircraftSvc    *aircraft.Service
+	UsersSvc              *users.Service
+	VASvc                 *va.Service
+	VAConfigSvc           *va.ConfigService
+	VAProviderConfigAccess *va.ProviderConfigAccessor
+	MembershipsSvc        *memberships.Service
+	AircraftSvc           *aircraft.Service
 
 	// Handlers
 	VAHandler *va.Handler
@@ -297,6 +298,7 @@ func (a *App) initPlatform() error {
 
 	// Initialize VA config service (with aircraft dependencies for mapping resolution)
 	vaConfigSvc := va.NewConfigService(vaRepo, a.Infra.RedisCache, aircraftRepo, aircraftSvc)
+	vaProviderConfigAccess := va.NewProviderConfigAccessor(vaRepo, vaConfigSvc, a.Infra.RedisCache)
 
 	// Initialize VA handler (for API endpoints)
 	// Note: legacyVARepo is needed for FlightModesConfigService compatibility
@@ -305,7 +307,7 @@ func (a *App) initPlatform() error {
 
 	logging.Debug("Platform services initialized")
 
-	a.Platform = PlatformDeps{
+		a.Platform = PlatformDeps{
 		ClaimsRepo:      claimsRepo,
 		KeysRepo:        keysRepo,
 		UsersRepo:       usersRepo,
@@ -315,6 +317,7 @@ func (a *App) initPlatform() error {
 		UsersSvc:        usersSvc,
 		VASvc:           vaSvc,
 		VAConfigSvc:     vaConfigSvc,
+		VAProviderConfigAccess: vaProviderConfigAccess,
 		MembershipsSvc:  membershipsSvc,
 		AircraftSvc:     aircraftSvc,
 		VAHandler:       vaHandler,
@@ -462,21 +465,17 @@ func (a *App) initFeatures() error {
 		logging.Debug("PIREP queue worker initialized")
 	}
 
-	// Initialize legacy VA config service (needed by StatsService)
-	// Create legacy cache service for StatsService
+	// Create legacy cache service for current stats caching behavior
 	legacyCacheSvc := cache.NewCacheService(60000, 600)
-	// Create another legacy VARepo instance for StatsService (legacyVARepo is scoped to initPlatform)
-	legacyVARepoForStats := repositories.NewVAGormRepository(a.Infra.DB)
-	legacyVAConfigSvc := common.NewVAConfigService(legacyVARepoForStats, legacyCacheSvc)
 
 	// Initialize StatsService
 	statsSvc := pilots.NewStatsService(
 		a.Infra.DB,
 		legacyCacheSvc,
-		configRepo,
 		a.Platform.UsersRepo,
-		legacyVAConfigSvc,
+		a.Platform.VAProviderConfigAccess,
 		syncRepo,
+		liveAPIProvider,
 	)
 	logging.Debug("Stats service initialized")
 
@@ -510,6 +509,7 @@ func (a *App) initFeatures() error {
 	// Initialize full PIREP handler (GetConfig + Submit endpoints).
 	legacyUserRepo := repositories.NewUserRepositoryGORM(a.Infra.DB)
 	legacyVARepoForPirep := repositories.NewVAGormRepository(a.Infra.DB)
+	legacyVAConfigSvc := common.NewVAConfigService(legacyVARepoForPirep, legacyCacheSvc)
 	legacyLiveAPISvc := common.NewLiveAPIService()
 	pirepValidator := pireps.NewFlightModeValidationService(legacyLiveAPISvc, legacyCacheSvc)
 	dataProviderConfigSvc := services.NewDataProviderConfigService(configRepo, legacyCacheSvc)

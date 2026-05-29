@@ -2,16 +2,11 @@ package pilots
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"infinite-experiment/politburo/infra/cache"
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/providers"
-	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/constants"
-	"infinite-experiment/politburo/internal/db/repositories"
-	"infinite-experiment/politburo/internal/models"
-	"infinite-experiment/politburo/internal/models/dtos"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/sync"
@@ -24,9 +19,8 @@ import (
 type StatsService struct {
 	gormDB           *gorm.DB
 	cache            *cache.CacheService
-	configRepo       *repositories.DataProviderConfigRepo
 	userRepo         *users.Repository
-	vaConfigService  *common.VAConfigService
+	configAccessor   *platformVA.ProviderConfigAccessor
 	syncRepo         *sync.Repository
 	airtableProvider *providers.AirtableProvider
 	liveAPIProvider  *providers.LiveAPIProvider
@@ -35,24 +29,22 @@ type StatsService struct {
 func NewStatsService(
 	gormDB *gorm.DB,
 	cache *cache.CacheService,
-	configRepo *repositories.DataProviderConfigRepo,
 	userRepo *users.Repository,
-	vaConfigService *common.VAConfigService,
+	configAccessor *platformVA.ProviderConfigAccessor,
 	syncRepo *sync.Repository,
+	liveAPIProvider *providers.LiveAPIProvider,
 ) *StatsService {
 	return &StatsService{
 		gormDB:           gormDB,
 		cache:            cache,
-		configRepo:       configRepo,
 		userRepo:         userRepo,
-		vaConfigService:  vaConfigService,
+		configAccessor:   configAccessor,
 		syncRepo:         syncRepo,
 		airtableProvider: providers.NewAirtableProvider(cache),
-		liveAPIProvider:  providers.NewLiveAPIProvider(),
+		liveAPIProvider:  liveAPIProvider,
 	}
 }
 
-// getUserMembership fetches the user's membership in the VA
 func (s *StatsService) getUserMembership(ctx context.Context, userDiscordID, vaID string) (*MembershipWithAirtable, error) {
 	query := `
 		SELECT
@@ -80,36 +72,21 @@ func (s *StatsService) getUserMembership(ctx context.Context, userDiscordID, vaI
 	return &membership, nil
 }
 
-// getActiveAirtableConfig fetches and parses the active Airtable config for a VA
-func (s *StatsService) getActiveAirtableConfig(ctx context.Context, vaID string) (*models.DataProviderConfig, *dtos.ProviderConfigData, error) {
-	// Get config entity from database
-	config, err := s.configRepo.GetActiveConfig(ctx, vaID, "airtable")
+
+func (s *StatsService) getAirtableSchema(ctx context.Context, vaID, schemaType string) (*platformVA.SchemaConfig, error) {
+	schema, err := s.configAccessor.GetAirtableSchema(ctx, vaID, schemaType)
 	if err != nil {
-		return nil, nil, &StatsError{
-			Code:    constants.ErrCodeConfigNotFound,
-			Message: constants.GetErrorMessage(constants.ErrCodeConfigNotFound),
-			Err:     err,
-		}
+		return nil, &StatsError{Code: constants.ErrCodeConfigNotFound, Message: "Failed to get schema config", Err: err}
 	}
+	return schema, nil
+}
 
-	if config == nil {
-		return nil, nil, &StatsError{
-			Code:    constants.ErrCodeVAAirtableNotEnabled,
-			Message: constants.GetErrorMessage(constants.ErrCodeVAAirtableNotEnabled),
-		}
-	}
-
-	// Parse JSONB config_data
-	configData, err := repositories.ParseConfigData(config.ConfigData)
+func (s *StatsService) getAirtableCredentials(ctx context.Context, vaID string) (*platformVA.ProviderCredentials, error) {
+	creds, err := s.configAccessor.GetAirtableCredentials(ctx, vaID)
 	if err != nil {
-		return nil, nil, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: constants.GetErrorMessage(constants.ErrCodeConfigMalformed),
-			Err:     err,
-		}
+		return nil, &StatsError{Code: constants.ErrCodeConfigNotFound, Message: "Failed to get credentials config", Err: err}
 	}
-
-	return config, configData, nil
+	return creds, nil
 }
 
 // GetPilotStatusByCallsign fetches pilot data from Airtable by searching for the callsign
@@ -134,7 +111,7 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	}
 
 	// Step 3: Get callsign prefix from VA config
-	callsignPrefix, ok := s.vaConfigService.GetConfigVal(ctx, vaID, common.ConfigKeyAirtableCallsignColumnPrefix)
+	callsignPrefix, ok := s.configAccessor.GetBasicConfigValue(ctx, vaID, platformVA.ConfigKeyAirtableCallsignColumnPrefix)
 	if !ok {
 		callsignPrefix = "" // Default to no prefix if not configured
 	}
@@ -143,40 +120,18 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	fullCallsign := callsignPrefix + membership.Callsign
 	logging.Debug("Searching for pilot by callsign", "full_callsign", fullCallsign, "prefix", callsignPrefix, "base", membership.Callsign)
 
-	// Step 5: Get pilot schema config by type (separate config row)
-	pilotConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pilot")
+	pilotSchemaConfig, err := s.getAirtableSchema(ctx, vaID, platformVA.ConfigTypePilot)
 	if err != nil {
-		return nil, &StatsError{
-			Code:    constants.ErrCodeConfigNotFound,
-			Message: "Failed to get pilot config",
-			Err:     err,
-		}
+		return nil, err
 	}
 
-	if pilotConfig == nil {
+	if pilotSchemaConfig == nil {
 		return nil, &StatsError{
 			Code:    constants.ErrCodeConfigNotFound,
 			Message: "Pilot schema not found in configuration",
 		}
 	}
-
-	// Step 6: Parse pilot schema directly from config_data
-	var pilotSchema dtos.EntitySchema
-	bytes, err := json.Marshal(pilotConfig.ConfigData)
-	if err != nil {
-		return nil, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to marshal pilot config data",
-			Err:     err,
-		}
-	}
-	if err := json.Unmarshal(bytes, &pilotSchema); err != nil {
-		return nil, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to parse pilot schema",
-			Err:     err,
-		}
-	}
+	pilotSchema := pilotSchemaConfig.ToEntitySchema(platformVA.ConfigTypePilot)
 
 	// Step 7: Get the callsign field name from schema
 	var callsignFieldName string
@@ -200,59 +155,20 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	logging.Debug("Airtable filter formula", "formula", filterFormula)
 
 	// Step 9: Get credentials config separately
-	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
-	if err != nil || credentialsConfig == nil {
-		return nil, &StatsError{
-			Code:    constants.ErrCodeConfigNotFound,
-			Message: "Failed to get credentials config",
-			Err:     err,
-		}
-	}
-
-	// Parse credentials from config_data
-	var credsData struct {
-		APIKey       string            `json:"api_key"`
-		BaseID       string            `json:"base_id"`
-		SyncSettings dtos.SyncSettings `json:"sync_settings"`
-	}
-	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
-	if err != nil {
-		return nil, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to marshal credentials config",
-			Err:     err,
-		}
-	}
-	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
-		return nil, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to parse credentials config",
-			Err:     err,
-		}
-	}
-
-	// Build credentials
-	creds := &platformVA.ProviderCredentials{
-		APIKey: credsData.APIKey,
-		BaseID: credsData.BaseID,
-		SyncSettings: platformVA.SyncSettings{
-			BatchSize:          credsData.SyncSettings.BatchSize,
-			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
-			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
-			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
-		},
+	creds, err := s.getAirtableCredentials(ctx, vaID)
+	if err != nil || creds == nil {
+		return nil, err
 	}
 
 	// Step 10: Fetch from Airtable using filter
 	// Convert dtos.EntitySchema to platformVA.EntitySchema
-	var vaPilotSchema *platformVA.EntitySchema = convertDTOsEntitySchema(&pilotSchema)
 	ctx = context.WithValue(ctx, "provider_credentials", creds)
 	filters := &providers.SyncFilters{
 		FilterFormula: filterFormula,
 		Limit:         1, // We only expect one record
 	}
 
-	recordSet, err := s.airtableProvider.FetchRecords(ctx, vaPilotSchema, filters)
+	recordSet, err := s.airtableProvider.FetchRecords(ctx, pilotSchema, filters)
 	if err != nil {
 		if provErr, ok := err.(*providers.ProviderError); ok {
 			return nil, &StatsError{
@@ -288,10 +204,10 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 		Role:            membership.Role,
 		RawFields:       record.Fields,
 		Metadata: PilotStatusMetadata{
-			SchemaVersion: fmt.Sprintf("%d", pilotConfig.ConfigVersion),
+			SchemaVersion: "typed-config",
 			FetchedAt:     time.Now().Format(time.RFC3339),
 			VAName:        membership.VAName,
-			ConfigActive:  pilotConfig.IsActive,
+			ConfigActive:  pilotSchemaConfig.Enabled,
 		},
 	}
 
@@ -413,36 +329,15 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 // Returns: (providerData, rawFields, cached, error)
 func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaID string) (*ProviderPilotData, map[string]interface{}, bool, error) {
 	// Get pilot schema config by type (separate config row)
-	pilotConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pilot")
+	pilotSchemaConfig, err := s.getAirtableSchema(ctx, vaID, platformVA.ConfigTypePilot)
 	if err != nil {
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigNotFound,
-			Message: "Failed to get pilot config",
-			Err:     err,
-		}
+		return nil, nil, false, err
 	}
 
-	if pilotConfig == nil {
+	if pilotSchemaConfig == nil {
 		return nil, nil, false, nil // No pilot config - optional data
 	}
-
-	// Parse pilot schema directly from config_data (it's stored as EntitySchema, not wrapped)
-	var pilotSchema dtos.EntitySchema
-	bytes, err := json.Marshal(pilotConfig.ConfigData)
-	if err != nil {
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to marshal pilot config data",
-			Err:     err,
-		}
-	}
-	if err := json.Unmarshal(bytes, &pilotSchema); err != nil {
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to parse pilot schema",
-			Err:     err,
-		}
-	}
+	pilotSchema := pilotSchemaConfig.ToEntitySchema(platformVA.ConfigTypePilot)
 
 	// Check if enabled
 	if !pilotSchema.Enabled {
@@ -474,53 +369,13 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	logging.Debug("Fetching provider data from Airtable", "at_pilot_id", airtablePilotID, "va_id", vaID)
 	
 	// Get credentials config separately
-	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
-	if err != nil || credentialsConfig == nil {
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigNotFound,
-			Message: "Failed to get credentials config",
-			Err:     err,
-		}
+	creds, err := s.getAirtableCredentials(ctx, vaID)
+	if err != nil || creds == nil {
+		return nil, nil, false, err
 	}
 
-	// Parse credentials from config_data
-	var credsData struct {
-		APIKey       string            `json:"api_key"`
-		BaseID       string            `json:"base_id"`
-		SyncSettings dtos.SyncSettings `json:"sync_settings"`
-	}
-	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
-	if err != nil {
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to marshal credentials config",
-			Err:     err,
-		}
-	}
-	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
-		return nil, nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to parse credentials config",
-			Err:     err,
-		}
-	}
-
-	// Build credentials
-	creds := &platformVA.ProviderCredentials{
-		APIKey: credsData.APIKey,
-		BaseID: credsData.BaseID,
-		SyncSettings: platformVA.SyncSettings{
-			BatchSize:          credsData.SyncSettings.BatchSize,
-			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
-			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
-			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
-		},
-	}
-
-	// Convert dtos.EntitySchema to platformVA.EntitySchema
-	vaPilotSchema := convertDTOsEntitySchema(&pilotSchema)
 	ctx = context.WithValue(ctx, "provider_credentials", creds)
-	pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, airtablePilotID, vaPilotSchema)
+	pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, airtablePilotID, pilotSchema)
 	if err != nil {
 		// Check if it's a provider error
 		if provErr, ok := err.(*providers.ProviderError); ok {
@@ -542,7 +397,7 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	}
 
 	// Transform to standardized response
-	providerData := s.transformToStandardizedFields(pilotRecord.RawFields, &pilotSchema)
+	providerData := s.transformToStandardizedFields(pilotRecord.RawFields, pilotSchema)
 
 	// Cache the result (10 minutes)
 	s.cache.Set(cacheKey, providerData, 10*time.Minute)
@@ -569,7 +424,7 @@ func formatTimeSeconds(seconds interface{}) string {
 }
 
 // isTimeField checks if a field should be treated as a time field (in seconds)
-func isTimeField(field dtos.FieldMapping) bool {
+func isTimeField(field platformVA.FieldMapping) bool {
 	return field.DataType == "time" || (field.DisplayFormat != nil && *field.DisplayFormat == "duration")
 }
 
@@ -577,7 +432,7 @@ func isTimeField(field dtos.FieldMapping) bool {
 // It uses the DisplayName field in the schema to map to standard field names
 func (s *StatsService) transformToStandardizedFields(
 	rawFields map[string]interface{},
-	schema *dtos.EntitySchema,
+	schema *platformVA.EntitySchema,
 ) *ProviderPilotData {
 	data := &ProviderPilotData{
 		AdditionalFields: make(map[string]interface{}),
@@ -689,37 +544,16 @@ func (s *StatsService) transformToStandardizedFields(
 // fetchCareerModeData fetches career mode data using stored ID (no fallback to callsign)
 func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, vaID string) (*CareerModeData, bool, error) {
 	// Get career mode schema config by type (separate config row)
-	careerModeConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "career_mode")
+	careerModeSchemaConfig, err := s.getAirtableSchema(ctx, vaID, platformVA.ConfigTypeCareerMode)
 	if err != nil {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigNotFound,
-			Message: "Failed to get career mode config",
-			Err:     err,
-		}
+		return nil, false, err
 	}
 
-	if careerModeConfig == nil {
+	if careerModeSchemaConfig == nil {
 		// Career mode not configured - this is not an error
 		return nil, false, nil
 	}
-
-	// Parse career mode schema directly from config_data (it's stored as EntitySchema, not wrapped)
-	var careerModeSchema dtos.EntitySchema
-	bytes, err := json.Marshal(careerModeConfig.ConfigData)
-	if err != nil {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to marshal career mode config data",
-			Err:     err,
-		}
-	}
-	if err := json.Unmarshal(bytes, &careerModeSchema); err != nil {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to parse career mode schema",
-			Err:     err,
-		}
-	}
+	careerModeSchema := careerModeSchemaConfig.ToEntitySchema(platformVA.ConfigTypeCareerMode)
 
 	// Check if enabled
 	if !careerModeSchema.Enabled {
@@ -733,51 +567,11 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 	}
 
 	// Get credentials config separately
-	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
-	if err != nil || credentialsConfig == nil {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigNotFound,
-			Message: "Failed to get credentials config",
-			Err:     err,
-		}
+	creds, err := s.getAirtableCredentials(ctx, vaID)
+	if err != nil || creds == nil {
+		return nil, false, err
 	}
 
-	// Parse credentials from config_data
-	var credsData struct {
-		APIKey       string            `json:"api_key"`
-		BaseID       string            `json:"base_id"`
-		SyncSettings dtos.SyncSettings `json:"sync_settings"`
-	}
-	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
-	if err != nil {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to marshal credentials config",
-			Err:     err,
-		}
-	}
-	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
-		return nil, false, &StatsError{
-			Code:    constants.ErrCodeConfigMalformed,
-			Message: "Failed to parse credentials config",
-			Err:     err,
-		}
-	}
-
-	// Build credentials
-	creds := &platformVA.ProviderCredentials{
-		APIKey: credsData.APIKey,
-		BaseID: credsData.BaseID,
-		SyncSettings: platformVA.SyncSettings{
-			BatchSize:          credsData.SyncSettings.BatchSize,
-			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
-			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
-			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
-		},
-	}
-
-	// Convert dtos.EntitySchema to platformVA.EntitySchema
-	vaCareerModeSchema := convertDTOsEntitySchema(&careerModeSchema)
 	ctx = context.WithValue(ctx, "provider_credentials", creds)
 
 	var recordFields map[string]interface{}
@@ -786,7 +580,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 	// Check if we have a stored career mode pilot ID
 	if membership.CareerModePilotID != nil && *membership.CareerModePilotID != "" {
 		logging.Debug("Fetching career mode data by stored pilot ID", "at_pilot_id", *membership.CareerModePilotID, "va_id", vaID)
-		pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, *membership.CareerModePilotID, vaCareerModeSchema)
+		pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, *membership.CareerModePilotID, careerModeSchema)
 		if err != nil {
 			if provErr, ok := err.(*providers.ProviderError); ok {
 				// Only fail for authentication errors - fallback to callsign matching for everything else
@@ -817,7 +611,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 		logging.Debug("Career mode: using callsign matching", "va_id", vaID)
 
 		// Get callsign prefix from VA config
-		callsignPrefix, ok := s.vaConfigService.GetConfigVal(ctx, vaID, common.ConfigKeyAirtableCallsignColumnPrefix)
+		callsignPrefix, ok := s.configAccessor.GetBasicConfigValue(ctx, vaID, platformVA.ConfigKeyAirtableCallsignColumnPrefix)
 		if !ok {
 			callsignPrefix = ""
 		}
@@ -850,7 +644,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 			Limit:         1,
 		}
 
-		recordSet, err := s.airtableProvider.FetchRecords(ctx, vaCareerModeSchema, filters)
+		recordSet, err := s.airtableProvider.FetchRecords(ctx, careerModeSchema, filters)
 		if err != nil {
 			if provErr, ok := err.(*providers.ProviderError); ok {
 				return nil, false, &StatsError{
@@ -882,7 +676,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 	logging.Debug("Career mode record fetched from Airtable", "record_id", recordID, "va_id", vaID)
 
 	// Transform to standardized response
-	careerModeData := s.transformCareerModeFields(recordFields, &careerModeSchema)
+	careerModeData := s.transformCareerModeFields(recordFields, careerModeSchema)
 
 	// Resolve last_flown_route if it contains a PIREP ID
 	// If LastCareerModePIREP is set but LastCareerModeFlight is not, it means we need to fetch the route
@@ -905,7 +699,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 				}
 
 				if callsign != "" {
-					route = s.fetchLastCareerModeRouteByCallsign(ctx, vaID, callsign, &careerModeSchema)
+					route = s.fetchLastCareerModeRouteByCallsign(ctx, vaID, callsign, careerModeSchema)
 					if route != "" {
 						careerModeData.LastCareerModeFlight = &route
 					}
@@ -920,7 +714,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 // transformCareerModeFields maps raw provider data to career mode response
 func (s *StatsService) transformCareerModeFields(
 	rawFields map[string]interface{},
-	schema *dtos.EntitySchema,
+	schema *platformVA.EntitySchema,
 ) *CareerModeData {
 	data := &CareerModeData{
 		AdditionalFields: make(map[string]interface{}),
@@ -1086,7 +880,7 @@ func getKeys(m map[string]interface{}) []string {
 }
 
 // fetchLastCareerModeRouteByCallsign fetches the most recent career mode route by callsign and flight_mode
-func (s *StatsService) fetchLastCareerModeRouteByCallsign(ctx context.Context, vaID string, callsign string, careerModeSchema *dtos.EntitySchema) string {
+func (s *StatsService) fetchLastCareerModeRouteByCallsign(ctx context.Context, vaID string, callsign string, careerModeSchema *platformVA.EntitySchema) string {
 	logging.Debug("Fetching last career mode route by callsign", "callsign", callsign, "va_id", vaID)
 
 	// Get flight mode from schema config (if configured)
@@ -1189,59 +983,21 @@ func (s *StatsService) fetchRouteFromAirtablePIREP(ctx context.Context, vaID str
 	logging.Debug("Fetching PIREP route directly from Airtable", "at_id", pirepATID, "va_id", vaID)
 
 	// Get PIREP schema config
-	pirepConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "pirep")
-	if err != nil || pirepConfig == nil {
+	pirepSchemaConfig, err := s.getAirtableSchema(ctx, vaID, platformVA.ConfigTypePirep)
+	if err != nil || pirepSchemaConfig == nil {
+		return ""
+	}
+	pirepSchema := pirepSchemaConfig.ToEntitySchema(platformVA.ConfigTypePirep)
+	creds, err := s.getAirtableCredentials(ctx, vaID)
+	if err != nil || creds == nil {
 		return ""
 	}
 
-	// Parse PIREP schema
-	var pirepSchema dtos.EntitySchema
-	bytes, err := json.Marshal(pirepConfig.ConfigData)
-	if err != nil {
-		return ""
-	}
-	if err := json.Unmarshal(bytes, &pirepSchema); err != nil {
-		return ""
-	}
-
-	// Get credentials config
-	credentialsConfig, err := s.configRepo.GetActiveConfigByType(ctx, vaID, "airtable", "credentials")
-	if err != nil || credentialsConfig == nil {
-		return ""
-	}
-
-	// Parse credentials
-	var credsData struct {
-		APIKey       string            `json:"api_key"`
-		BaseID       string            `json:"base_id"`
-		SyncSettings dtos.SyncSettings `json:"sync_settings"`
-	}
-	credsBytes, err := json.Marshal(credentialsConfig.ConfigData)
-	if err != nil {
-		return ""
-	}
-	if err := json.Unmarshal(credsBytes, &credsData); err != nil {
-		return ""
-	}
-
-	// Build credentials
-	creds := &platformVA.ProviderCredentials{
-		APIKey: credsData.APIKey,
-		BaseID: credsData.BaseID,
-		SyncSettings: platformVA.SyncSettings{
-			BatchSize:          credsData.SyncSettings.BatchSize,
-			RateLimitPerSecond: credsData.SyncSettings.RateLimitPerSecond,
-			RetryAttempts:      credsData.SyncSettings.RetryAttempts,
-			TimeoutSeconds:     credsData.SyncSettings.TimeoutSeconds,
-		},
-	}
-
-	// Convert schema and set credentials in context
-	vaPirepSchema := convertDTOsEntitySchema(&pirepSchema)
+	// Set credentials in context
 	ctx = context.WithValue(ctx, "provider_credentials", creds)
 
 	// Fetch PIREP record from Airtable (using FetchPilotRecord which works for any record type)
-	pirepRecord, err := s.airtableProvider.FetchPilotRecord(ctx, pirepATID, vaPirepSchema)
+	pirepRecord, err := s.airtableProvider.FetchPilotRecord(ctx, pirepATID, pirepSchema)
 	if err != nil {
 		logging.Warn("Failed to fetch PIREP from Airtable", "at_id", pirepATID, "va_id", vaID, "err", err)
 		return ""
