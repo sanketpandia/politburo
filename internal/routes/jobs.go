@@ -8,11 +8,9 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/scheduler"
 	"infinite-experiment/politburo/internal/app"
-	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/platform/aircraft"
 	"infinite-experiment/politburo/internal/sessions"
-	vaRoutes "infinite-experiment/politburo/internal/va_routes"
 )
 
 // RegisterScheduledJobs registers all cron jobs with the scheduler
@@ -42,37 +40,7 @@ func RegisterScheduledJobs(application *app.App) error {
 	)
 	registry.Add(flightsJob, "0 * * * * *") // Every minute with second precision
 
-	// Pilot sync job - runs every 10 minutes
-	// Syncs pilots from Airtable to local database via queue
-	if application.Features.PilotSyncJob != nil {
-		registry.Add(application.Features.PilotSyncJob, "0 */1 * * * *")
-	}
-
-	// Route sync job - runs every 10 minutes
-	// Syncs routes from Airtable to local database
-	// Initialize here to avoid import cycle (routes/jobs.go imports app, app would import va_routes)
-	configRepo := repositories.NewDataProviderConfigRepo(application.Infra.DB)
-	syncHistoryRepo := repositories.NewVASyncHistoryRepo(application.Infra.DB)
-	routeRepo := vaRoutes.NewRepository(application.Infra.DB)
-	airportRepo := repositories.NewAirportRepository(application.Infra.DB)
-	routeSyncJob := vaRoutes.NewSyncJob(
-		application.Infra.DB,
-		application.Infra.RedisCache,
-		configRepo,
-		syncHistoryRepo,
-		routeRepo,
-		airportRepo,
-		application.Infra.MetricsReg,
-	)
-	registry.Add(routeSyncJob, "0 */10 * * * *")
-	logging.Info("Route sync job registered (every 10 minutes)")
-
-	// PIREP sync job - runs every 5 minutes
-	// Syncs PIREPs from Airtable to local database (incremental sync only)
-	if application.Features.PirepSyncJob != nil {
-		registry.Add(application.Features.PirepSyncJob, "0 */5 * * * *") // Every 5 minutes
-		logging.Info("PIREP sync job registered (every 5 minutes)")
-	}
+	logging.Info("Airtable sync scheduled jobs disabled by feature-config pilot-stats plan", "disabled_jobs", []string{"pilot_sync_job", "route_sync_job", "pirep_sync_job"})
 
 	// Live flights webhook job - runs at :00 and :30 past every hour (every 30th minute)
 	// POSTs Discord webhook payload with current VA live flights snapshot
@@ -122,27 +90,7 @@ func RegisterWorkers(application *app.App) error {
 		logging.Info("Flight plan queue auto-trim started")
 	}
 
-	// Start pilot sync worker
-	if application.Features.PilotSyncWorker != nil {
-		go func() {
-			if err := application.Features.PilotSyncWorker.Start(ctx); err != nil {
-				logging.Error("Pilot sync worker stopped with error", "error", err)
-			}
-		}()
-		logging.Info("Pilot sync worker started")
-	}
-
-	// Start PIREP queue worker
-	// Processes PIREPs from Redis queue (enqueued by PIREP sync job)
-	if application.Features.PirepQueueWorker != nil {
-		go func() {
-			// Start with 5 workers per VA
-			if err := application.Features.PirepQueueWorker.Start(ctx, 5); err != nil {
-				logging.Error("PIREP queue worker stopped with error", "error", err)
-			}
-		}()
-		logging.Info("PIREP queue worker started (5 workers per VA)")
-	}
+	logging.Info("Airtable sync workers disabled by feature-config pilot-stats plan", "disabled_workers", []string{"pilot_sync_worker", "pirep_queue_worker"})
 
 	// Start aircraft livery sync worker
 	// Syncs aircraft/livery data from Infinite Flight API to database every 6 hours
