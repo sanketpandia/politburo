@@ -39,7 +39,7 @@ type PGConfig struct {
 
 // DSN returns the PostgreSQL connection string
 func (c PGConfig) DSN() string {
-	return fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable",
+	return fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable timezone=UTC",
 		c.Host, c.Port, c.User, c.DB, c.Password)
 }
 

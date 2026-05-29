@@ -63,7 +63,7 @@ func (r *Repository) UpsertBatch(ctx context.Context, liveries []AircraftLivery)
 	}
 
 	// Set sync timestamp for all records
-	now := time.Now()
+	now := time.Now().UTC()
 	for i := range liveries {
 		liveries[i].LastSyncedAt = now
 		liveries[i].UpdatedAt = now
@@ -114,13 +114,15 @@ func (r *Repository) MarkInactive(ctx context.Context, liveryIDs []string) error
 		return nil
 	}
 
+	now := time.Now().UTC()
+
 	err := r.db.WithContext(ctx).
 		Model(&AircraftLivery{}).
 		Where("livery_id IN ?", liveryIDs).
 		Updates(map[string]interface{}{
 			"is_active":      false,
-			"updated_at":     time.Now(),
-			"last_synced_at": time.Now(),
+			"updated_at":     now,
+			"last_synced_at": now,
 		}).Error
 
 	if err != nil {

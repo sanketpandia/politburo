@@ -183,7 +183,7 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 		RawFields:       record.Fields,
 		Metadata: PilotStatusMetadata{
 			SchemaVersion: "typed-config",
-			FetchedAt:     time.Now().Format(time.RFC3339),
+			FetchedAt:     time.Now().UTC().Format(time.RFC3339),
 			VAName:        subject.VAName,
 			ConfigActive:  pilotSchemaConfig.Enabled,
 		},
@@ -220,7 +220,7 @@ func (s *StatsService) GetPilotStatsWithOptions(ctx context.Context, userDiscord
 
 	response := &StatsResponse{
 		Metadata: StatsMetadata{
-			LastFetched:        time.Now().Format(time.RFC3339),
+			LastFetched:        time.Now().UTC().Format(time.RFC3339),
 			Cached:             false,
 			ProviderConfigured: false,
 		},
