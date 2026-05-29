@@ -74,6 +74,26 @@ func (h *Handler) ListMappingsPageHandler() http.HandlerFunc {
 	}
 }
 
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 // ListMappingsHandler handles GET /api/v1/admin/livery-mappings
 // Returns all livery mappings for the active VA
 func (h *Handler) ListMappingsHandler() http.HandlerFunc {
@@ -176,9 +196,11 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 
 		// Parse request body
 		var req struct {
-			FieldType   string `json:"fieldType"`
-			SourceValue string `json:"sourceValue"`
-			TargetValue string `json:"targetValue"`
+			FieldType        string   `json:"fieldType"`
+			SourceIDs        []string `json:"sourceIds"`
+			SourceValue      string   `json:"sourceValue"`
+			TargetValue      string   `json:"targetValue"`
+			ConflictStrategy string   `json:"conflictStrategy"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -186,75 +208,149 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 			return
 		}
 
-		// Validate required fields
-		if req.FieldType == "" || req.SourceValue == "" || req.TargetValue == "" {
+		if req.FieldType == "" || req.TargetValue == "" {
 			httpdto.WriteError(w, start, "invalid_request", "Missing required fields", http.StatusBadRequest)
 			return
 		}
 
-		// Validate field type
 		if req.FieldType != "aircraft" && req.FieldType != "airline" {
 			httpdto.WriteError(w, start, "invalid_request", "Field type must be 'aircraft' or 'airline'", http.StatusBadRequest)
 			return
 		}
 
-		// Find all liveries matching the source value based on field type
-		var matchingLiveries []aircraft.AircraftLivery
-		var err error
-
-		if req.FieldType == "aircraft" {
-			matchingLiveries, err = h.aircraftRepo.GetLiveriesByAircraftName(r.Context(), req.SourceValue)
-		} else {
-			matchingLiveries, err = h.aircraftRepo.GetLiveriesByLiveryName(r.Context(), req.SourceValue)
+		conflictStrategy := req.ConflictStrategy
+		if conflictStrategy == "" {
+			conflictStrategy = "overwrite"
+		}
+		if conflictStrategy != "overwrite" && conflictStrategy != "skip" {
+			httpdto.WriteError(w, start, "invalid_request", "Conflict strategy must be 'overwrite' or 'skip'", http.StatusBadRequest)
+			return
 		}
 
-		if err != nil {
-			logging.Error("Failed to find matching liveries", "error", err, "fieldType", req.FieldType, "sourceValue", req.SourceValue)
-			httpdto.WriteError(w, start, "internal_error", "Failed to find matching liveries", http.StatusInternalServerError)
-			return
+		var matchingLiveries []aircraft.AircraftLivery
+		var err error
+		var sourceValue string
+
+		if len(req.SourceIDs) > 0 {
+			matchingLiveries, err = h.aircraftRepo.GetLiveriesByIDs(r.Context(), uniqueStrings(req.SourceIDs))
+			if err != nil {
+				logging.Error("Failed to fetch liveries by ids", "error", err, "fieldType", req.FieldType)
+				httpdto.WriteError(w, start, "internal_error", "Failed to fetch liveries", http.StatusInternalServerError)
+				return
+			}
+			if len(matchingLiveries) == 0 {
+				httpdto.WriteError(w, start, "not_found", "No liveries found for the selected IDs", http.StatusNotFound)
+				return
+			}
+		} else {
+			if req.SourceValue == "" {
+				httpdto.WriteError(w, start, "invalid_request", "Missing source value or source IDs", http.StatusBadRequest)
+				return
+			}
+
+			if req.FieldType == "aircraft" {
+				matchingLiveries, err = h.aircraftRepo.GetLiveriesByAircraftName(r.Context(), req.SourceValue)
+			} else {
+				matchingLiveries, err = h.aircraftRepo.GetLiveriesByLiveryName(r.Context(), req.SourceValue)
+			}
+
+			if err != nil {
+				logging.Error("Failed to find matching liveries", "error", err, "fieldType", req.FieldType, "sourceValue", req.SourceValue)
+				httpdto.WriteError(w, start, "internal_error", "Failed to find matching liveries", http.StatusInternalServerError)
+				return
+			}
+
+			if len(matchingLiveries) == 0 {
+				httpdto.WriteError(w, start, "not_found", "No liveries found matching the source value", http.StatusNotFound)
+				return
+			}
+			sourceValue = req.SourceValue
 		}
 
 		if len(matchingLiveries) == 0 {
-			httpdto.WriteError(w, start, "not_found", "No liveries found matching the source value", http.StatusNotFound)
+			httpdto.WriteError(w, start, "not_found", "No liveries found to map", http.StatusNotFound)
 			return
 		}
 
-		// Create mappings for all matching liveries
 		mappings := make([]aircraft.LiveryAirtableMapping, 0, len(matchingLiveries))
+		liveryIDs := make([]string, 0, len(matchingLiveries))
+
 		for _, livery := range matchingLiveries {
+			liveryIDs = append(liveryIDs, livery.LiveryID)
 			mapping := aircraft.LiveryAirtableMapping{
 				VAID:        vaID,
 				LiveryID:    livery.LiveryID,
 				FieldType:   req.FieldType,
-				SourceValue: req.SourceValue,
 				TargetValue: req.TargetValue,
 				IsActive:    true,
 			}
+
+			if req.FieldType == "aircraft" {
+				mapping.SourceValue = livery.AircraftName
+			} else {
+				mapping.SourceValue = livery.LiveryName
+			}
+
+			// preserve old request sourceValue when present
+			if sourceValue != "" {
+				mapping.SourceValue = sourceValue
+			}
+
 			mappings = append(mappings, mapping)
 		}
 
-		// Upsert all mappings (handles conflicts)
+		if conflictStrategy == "skip" {
+			existingMappings, err := h.aircraftRepo.GetMappingsByLiveryIDs(r.Context(), vaID, liveryIDs)
+			if err != nil {
+				logging.Error("Failed to fetch existing mappings", "error", err, "vaID", vaID)
+				httpdto.WriteError(w, start, "internal_error", "Failed to evaluate existing mappings", http.StatusInternalServerError)
+				return
+			}
+
+			filtered := make([]aircraft.LiveryAirtableMapping, 0, len(mappings))
+			for _, mapping := range mappings {
+				if existing, ok := existingMappings[mapping.LiveryID]; ok {
+					if _, exists := existing[mapping.FieldType]; exists {
+						continue
+					}
+				}
+				filtered = append(filtered, mapping)
+			}
+			mappings = filtered
+		}
+
+		if len(mappings) == 0 {
+			response := map[string]interface{}{
+				"count":        0,
+				"fieldType":    req.FieldType,
+				"targetValue":  req.TargetValue,
+				"message":      "No mappings created because all selected items already have mappings",
+				"conflictMode": conflictStrategy,
+			}
+			httpdto.WriteSuccess(w, start, response, http.StatusOK)
+			return
+		}
+
 		if err := h.aircraftRepo.UpsertMappings(r.Context(), mappings); err != nil {
-			logging.Error("Failed to create livery mappings", "error", err, "vaID", vaID, "fieldType", req.FieldType, "sourceValue", req.SourceValue, "count", len(mappings))
+			logging.Error("Failed to create livery mappings", "error", err, "vaID", vaID, "fieldType", req.FieldType, "targetValue", req.TargetValue, "count", len(mappings))
 			httpdto.WriteError(w, start, "internal_error", "Failed to create mappings", http.StatusInternalServerError)
 			return
 		}
 
-		// Build response with summary
 		type MappingResponse struct {
-			Count       int    `json:"count"`
-			FieldType   string `json:"fieldType"`
-			SourceValue string `json:"sourceValue"`
-			TargetValue string `json:"targetValue"`
-			Message     string `json:"message"`
+			Count        int    `json:"count"`
+			FieldType    string `json:"fieldType"`
+			TargetValue  string `json:"targetValue"`
+			Message      string `json:"message"`
+			ConflictMode string `json:"conflictMode"`
 		}
 
 		response := MappingResponse{
-			Count:       len(mappings),
-			FieldType:   req.FieldType,
-			SourceValue: req.SourceValue,
-			TargetValue: req.TargetValue,
-			Message:     fmt.Sprintf("Created %d mapping(s) successfully", len(mappings)),
+			Count:        len(mappings),
+			FieldType:    req.FieldType,
+			TargetValue:  req.TargetValue,
+			Message:      fmt.Sprintf("Created %d mapping(s) successfully", len(mappings)),
+			ConflictMode: conflictStrategy,
 		}
 
 		httpdto.WriteSuccess(w, start, response, http.StatusCreated)

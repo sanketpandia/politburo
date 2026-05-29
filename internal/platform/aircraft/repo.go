@@ -211,6 +211,24 @@ func (r *Repository) GetLiveriesByLiveryName(ctx context.Context, liveryName str
 	return liveries, nil
 }
 
+// GetLiveriesByIDs finds all active liveries for the provided IDs
+func (r *Repository) GetLiveriesByIDs(ctx context.Context, liveryIDs []string) ([]AircraftLivery, error) {
+	if len(liveryIDs) == 0 {
+		return nil, nil
+	}
+
+	var liveries []AircraftLivery
+	err := r.db.WithContext(ctx).
+		Where("livery_id IN ? AND is_active = ?", liveryIDs, true).
+		Find(&liveries).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch liveries by ids: %w", err)
+	}
+
+	return liveries, nil
+}
+
 // ====================
 // LiveryAirtableMapping Operations
 // ====================

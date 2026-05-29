@@ -947,29 +947,6 @@ items:
           Saves Airtable credentials for the active VA.
 
       - info:
-          name: Get Airtable Credentials
-          type: http
-          seq: 2
-          tags:
-            - admin
-            - airtable
-        http:
-          method: GET
-          url: '{{Base_Url}}/api/v1/admin/airtable/credentials'
-          auth: inherit
-        runtime:
-          assertions:
-            - expression: res.body.status
-              operator: isString
-        settings:
-          encodeUrl: true
-          timeout: 0
-          followRedirects: true
-          maxRedirects: 5
-        docs: |-
-          Reads Airtable credentials for the active VA.
-
-      - info:
           name: Save Airtable Schema
           type: http
           seq: 3
