@@ -89,12 +89,12 @@ type PlatformDeps struct {
 	AircraftRepo    *aircraft.Repository
 
 	// Services
-	UsersSvc              *users.Service
-	VASvc                 *va.Service
-	VAConfigSvc           *va.ConfigService
+	UsersSvc               *users.Service
+	VASvc                  *va.Service
+	VAConfigSvc            *va.ConfigService
 	VAProviderConfigAccess *va.ProviderConfigAccessor
-	MembershipsSvc        *memberships.Service
-	AircraftSvc           *aircraft.Service
+	MembershipsSvc         *memberships.Service
+	AircraftSvc            *aircraft.Service
 
 	// Handlers
 	VAHandler *va.Handler
@@ -307,20 +307,20 @@ func (a *App) initPlatform() error {
 
 	logging.Debug("Platform services initialized")
 
-		a.Platform = PlatformDeps{
-		ClaimsRepo:      claimsRepo,
-		KeysRepo:        keysRepo,
-		UsersRepo:       usersRepo,
-		VARepo:          vaRepo,
-		MembershipsRepo: membershipsRepo,
-		AircraftRepo:    aircraftRepo,
-		UsersSvc:        usersSvc,
-		VASvc:           vaSvc,
-		VAConfigSvc:     vaConfigSvc,
+	a.Platform = PlatformDeps{
+		ClaimsRepo:             claimsRepo,
+		KeysRepo:               keysRepo,
+		UsersRepo:              usersRepo,
+		VARepo:                 vaRepo,
+		MembershipsRepo:        membershipsRepo,
+		AircraftRepo:           aircraftRepo,
+		UsersSvc:               usersSvc,
+		VASvc:                  vaSvc,
+		VAConfigSvc:            vaConfigSvc,
 		VAProviderConfigAccess: vaProviderConfigAccess,
-		MembershipsSvc:  membershipsSvc,
-		AircraftSvc:     aircraftSvc,
-		VAHandler:       vaHandler,
+		MembershipsSvc:         membershipsSvc,
+		AircraftSvc:            aircraftSvc,
+		VAHandler:              vaHandler,
 	}
 
 	logging.Info("Platform layer initialized")
@@ -472,7 +472,7 @@ func (a *App) initFeatures() error {
 	statsSvc := pilots.NewStatsService(
 		a.Infra.DB,
 		legacyCacheSvc,
-		a.Platform.UsersRepo,
+		a.Platform.MembershipsSvc,
 		a.Platform.VAProviderConfigAccess,
 		syncRepo,
 		liveAPIProvider,

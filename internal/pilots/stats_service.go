@@ -7,10 +7,9 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/providers"
 	"infinite-experiment/politburo/internal/constants"
+	platformMemberships "infinite-experiment/politburo/internal/platform/memberships"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
-	"infinite-experiment/politburo/internal/platform/users"
 	"infinite-experiment/politburo/internal/sync"
-	"math"
 	"time"
 
 	"gorm.io/gorm"
@@ -19,17 +18,18 @@ import (
 type StatsService struct {
 	gormDB           *gorm.DB
 	cache            *cache.CacheService
-	userRepo         *users.Repository
 	configAccessor   *platformVA.ProviderConfigAccessor
-	syncRepo         *sync.Repository
 	airtableProvider *providers.AirtableProvider
-	liveAPIProvider  *providers.LiveAPIProvider
+	subjectReader    *statsSubjectReader
+	liveAPIService   *statsLiveAPIService
+	fieldMapper      *statsFieldMapper
+	syncRepo         *sync.Repository
 }
 
 func NewStatsService(
 	gormDB *gorm.DB,
 	cache *cache.CacheService,
-	userRepo *users.Repository,
+	membershipsSvc *platformMemberships.Service,
 	configAccessor *platformVA.ProviderConfigAccessor,
 	syncRepo *sync.Repository,
 	liveAPIProvider *providers.LiveAPIProvider,
@@ -37,41 +37,18 @@ func NewStatsService(
 	return &StatsService{
 		gormDB:           gormDB,
 		cache:            cache,
-		userRepo:         userRepo,
 		configAccessor:   configAccessor,
-		syncRepo:         syncRepo,
 		airtableProvider: providers.NewAirtableProvider(cache),
-		liveAPIProvider:  liveAPIProvider,
+		subjectReader:    newStatsSubjectReader(membershipsSvc),
+		liveAPIService:   newStatsLiveAPIService(liveAPIProvider),
+		fieldMapper:      newStatsFieldMapper(),
+		syncRepo:         syncRepo,
 	}
 }
 
-func (s *StatsService) getUserMembership(ctx context.Context, userDiscordID, vaID string) (*MembershipWithAirtable, error) {
-	query := `
-		SELECT
-			u.id as user_id,
-			u.discord_id,
-			u.if_community_id,
-			vur.airtable_pilot_id,
-			vur.career_mode_pilot_id,
-			vur.callsign,
-			vur.role,
-			va.name as va_name
-		FROM users u
-		JOIN va_user_roles vur ON u.id = vur.user_id
-		JOIN virtual_airlines va ON vur.va_id = va.id
-		WHERE u.discord_id = $1 AND vur.va_id = $2 AND vur.is_active = true
-		LIMIT 1
-	`
-
-	var membership MembershipWithAirtable
-	err := s.gormDB.WithContext(ctx).Raw(query, userDiscordID, vaID).Scan(&membership).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user membership: %w", err)
-	}
-
-	return &membership, nil
+func (s *StatsService) getStatsSubject(ctx context.Context, userDiscordID, vaID string) (*platformMemberships.PilotStatsSubject, error) {
+	return s.subjectReader.GetSubject(ctx, userDiscordID, vaID)
 }
-
 
 func (s *StatsService) getAirtableSchema(ctx context.Context, vaID, schemaType string) (*platformVA.SchemaConfig, error) {
 	schema, err := s.configAccessor.GetAirtableSchema(ctx, vaID, schemaType)
@@ -93,7 +70,7 @@ func (s *StatsService) getAirtableCredentials(ctx context.Context, vaID string) 
 // This method constructs the full callsign using the configured prefix
 func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscordID, vaID string) (*PilotStatusResponse, error) {
 	// Step 1: Get user's VA membership to check role and get callsign
-	membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
+	subject, err := s.getStatsSubject(ctx, userDiscordID, vaID)
 	if err != nil {
 		return nil, &StatsError{
 			Code:    constants.ErrCodePilotNotSynced,
@@ -103,7 +80,7 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	}
 
 	// Step 2: Check if user has a role (is a member)
-	if membership.Role == "" {
+	if subject.Role == "" {
 		return nil, &StatsError{
 			Code:    constants.ErrCodePilotNotSynced,
 			Message: "User is not a member of this VA",
@@ -117,8 +94,8 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	}
 
 	// Step 4: Construct full callsign
-	fullCallsign := callsignPrefix + membership.Callsign
-	logging.Debug("Searching for pilot by callsign", "full_callsign", fullCallsign, "prefix", callsignPrefix, "base", membership.Callsign)
+	fullCallsign := callsignPrefix + subject.Callsign
+	logging.Debug("Searching for pilot by callsign", "full_callsign", fullCallsign, "prefix", callsignPrefix, "base", subject.Callsign)
 
 	pilotSchemaConfig, err := s.getAirtableSchema(ctx, vaID, platformVA.ConfigTypePilot)
 	if err != nil {
@@ -199,65 +176,19 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 	// Step 12: Build response
 	response := &PilotStatusResponse{
 		AirtablePilotID: record.ID,
-		Callsign:        membership.Callsign,
+		Callsign:        subject.Callsign,
 		FullCallsign:    fullCallsign,
-		Role:            membership.Role,
+		Role:            subject.Role,
 		RawFields:       record.Fields,
 		Metadata: PilotStatusMetadata{
 			SchemaVersion: "typed-config",
 			FetchedAt:     time.Now().Format(time.RFC3339),
-			VAName:        membership.VAName,
+			VAName:        subject.VAName,
 			ConfigActive:  pilotSchemaConfig.Enabled,
 		},
 	}
 
 	return response, nil
-}
-
-// fetchIFGameStats fetches Infinite Flight game statistics from the Live API
-// Returns nil if the user's IFC ID is not available or API call fails
-func (s *StatsService) fetchIFGameStats(ctx context.Context, ifcID string) (*IFGameStats, error) {
-	// Validate IFC ID
-	if ifcID == "" {
-		return nil, nil
-	}
-
-	logging.Debug("Fetching IF game stats", "ifc_id", ifcID)
-
-	// Call Live API provider to get user stats
-	userStatsResp, statusCode, err := s.liveAPIProvider.GetUserByIfcId(ctx, ifcID)
-	if err != nil {
-		logging.Warn("Failed to fetch user stats from Live API", "ifc_id", ifcID, "status_code", statusCode, "err", err)
-		// Game stats are optional, so we log the error but don't fail
-		return nil, nil
-	}
-
-	// Check if we have results
-	if userStatsResp == nil || len(userStatsResp.Result) == 0 {
-		return nil, nil
-	}
-
-	// Get the first result (should be only one)
-	userStats := userStatsResp.Result[0]
-
-	discourseUsername := ""
-	if userStats.DiscourseUsername != nil {
-		discourseUsername = *userStats.DiscourseUsername
-	}
-	logging.Debug("Fetched IF game stats", "discourse_username", discourseUsername)
-
-	// Transform to IFGameStats DTO
-	// Note: FlightTime from Live API is in minutes, convert to seconds for consistency
-	gameStats := &IFGameStats{
-		FlightTime:    userStats.FlightTime * 60, // Convert minutes to seconds
-		OnlineFlights: userStats.OnlineFlights,
-		LandingCount:  userStats.LandingCount,
-		XP:            userStats.XP,
-		Grade:         userStats.Grade,
-		Violations:    userStats.Violations,
-	}
-
-	return gameStats, nil
 }
 
 // GetPilotStats fetches comprehensive pilot statistics (game stats + provider data)
@@ -272,7 +203,7 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 	}
 
 	// Get user membership to get VA name
-	membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
+	subject, err := s.getStatsSubject(ctx, userDiscordID, vaID)
 	if err != nil {
 		return nil, &StatsError{
 			Code:    constants.ErrCodePilotNotSynced,
@@ -281,10 +212,10 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 		}
 	}
 
-	response.Metadata.VAName = membership.VAName
+	response.Metadata.VAName = subject.VAName
 
 	// Fetch IF game stats from Live API using user's IFC Community ID
-	gameStats, err := s.fetchIFGameStats(ctx, membership.IFCommunityID)
+	gameStats, err := s.liveAPIService.Fetch(ctx, subject)
 	if err == nil && gameStats != nil {
 		response.GameStats = gameStats
 	} else if err != nil {
@@ -293,7 +224,7 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 	}
 
 	// Fetch provider data (Airtable, etc.)
-	providerData, rawFields, cached, err := s.fetchProviderData(ctx, userDiscordID, vaID)
+	providerData, rawFields, cached, err := s.fetchProviderData(ctx, subject)
 	if err != nil {
 		logging.Warn("Provider data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", err)
 	} else {
@@ -313,7 +244,7 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 	}
 
 	// Fetch career mode data if configured
-	careerModeData, cmCached, err := s.fetchCareerModeData(ctx, userDiscordID, vaID)
+	careerModeData, cmCached, err := s.fetchCareerModeData(ctx, subject)
 	if err != nil {
 		logging.Warn("Career mode data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", err)
 	} else {
@@ -327,7 +258,8 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 
 // fetchProviderData fetches and transforms data from the configured provider
 // Returns: (providerData, rawFields, cached, error)
-func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaID string) (*ProviderPilotData, map[string]interface{}, bool, error) {
+func (s *StatsService) fetchProviderData(ctx context.Context, subject *platformMemberships.PilotStatsSubject) (*ProviderPilotData, map[string]interface{}, bool, error) {
+	vaID := subject.VAID
 	// Get pilot schema config by type (separate config row)
 	pilotSchemaConfig, err := s.getAirtableSchema(ctx, vaID, platformVA.ConfigTypePilot)
 	if err != nil {
@@ -345,17 +277,12 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	}
 
 	// Get user's airtable_pilot_id
-	membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
-	if err != nil {
-		return nil, nil, false, err
-	}
-
 	// Check if airtable_pilot_id exists - if not, return nil (optional data)
-	if membership.AirtablePilotID == nil || *membership.AirtablePilotID == "" {
+	if subject.AirtablePilotID == nil || *subject.AirtablePilotID == "" {
 		return nil, nil, false, nil // No error, just no data yet
 	}
 
-	airtablePilotID := *membership.AirtablePilotID
+	airtablePilotID := *subject.AirtablePilotID
 
 	// Check cache
 	cacheKey := fmt.Sprintf("pilot_stats:%s:%s", vaID, airtablePilotID)
@@ -367,7 +294,7 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	}
 
 	logging.Debug("Fetching provider data from Airtable", "at_pilot_id", airtablePilotID, "va_id", vaID)
-	
+
 	// Get credentials config separately
 	creds, err := s.getAirtableCredentials(ctx, vaID)
 	if err != nil || creds == nil {
@@ -397,7 +324,7 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	}
 
 	// Transform to standardized response
-	providerData := s.transformToStandardizedFields(pilotRecord.RawFields, pilotSchema)
+	providerData := s.fieldMapper.TransformProviderFields(pilotRecord.RawFields, pilotSchema)
 
 	// Cache the result (10 minutes)
 	s.cache.Set(cacheKey, providerData, 10*time.Minute)
@@ -405,144 +332,9 @@ func (s *StatsService) fetchProviderData(ctx context.Context, userDiscordID, vaI
 	return providerData, pilotRecord.RawFields, false, nil
 }
 
-// formatTimeSeconds converts seconds to HH:MM format
-func formatTimeSeconds(seconds interface{}) string {
-	var secs int
-	switch v := seconds.(type) {
-	case float64:
-		secs = int(math.Round(v))
-	case int:
-		secs = v
-	case int64:
-		secs = int(v)
-	default:
-		return fmt.Sprintf("%v", seconds)
-	}
-	hours := secs / 3600
-	mins := (secs % 3600) / 60
-	return fmt.Sprintf("%02d:%02d", hours, mins)
-}
-
-// isTimeField checks if a field should be treated as a time field (in seconds)
-func isTimeField(field platformVA.FieldMapping) bool {
-	return field.DataType == "time" || (field.DisplayFormat != nil && *field.DisplayFormat == "duration")
-}
-
-// transformToStandardizedFields maps raw provider data to standardized API response
-// It uses the DisplayName field in the schema to map to standard field names
-func (s *StatsService) transformToStandardizedFields(
-	rawFields map[string]interface{},
-	schema *platformVA.EntitySchema,
-) *ProviderPilotData {
-	data := &ProviderPilotData{
-		AdditionalFields: make(map[string]interface{}),
-	}
-
-	for _, field := range schema.Fields {
-		// Skip non-visible fields (only show fields marked as user-visible)
-		if !field.IsUserVisible {
-			continue
-		}
-
-		// Get value from raw data using the provider field name
-		value, exists := rawFields[field.AirtableName]
-		if !exists {
-			continue
-		}
-
-		// Check if this is a time field and format it
-		if isTimeField(field) {
-			formattedTime := formatTimeSeconds(value)
-			value = formattedTime
-		}
-
-		// Map to standardized field based on internal_name (not display_name)
-		internalName := field.InternalName
-
-		// Normalize arrays to top 6 items
-		if arr, ok := value.([]interface{}); ok {
-			if len(arr) > 6 {
-				value = arr[:6]
-			}
-		} else if arr, ok := value.([]string); ok {
-			if len(arr) > 6 {
-				value = arr[:6]
-			}
-		}
-
-		switch internalName {
-		case "flight_hours":
-			// For time fields, value is already formatted as string - convert to interface{}
-			var iface interface{}
-			if isTimeField(field) {
-				iface = value // Already formatted as string
-			} else {
-				// Handle different number types
-				if v, ok := value.(float64); ok {
-					iface = v
-				} else if v, ok := value.(int); ok {
-					iface = float64(v)
-				} else {
-					iface = value
-				}
-			}
-			data.FlightHours = &iface
-
-		case "rank":
-			if v, ok := value.(string); ok {
-				data.Rank = &v
-			}
-
-		case "join_date":
-			if v, ok := value.(string); ok {
-				data.JoinDate = &v
-			}
-
-		case "last_activity":
-			if v, ok := value.(string); ok {
-				data.LastActivity = &v
-			}
-
-		case "last_flight":
-			if v, ok := value.(string); ok {
-				data.LastFlight = &v
-			}
-
-		case "region":
-			if v, ok := value.(string); ok {
-				data.Region = &v
-			}
-
-		case "total_flights":
-			// Handle both float and int types
-			if v, ok := value.(float64); ok {
-				intVal := int(v)
-				data.TotalFlights = &intVal
-			} else if v, ok := value.(int); ok {
-				data.TotalFlights = &v
-			}
-
-		case "status":
-			if v, ok := value.(string); ok {
-				data.Status = &v
-			}
-
-		default:
-			// Non-standard field - add to additional_fields
-			// Use display_name if available, otherwise internal_name
-			fieldKey := field.DisplayName
-			if fieldKey == "" {
-				fieldKey = field.InternalName
-			}
-			data.AdditionalFields[fieldKey] = value
-		}
-	}
-
-	return data
-}
-
 // fetchCareerModeData fetches career mode data using stored ID (no fallback to callsign)
-func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, vaID string) (*CareerModeData, bool, error) {
+func (s *StatsService) fetchCareerModeData(ctx context.Context, subject *platformMemberships.PilotStatsSubject) (*CareerModeData, bool, error) {
+	vaID := subject.VAID
 	// Get career mode schema config by type (separate config row)
 	careerModeSchemaConfig, err := s.getAirtableSchema(ctx, vaID, platformVA.ConfigTypeCareerMode)
 	if err != nil {
@@ -560,12 +352,6 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 		return nil, false, nil // Schema disabled - optional data
 	}
 
-	// Get user's membership (includes career_mode_pilot_id)
-	membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
-	if err != nil {
-		return nil, false, err
-	}
-
 	// Get credentials config separately
 	creds, err := s.getAirtableCredentials(ctx, vaID)
 	if err != nil || creds == nil {
@@ -578,9 +364,9 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 	var recordID string
 
 	// Check if we have a stored career mode pilot ID
-	if membership.CareerModePilotID != nil && *membership.CareerModePilotID != "" {
-		logging.Debug("Fetching career mode data by stored pilot ID", "at_pilot_id", *membership.CareerModePilotID, "va_id", vaID)
-		pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, *membership.CareerModePilotID, careerModeSchema)
+	if subject.CareerModePilotID != nil && *subject.CareerModePilotID != "" {
+		logging.Debug("Fetching career mode data by stored pilot ID", "at_pilot_id", *subject.CareerModePilotID, "va_id", vaID)
+		pilotRecord, err := s.airtableProvider.FetchPilotRecord(ctx, *subject.CareerModePilotID, careerModeSchema)
 		if err != nil {
 			if provErr, ok := err.(*providers.ProviderError); ok {
 				// Only fail for authentication errors - fallback to callsign matching for everything else
@@ -617,7 +403,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 		}
 
 		// Construct full callsign
-		fullCallsign := callsignPrefix + membership.Callsign
+		fullCallsign := callsignPrefix + subject.Callsign
 
 		// Get the callsign field name from schema
 		var callsignFieldName string
@@ -676,7 +462,7 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 	logging.Debug("Career mode record fetched from Airtable", "record_id", recordID, "va_id", vaID)
 
 	// Transform to standardized response
-	careerModeData := s.transformCareerModeFields(recordFields, careerModeSchema)
+	careerModeData := s.fieldMapper.TransformCareerModeFields(recordFields, careerModeSchema)
 
 	// Resolve last_flown_route if it contains a PIREP ID
 	// If LastCareerModePIREP is set but LastCareerModeFlight is not, it means we need to fetch the route
@@ -687,9 +473,8 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 			careerModeData.LastCareerModeFlight = &route
 		} else {
 			// Fallback: Query by flight_mode="Career Mode" and callsign if available
-			membership, err := s.getUserMembership(ctx, userDiscordID, vaID)
-			if err == nil && membership != nil {
-				callsign := membership.Callsign
+			if subject != nil {
+				callsign := subject.Callsign
 				if callsign == "" && careerModeData.AdditionalFields != nil {
 					if callsignVal, ok := careerModeData.AdditionalFields["Callsign"]; ok {
 						if cs, ok := callsignVal.(string); ok {
@@ -709,165 +494,6 @@ func (s *StatsService) fetchCareerModeData(ctx context.Context, userDiscordID, v
 	}
 
 	return careerModeData, false, nil
-}
-
-// transformCareerModeFields maps raw provider data to career mode response
-func (s *StatsService) transformCareerModeFields(
-	rawFields map[string]interface{},
-	schema *platformVA.EntitySchema,
-) *CareerModeData {
-	data := &CareerModeData{
-		AdditionalFields: make(map[string]interface{}),
-	}
-
-	for _, field := range schema.Fields {
-		// Skip non-visible fields (only show fields marked as user-visible)
-		if !field.IsUserVisible {
-			continue
-		}
-
-		// Get value from raw data using the provider field name
-		value, exists := rawFields[field.AirtableName]
-		if !exists {
-			continue
-		}
-
-		// Check if this is a time field and format it
-		if isTimeField(field) {
-			formattedTime := formatTimeSeconds(value)
-			value = formattedTime
-		}
-
-		// Map to standardized field based on internal_name (not display_name)
-		internalName := field.InternalName
-
-		// Normalize arrays to top 6 items
-		if arr, ok := value.([]interface{}); ok {
-			if len(arr) > 6 {
-				value = arr[:6]
-			}
-		} else if arr, ok := value.([]string); ok {
-			if len(arr) > 6 {
-				value = arr[:6]
-			}
-		}
-
-		switch internalName {
-		case "total_cm_hours":
-			// For time fields, value is already formatted as string - convert to interface{}
-			var iface interface{}
-			if isTimeField(field) {
-				iface = value // Already formatted as string
-			} else {
-				// Handle different number types
-				if v, ok := value.(float64); ok {
-					iface = v
-				} else if v, ok := value.(int); ok {
-					iface = float64(v)
-				} else {
-					iface = value
-				}
-			}
-			data.TotalCMHours = &iface
-
-		case "required_hours_to_next":
-			// For time fields, value is already formatted as string - convert to interface{}
-			var iface interface{}
-			if isTimeField(field) {
-				iface = value // Already formatted as string
-			} else {
-				// Handle different number types
-				if v, ok := value.(float64); ok {
-					iface = v
-				} else if v, ok := value.(int); ok {
-					iface = float64(v)
-				} else {
-					iface = value
-				}
-			}
-			data.RequiredHoursToNext = &iface
-
-		case "last_activity_cm":
-			if v, ok := value.(string); ok {
-				data.LastActivityCM = &v
-			}
-
-		case "assigned_routes":
-			data.AssignedRoutes = &value
-
-		case "aircraft":
-			if v, ok := value.(string); ok {
-				data.Aircraft = &v
-			}
-
-		case "airline":
-			if v, ok := value.(string); ok {
-				data.Airline = &v
-			}
-
-		case "last_career_mode_pirep":
-			// This will be populated by fetchAndTransformLastCareerModePIREP
-			// which is called after all fields are processed in fetchCareerModeData
-			data.LastCareerModePIREP = &value
-
-		case "last_flown_route":
-			// Map last_flown_route to LastCareerModeFlight for API response
-			// If the value is a PIREP ID (array or string starting with "rec"), fetch route from pirep_at_synced
-
-			// Check if this is a PIREP ID that needs to be resolved
-			var pirepATID string
-			switch v := value.(type) {
-			case []interface{}:
-				// Array of PIREP IDs (Airtable linked records)
-				if len(v) > 0 {
-					if id, ok := v[0].(string); ok && len(id) > 3 && id[:3] == "rec" {
-						pirepATID = id
-					}
-				}
-			case []string:
-				if len(v) > 0 && len(v[0]) > 3 && v[0][:3] == "rec" {
-					pirepATID = v[0]
-				}
-			case string:
-				// Handle string representation of array like "[rectwoPzdedmaZuFE]"
-				if len(v) > 2 && v[0] == '[' && v[len(v)-1] == ']' {
-					// Extract ID from string array format
-					id := v[1 : len(v)-1]
-					if len(id) > 3 && id[:3] == "rec" {
-						pirepATID = id
-					}
-				} else if len(v) > 3 && v[:3] == "rec" {
-					// Direct PIREP ID
-					pirepATID = v
-				} else {
-					// It's already a route string
-					data.LastCareerModeFlight = &v
-					continue
-				}
-			}
-
-			// If we found a PIREP ID, store it for resolution after transformation
-			if pirepATID != "" {
-				data.LastCareerModePIREP = &value
-			} else {
-				// Not a PIREP ID, treat as direct route string
-				if str := fmt.Sprintf("%v", value); str != "" {
-					data.LastCareerModeFlight = &str
-				}
-			}
-
-		default:
-			// Non-standard field - add to additional_fields
-			// Use display_name if available, otherwise internal_name
-			fieldKey := field.DisplayName
-			if fieldKey == "" {
-				fieldKey = field.InternalName
-			}
-			data.AdditionalFields[fieldKey] = value
-		}
-	}
-
-	return data
 }
 
 // getKeys returns a slice of keys from a map
