@@ -1,10 +1,5 @@
 {{define "datasource-field-mapping-chooser"}}
-<div class="ds-chooser card section-card">
-    <div class="section-header">
-        <h5 class="section-title">Map "{{.AirtableField}}"</h5>
-        <p class="section-subtitle">Choose one internal target field.</p>
-    </div>
-
+<div class="ds-chooser">
     {{if .ChooserError}}
     <div class="alert alert-error" role="alert">{{.ChooserError}}</div>
     {{end}}
