@@ -21,6 +21,7 @@ import (
 
 type Handlers struct {
 	JoinMembership     http.HandlerFunc
+	GetPilotStats      http.HandlerFunc
 	RegisterPilot      http.HandlerFunc
 	InitServer         http.HandlerFunc
 	GenerateSignedLink http.HandlerFunc
@@ -41,6 +42,7 @@ func NewServer(
 ) *Server {
 	return &Server{handlers: Handlers{
 		JoinMembership:     membershipsHandler.JoinVA(),
+		GetPilotStats:      pilotsHandler.GetPilotStats(),
 		RegisterPilot:      pilotsHandler.RegisterPilot(),
 		InitServer:         serversHandler.InitServer(),
 		GenerateSignedLink: authHandler.GenerateSignedLink(),
@@ -121,6 +123,44 @@ func (s *Server) RegisterPilot(ctx context.Context, request registrationgen.Regi
 		return registrationgen.RegisterPilot500JSONResponse(response), err
 	default:
 		return nil, fmt.Errorf("register pilot: unexpected status code %d", statusCode)
+	}
+}
+
+func (s *Server) GetCurrentUserPilotStats(ctx context.Context, request registrationgen.GetCurrentUserPilotStatsRequestObject) (registrationgen.GetCurrentUserPilotStatsResponseObject, error) {
+	path := "/api/v1/pilot/stats"
+	if request.Params.Refresh != nil {
+		path = fmt.Sprintf("%s?refresh=%t", path, *request.Params.Refresh)
+	}
+
+	statusCode, body, err := s.serveJSON(ctx, http.MethodGet, path, nil, s.handlers.GetPilotStats)
+	if err != nil {
+		return nil, err
+	}
+
+	switch statusCode {
+	case http.StatusOK:
+		response, err := decodeBody[registrationgen.PilotStatsResponse](body)
+		return registrationgen.GetCurrentUserPilotStats200JSONResponse(response), err
+	case http.StatusBadRequest:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GetCurrentUserPilotStats400JSONResponse(response), err
+	case http.StatusUnauthorized:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GetCurrentUserPilotStats401JSONResponse(response), err
+	case http.StatusForbidden:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GetCurrentUserPilotStats403JSONResponse(response), err
+	case http.StatusNotFound:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GetCurrentUserPilotStats404JSONResponse(response), err
+	case http.StatusTooManyRequests:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GetCurrentUserPilotStats429JSONResponse(response), err
+	case http.StatusInternalServerError:
+		response, err := decodeBody[registrationgen.ErrorResponse](body)
+		return registrationgen.GetCurrentUserPilotStats500JSONResponse(response), err
+	default:
+		return nil, fmt.Errorf("get pilot stats: unexpected status code %d", statusCode)
 	}
 }
 

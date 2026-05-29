@@ -353,6 +353,64 @@ Branch: `feat/flight-modes-pirep-revamp`
 
 ## Logical unit / commit intent
 
+- Execute aggregate API generation (`make generate-api`) and resolve generated-interface drift by adapting handwritten registration adapter to the newly generated strict contract.
+
+## Changed files
+
+- `internal/api/generated/registration/server.gen.go` (generated)
+- `internal/api/registration/server.go`
+
+## Reused code / patterns / components
+
+- Reused existing registration adapter response-decoding and status-mapping pattern already used for other registration operations.
+- Reused existing pilot stats domain handler (`pilots.Handler.GetPilotStats`) without moving business logic to transport layer.
+
+## Logging added or affected
+
+- No new log families.
+
+## Metrics added or affected
+
+- No metric changes in this unit.
+
+## Test surface touched or still needed
+
+- Touched generated registration interface compatibility and adapter routing behavior.
+- Still needed: adapter-level tests specifically for `GetCurrentUserPilotStats` query passthrough (`refresh`) and status mapping branches.
+
+## Build/test command(s) run and status
+
+- `make generate-api`
+  - status: passed
+- `go test ./internal/api/... ./internal/routes ./internal/pireps ./internal/platform/va ./internal/models/dtos ./internal/vaadmin ./infra/metrics`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+
+## Deviations from plan, if any
+
+- None; this is generation + compatibility fix required by aggregate generation request.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Verified PIREP generated adapter routing remains active while registration generated contract also remains compilable.
+- No comrade-bot or labour-bureau code changes required.
+
+## Live API compliance notes when relevant
+
+- No liveapi wrapper behavior changes; only regenerated client artifact alignment via existing make target.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Unit Testing: add focused registration adapter tests for pilot stats endpoint (`refresh` true/false and mapped error statuses).
+
+---
+
+Date: 2026-05-30
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
 - Remaining completion slice: add PIREP observability metrics, add focused tests for v2 parser + vaadmin section helpers, and update endpoint inventory docs to reflect generated PIREP runtime wiring.
 
 ## Changed files

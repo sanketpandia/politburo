@@ -7,11 +7,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -81,6 +83,21 @@ func (e JoinMembershipResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for PilotStatsResponseStatus.
+const (
+	PilotStatsResponseStatusOk PilotStatsResponseStatus = "ok"
+)
+
+// Valid indicates whether the value is a known member of the PilotStatsResponseStatus enum.
+func (e PilotStatsResponseStatus) Valid() bool {
+	switch e {
+	case PilotStatsResponseStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RegisterPilotResponseStatus.
 const (
 	RegisterPilotResponseStatusOk RegisterPilotResponseStatus = "ok"
@@ -98,13 +115,13 @@ func (e RegisterPilotResponseStatus) Valid() bool {
 
 // Defines values for UserStatusResponseStatus.
 const (
-	Ok UserStatusResponseStatus = "ok"
+	UserStatusResponseStatusOk UserStatusResponseStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the UserStatusResponseStatus enum.
 func (e UserStatusResponseStatus) Valid() bool {
 	switch e {
-	case Ok:
+	case UserStatusResponseStatusOk:
 		return true
 	default:
 		return false
@@ -283,6 +300,130 @@ type MembershipsSummary struct {
 	TotalCount  int `json:"total_count"`
 }
 
+// PilotStatsATCProfile defines model for PilotStatsATCProfile.
+type PilotStatsATCProfile struct {
+	Operations int  `json:"operations"`
+	Rank       *int `json:"rank,omitempty"`
+}
+
+// PilotStatsCareerCard defines model for PilotStatsCareerCard.
+type PilotStatsCareerCard struct {
+	AssignedRouteCount *int    `json:"assigned_route_count,omitempty"`
+	LastRoute          *string `json:"last_route,omitempty"`
+}
+
+// PilotStatsCareerData defines model for PilotStatsCareerData.
+type PilotStatsCareerData struct {
+	AdditionalFields     *map[string]interface{} `json:"additional_fields,omitempty"`
+	Aircraft             *string                 `json:"aircraft,omitempty"`
+	Airline              *string                 `json:"airline,omitempty"`
+	AssignedRoutes       interface{}             `json:"assigned_routes,omitempty"`
+	LastActivityCm       *string                 `json:"last_activity_cm,omitempty"`
+	LastCareerModeFlight *string                 `json:"last_career_mode_flight,omitempty"`
+	LastCareerModePirep  interface{}             `json:"last_career_mode_pirep,omitempty"`
+	LastFlownRoute       *string                 `json:"last_flown_route,omitempty"`
+	RequiredHoursToNext  interface{}             `json:"required_hours_to_next,omitempty"`
+	TotalCmHours         interface{}             `json:"total_cm_hours,omitempty"`
+}
+
+// PilotStatsData defines model for PilotStatsData.
+type PilotStatsData struct {
+	CareerModeData *PilotStatsCareerData    `json:"career_mode_data,omitempty"`
+	GameStats      *PilotStatsGameStats     `json:"game_stats,omitempty"`
+	Insights       *PilotStatsInsights      `json:"insights,omitempty"`
+	Metadata       PilotStatsMetadata       `json:"metadata"`
+	ProviderData   *PilotStatsProviderData  `json:"provider_data,omitempty"`
+	RecentPireps   *[]PilotStatsRecentPIREP `json:"recent_pireps,omitempty"`
+}
+
+// PilotStatsGameStats defines model for PilotStatsGameStats.
+type PilotStatsGameStats struct {
+	Atc              *PilotStatsATCProfile         `json:"atc,omitempty"`
+	FlightTime       *int                          `json:"flight_time,omitempty"`
+	Grade            *int                          `json:"grade,omitempty"`
+	LandingCount     *int                          `json:"landing_count,omitempty"`
+	OnlineFlights    *int                          `json:"online_flights,omitempty"`
+	ViolationByLevel *PilotStatsViolationBreakdown `json:"violation_by_level,omitempty"`
+	Violations       *int                          `json:"violations,omitempty"`
+	Xp               *int                          `json:"xp,omitempty"`
+}
+
+// PilotStatsInsights defines model for PilotStatsInsights.
+type PilotStatsInsights struct {
+	Career            *PilotStatsCareerCard         `json:"career,omitempty"`
+	ProviderFreshness *PilotStatsProviderFreshness  `json:"provider_freshness,omitempty"`
+	RecentFlights     *[]PilotStatsRecentFlightCard `json:"recent_flights,omitempty"`
+}
+
+// PilotStatsMetadata defines model for PilotStatsMetadata.
+type PilotStatsMetadata struct {
+	Cached             bool      `json:"cached"`
+	LastFetched        time.Time `json:"last_fetched"`
+	ProviderConfigured bool      `json:"provider_configured"`
+	ProviderType       *string   `json:"provider_type,omitempty"`
+	SchemaVersion      *string   `json:"schema_version,omitempty"`
+	VaName             *string   `json:"va_name,omitempty"`
+}
+
+// PilotStatsProviderData defines model for PilotStatsProviderData.
+type PilotStatsProviderData struct {
+	AdditionalFields *map[string]interface{} `json:"additional_fields,omitempty"`
+	FlightHours      interface{}             `json:"flight_hours,omitempty"`
+	JoinDate         *string                 `json:"join_date,omitempty"`
+	LastActivity     *string                 `json:"last_activity,omitempty"`
+	LastFlight       *string                 `json:"last_flight,omitempty"`
+	Rank             *string                 `json:"rank,omitempty"`
+	Region           *string                 `json:"region,omitempty"`
+	Status           *string                 `json:"status,omitempty"`
+	TotalFlights     *int                    `json:"total_flights,omitempty"`
+}
+
+// PilotStatsProviderFreshness defines model for PilotStatsProviderFreshness.
+type PilotStatsProviderFreshness struct {
+	Cached               bool      `json:"cached"`
+	LastFetchedAt        time.Time `json:"last_fetched_at"`
+	ProviderLastActivity *string   `json:"provider_last_activity,omitempty"`
+}
+
+// PilotStatsRecentFlightCard defines model for PilotStatsRecentFlightCard.
+type PilotStatsRecentFlightCard struct {
+	Aircraft   *string  `json:"aircraft,omitempty"`
+	FlightMode *string  `json:"flight_mode,omitempty"`
+	FlightTime *float32 `json:"flight_time,omitempty"`
+	Livery     *string  `json:"livery,omitempty"`
+	OccurredAt *string  `json:"occurred_at,omitempty"`
+	Route      string   `json:"route"`
+}
+
+// PilotStatsRecentPIREP defines model for PilotStatsRecentPIREP.
+type PilotStatsRecentPIREP struct {
+	Aircraft      *string  `json:"aircraft,omitempty"`
+	AtCreatedTime *string  `json:"at_created_time,omitempty"`
+	AtId          string   `json:"at_id"`
+	FlightMode    *string  `json:"flight_mode,omitempty"`
+	FlightTime    *float32 `json:"flight_time,omitempty"`
+	Livery        *string  `json:"livery,omitempty"`
+	PilotCallsign *string  `json:"pilot_callsign,omitempty"`
+	Route         string   `json:"route"`
+}
+
+// PilotStatsResponse defines model for PilotStatsResponse.
+type PilotStatsResponse struct {
+	ResponseTimeMs int64                    `json:"responseTimeMs"`
+	Result         *PilotStatsData          `json:"result,omitempty"`
+	Status         PilotStatsResponseStatus `json:"status"`
+}
+
+// PilotStatsResponseStatus defines model for PilotStatsResponse.Status.
+type PilotStatsResponseStatus string
+
+// PilotStatsViolationBreakdown defines model for PilotStatsViolationBreakdown.
+type PilotStatsViolationBreakdown struct {
+	Level1 int `json:"level1"`
+	Level2 int `json:"level2"`
+	Level3 int `json:"level3"`
+}
+
 // RegisterPilotData defines model for RegisterPilotData.
 type RegisterPilotData struct {
 	// IsVaRegistered True when the Discord server is already set up as a VA, indicating the bot may offer VA linking through /register.
@@ -391,6 +532,12 @@ type discordIdContextKey string
 // serverIdContextKey is the context key for ServerId security scheme
 type serverIdContextKey string
 
+// GetCurrentUserPilotStatsParams defines parameters for GetCurrentUserPilotStats.
+type GetCurrentUserPilotStatsParams struct {
+	// Refresh Force refresh and bypass profile cache. May be rate-limited by cooldown.
+	Refresh *bool `form:"refresh,omitempty" json:"refresh,omitempty"`
+}
+
 // JoinMembershipJSONRequestBody defines body for JoinMembership for application/json ContentType.
 type JoinMembershipJSONRequestBody = JoinMembershipRequest
 
@@ -408,6 +555,9 @@ type ServerInterface interface {
 	// Join the VA associated with the current Discord server
 	// (POST /memberships/join)
 	JoinMembership(w http.ResponseWriter, r *http.Request)
+	// Get current authenticated user's pilot stats
+	// (GET /pilot/stats)
+	GetCurrentUserPilotStats(w http.ResponseWriter, r *http.Request, params GetCurrentUserPilotStatsParams)
 	// Bootstrap a Discord server with a VA Code / ID
 	// (POST /server/init)
 	InitServer(w http.ResponseWriter, r *http.Request)
@@ -429,6 +579,12 @@ type Unimplemented struct{}
 // Join the VA associated with the current Discord server
 // (POST /memberships/join)
 func (_ Unimplemented) JoinMembership(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get current authenticated user's pilot stats
+// (GET /pilot/stats)
+func (_ Unimplemented) GetCurrentUserPilotStats(w http.ResponseWriter, r *http.Request, params GetCurrentUserPilotStatsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -480,6 +636,49 @@ func (siw *ServerInterfaceWrapper) JoinMembership(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.JoinMembership(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCurrentUserPilotStats operation middleware
+func (siw *ServerInterfaceWrapper) GetCurrentUserPilotStats(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiKeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, DiscordIdScopes, []string{})
+
+	ctx = context.WithValue(ctx, ServerIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCurrentUserPilotStatsParams
+
+	// ------------- Optional query parameter "refresh" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "refresh", r.URL.Query(), &params.Refresh, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "refresh"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "refresh", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCurrentUserPilotStats(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -702,6 +901,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/memberships/join", wrapper.JoinMembership)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/pilot/stats", wrapper.GetCurrentUserPilotStats)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/server/init", wrapper.InitServer)
 	})
 	r.Group(func(r chi.Router) {
@@ -826,6 +1028,112 @@ func (response JoinMembership422JSONResponse) VisitJoinMembershipResponse(w http
 type JoinMembership500JSONResponse ErrorResponse
 
 func (response JoinMembership500JSONResponse) VisitJoinMembershipResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserPilotStatsRequestObject struct {
+	Params GetCurrentUserPilotStatsParams
+}
+
+type GetCurrentUserPilotStatsResponseObject interface {
+	VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error
+}
+
+type GetCurrentUserPilotStats200JSONResponse PilotStatsResponse
+
+func (response GetCurrentUserPilotStats200JSONResponse) VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserPilotStats400JSONResponse ErrorResponse
+
+func (response GetCurrentUserPilotStats400JSONResponse) VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserPilotStats401JSONResponse ErrorResponse
+
+func (response GetCurrentUserPilotStats401JSONResponse) VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserPilotStats403JSONResponse ErrorResponse
+
+func (response GetCurrentUserPilotStats403JSONResponse) VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserPilotStats404JSONResponse ErrorResponse
+
+func (response GetCurrentUserPilotStats404JSONResponse) VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserPilotStats429JSONResponse ErrorResponse
+
+func (response GetCurrentUserPilotStats429JSONResponse) VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserPilotStats500JSONResponse ErrorResponse
+
+func (response GetCurrentUserPilotStats500JSONResponse) VisitGetCurrentUserPilotStatsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1223,6 +1531,9 @@ type StrictServerInterface interface {
 	// Join the VA associated with the current Discord server
 	// (POST /memberships/join)
 	JoinMembership(ctx context.Context, request JoinMembershipRequestObject) (JoinMembershipResponseObject, error)
+	// Get current authenticated user's pilot stats
+	// (GET /pilot/stats)
+	GetCurrentUserPilotStats(ctx context.Context, request GetCurrentUserPilotStatsRequestObject) (GetCurrentUserPilotStatsResponseObject, error)
 	// Bootstrap a Discord server with a VA Code / ID
 	// (POST /server/init)
 	InitServer(ctx context.Context, request InitServerRequestObject) (InitServerResponseObject, error)
@@ -1290,6 +1601,32 @@ func (sh *strictHandler) JoinMembership(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(JoinMembershipResponseObject); ok {
 		if err := validResponse.VisitJoinMembershipResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCurrentUserPilotStats operation middleware
+func (sh *strictHandler) GetCurrentUserPilotStats(w http.ResponseWriter, r *http.Request, params GetCurrentUserPilotStatsParams) {
+	var request GetCurrentUserPilotStatsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCurrentUserPilotStats(ctx, request.(GetCurrentUserPilotStatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCurrentUserPilotStats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCurrentUserPilotStatsResponseObject); ok {
+		if err := validResponse.VisitGetCurrentUserPilotStatsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
