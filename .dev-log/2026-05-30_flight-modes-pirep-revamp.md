@@ -345,3 +345,69 @@ Branch: `feat/flight-modes-pirep-revamp`
 ## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
 
 - Unit Testing: add targeted tests for adapter unexpected-status behavior and envelope decoding failures.
+
+---
+
+Date: 2026-05-30
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
+- Remaining completion slice: add PIREP observability metrics, add focused tests for v2 parser + vaadmin section helpers, and update endpoint inventory docs to reflect generated PIREP runtime wiring.
+
+## Changed files
+
+- `infra/metrics/metrics.go`
+- `internal/pireps/handler.go`
+- `internal/app/app.go`
+- `internal/models/dtos/flight_mode_runtime_v2_test.go`
+- `internal/vaadmin/flight_modes_view_test.go`
+- `docs/dev/endpoint-inventory.md`
+
+## Reused code / patterns / components
+
+- Reused existing `infra/metrics.MetricsRegistry` as the single Prometheus registry.
+- Reused existing PIREP handler lifecycle to emit bounded metrics labels by endpoint/mode-group/result-class.
+- Reused existing v2 mode constants/types for parser + vaadmin helper tests.
+
+## Logging added or affected
+
+- No new log families in this unit.
+
+## Metrics added or affected
+
+- Added `politburo_pirep_requests_total{endpoint,mode_group,result_class}`.
+- Added `politburo_pirep_request_duration_seconds{endpoint}` histogram.
+- Instrumented `GET /api/v1/pireps/config` and `POST /api/v1/pireps/submit` handler outcome/latency paths.
+
+## Test surface touched or still needed
+
+- Added tests for strict v2 parsing/rejection and modal-field limit rejection.
+- Added tests for vaadmin helper rendering logic (`buildModeSectionStatus`, `buildModeCards`).
+- Still needed: deeper PIREP service tests for route strategy and airtable field composition permutations.
+
+## Build/test command(s) run and status
+
+- `go test ./internal/models/dtos ./internal/vaadmin ./internal/pireps ./internal/api/... ./internal/routes ./infra/metrics`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+- `npm run build` (comrade-bot)
+  - status: passed
+
+## Deviations from plan, if any
+
+- No scope deviations in this unit.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Checked generated PIREP routing remained intact after handler constructor/signature updates.
+- Checked endpoint inventory docs now reflect generated strict PIREP runtime mounting.
+
+## Live API compliance notes when relevant
+
+- No liveapi boundary changes.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Unit Testing: add adapter-level tests for non-200/400/404 status mapping on generated PIREP adapter.

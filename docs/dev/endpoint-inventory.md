@@ -75,12 +75,14 @@ Notes:
 
 | Method | Path | Purpose | Status | Return type |
 | --- | --- | --- | --- | --- |
-| `GET` | `/api/v1/pireps/config` | Current-flight PIREP configuration | Legacy-sensitive | `json` |
-| `POST` | `/api/v1/pireps/submit` | Submit a PIREP | Legacy-sensitive | `json` |
+| `GET` | `/api/v1/pireps/config` | Current-flight PIREP configuration | Mixed | `json` |
+| `POST` | `/api/v1/pireps/submit` | Submit a PIREP | Mixed | `json` |
+| `POST` | `/api/v1/admin/flight-modes/config` | Save strict v2 flight-mode config | Mixed | `json` |
 
 Notes:
 
-- Active routes, but the handler still depends on legacy-sensitive packages such as `internal/common`, `internal/db/repositories`, and `common.LiveAPIService`.
+- Mounted through generated OpenAPI strict handler (`internal/api/generated/pireps`) with a handwritten adapter in `internal/api/pireps/server.go`, mirroring registration runtime pattern.
+- Domain logic still uses some legacy-sensitive dependencies (`internal/common`, `internal/db/repositories`) and remains a follow-up cleanup area.
 
 ## Feature: events API
 

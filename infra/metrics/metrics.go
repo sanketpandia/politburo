@@ -59,6 +59,10 @@ type MetricsRegistry struct {
 	// Upstream LiveAPI Metrics
 	LiveAPIRequestsTotal   prometheus.CounterVec   // Labels: provider, endpoint_group, status_class, error_type
 	LiveAPIRequestDuration prometheus.HistogramVec // Labels: provider, endpoint_group, status_class, error_type
+
+	// PIREP API Metrics
+	PirepRequestsTotal    prometheus.CounterVec   // Labels: endpoint, mode_group, result_class
+	PirepRequestDuration  prometheus.HistogramVec // Labels: endpoint
 }
 
 // NewMetricsRegistry initializes and returns a new MetricsRegistry with all metrics
@@ -302,6 +306,21 @@ func NewMetricsRegistry() *MetricsRegistry {
 				Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			},
 			[]string{"provider", "endpoint_group", "status_class", "error_type"},
+		),
+		PirepRequestsTotal: *promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "politburo_pirep_requests_total",
+				Help: "Total PIREP API requests by endpoint, mode group, and result class",
+			},
+			[]string{"endpoint", "mode_group", "result_class"},
+		),
+		PirepRequestDuration: *promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "politburo_pirep_request_duration_seconds",
+				Help:    "PIREP API request latency by endpoint",
+				Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+			},
+			[]string{"endpoint"},
 		),
 	}
 }

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
 
 	"infinite-experiment/politburo/infra/cache"
+	"infinite-experiment/politburo/infra/metrics"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
 	"infinite-experiment/politburo/internal/db/repositories"
@@ -32,6 +34,7 @@ type Handler struct {
 	config     *common.VAConfigService
 	pirepSvc   *Service
 	validator  *FlightModeValidationService
+	metricsReg *metrics.MetricsRegistry
 }
 
 // NewHandler creates a new PIREP handlers instance
@@ -44,6 +47,7 @@ func NewHandler(
 	config *common.VAConfigService,
 	pirepSvc *Service,
 	validator *FlightModeValidationService,
+	metricsReg *metrics.MetricsRegistry,
 ) *Handler {
 	return &Handler{
 		userRepo:   userRepo,
@@ -54,6 +58,7 @@ func NewHandler(
 		config:     config,
 		pirepSvc:   pirepSvc,
 		validator:  validator,
+		metricsReg: metricsReg,
 	}
 }
 
@@ -62,10 +67,12 @@ func NewHandler(
 func (h *Handler) GetConfig() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		initTime := time.Now()
+		defer h.observeRequest("config", "unknown", initTime)
 
 		// Get claims from context
 		claims := auth.GetUserClaims(r.Context())
 		if claims == nil {
+			h.observeOutcome("config", "unknown", "unauthorized")
 			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized: missing claims", http.StatusUnauthorized)
 			return
 		}
@@ -74,6 +81,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 
 		// Validate VA exists
 		if vaDiscordServerID == "" {
+			h.observeOutcome("config", "unknown", "not_found")
 			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
 			return
 		}
@@ -81,16 +89,19 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		// Get VA configuration with flight modes using Discord Server ID
 		vaGorm, err := h.vaRepo.GetByDiscordServerID(r.Context(), vaDiscordServerID)
 		if err != nil {
+			h.observeOutcome("config", "unknown", "server_error")
 			httpdto.WriteError(w, initTime, "VA_FETCH_FAILED", "Failed to fetch VA configuration", http.StatusInternalServerError)
 			return
 		}
 
 		if vaGorm == nil {
+			h.observeOutcome("config", "unknown", "not_found")
 			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
 			return
 		}
 
 		if _, err := dtos.ParseModeRuntimeEnvelope(vaGorm.FlightModesConfig); err != nil {
+			h.observeOutcome("config", "unknown", "validation_error")
 			httpdto.WriteError(w, initTime, "INVALID_MODE_CONFIG", "Flight mode configuration is invalid; contact VA admin", http.StatusUnprocessableEntity)
 			return
 		}
@@ -99,6 +110,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		discordID := claims.DiscordUserID()
 		user, err := h.userRepo.GetUserWithVAAffiliations(r.Context(), discordID)
 		if err != nil || user == nil {
+			h.observeOutcome("config", "unknown", "not_found")
 			httpdto.WriteError(w, initTime, "USER_NOT_FOUND", "User not found", http.StatusNotFound)
 			return
 		}
@@ -113,6 +125,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		}
 
 		if userCallsign == "" {
+			h.observeOutcome("config", "unknown", "forbidden")
 			httpdto.WriteError(w, initTime, "USER_NOT_MEMBER", "User is not a member of this virtual airline", http.StatusForbidden)
 			return
 		}
@@ -165,6 +178,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		)
 		if err != nil {
 			logging.Debug("GetPirepConfig: no matching live flight found", "error", err)
+			h.observeOutcome("config", "unknown", "not_found")
 			httpdto.WriteError(w, initTime, "FLIGHT_NOT_FOUND", "You are not currently flying. Please join a flight before filing a PIREP.", http.StatusNotFound)
 			return
 		}
@@ -182,6 +196,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 
 		// Build simplified response
 		response := h.buildSimplePirepConfigResponse(r.Context(), vaGorm, flight)
+		h.observeOutcome("config", "unknown", "ok")
 		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
 	}
 }
@@ -191,10 +206,13 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 func (h *Handler) Submit() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		initTime := time.Now()
+		modeGroup := "unknown"
+		defer h.observeRequest("submit", modeGroup, initTime)
 
 		// Get claims from context
 		claims := auth.GetUserClaims(r.Context())
 		if claims == nil {
+			h.observeOutcome("submit", modeGroup, "unauthorized")
 			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized: missing claims", http.StatusUnauthorized)
 			return
 		}
@@ -203,6 +221,7 @@ func (h *Handler) Submit() http.HandlerFunc {
 
 		// Validate VA exists
 		if vaDiscordServerID == "" {
+			h.observeOutcome("submit", modeGroup, "not_found")
 			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
 			return
 		}
@@ -210,11 +229,13 @@ func (h *Handler) Submit() http.HandlerFunc {
 		// Get VA configuration
 		va, err := h.vaRepo.GetByDiscordServerID(r.Context(), vaDiscordServerID)
 		if err != nil {
+			h.observeOutcome("submit", modeGroup, "server_error")
 			httpdto.WriteError(w, initTime, "VA_FETCH_FAILED", "Failed to fetch VA configuration", http.StatusInternalServerError)
 			return
 		}
 
 		if va == nil {
+			h.observeOutcome("submit", modeGroup, "not_found")
 			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
 			return
 		}
@@ -222,6 +243,7 @@ func (h *Handler) Submit() http.HandlerFunc {
 		// Parse request body
 		var submitRequest dtos.PirepSubmitRequest
 		if err := json.NewDecoder(r.Body).Decode(&submitRequest); err != nil {
+			h.observeOutcome("submit", modeGroup, "bad_request")
 			httpdto.WriteError(w, initTime, "BAD_REQUEST", "Invalid request body", http.StatusBadRequest)
 			return
 		}
@@ -237,6 +259,7 @@ func (h *Handler) Submit() http.HandlerFunc {
 		discordID := claims.DiscordUserID()
 		user, err := h.userRepo.GetUserWithVAAffiliations(r.Context(), discordID)
 		if err != nil || user == nil {
+			h.observeOutcome("submit", modeGroup, "not_found")
 			httpdto.WriteError(w, initTime, "USER_NOT_FOUND", "User not found", http.StatusNotFound)
 			return
 		}
@@ -251,6 +274,7 @@ func (h *Handler) Submit() http.HandlerFunc {
 		}
 
 		if userCallsign == "" {
+			h.observeOutcome("submit", modeGroup, "forbidden")
 			httpdto.WriteError(w, initTime, "USER_NOT_MEMBER", "User is not a member of this virtual airline", http.StatusForbidden)
 			return
 		}
@@ -258,17 +282,42 @@ func (h *Handler) Submit() http.HandlerFunc {
 		// Submit PIREP using the injected service
 		response, err := h.pirepSvc.SubmitPirep(r.Context(), &submitRequest, va, claims)
 		if err != nil {
+			h.observeOutcome("submit", modeGroup, "server_error")
 			httpdto.WriteError(w, initTime, "SUBMIT_FAILED", "Failed to submit PIREP", http.StatusInternalServerError)
 			return
 		}
 
 		// Return response (success or validation error)
 		if response.Success {
+			h.observeOutcome("submit", modeGroup, "ok")
 			httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
 		} else {
+			h.observeOutcome("submit", modeGroup, "bad_request")
 			httpdto.WriteError(w, initTime, response.ErrorType, response.ErrorMessage, http.StatusBadRequest)
 		}
 	}
+}
+
+func classifyModeGroup(mode string) string {
+	lower := strings.ToLower(strings.TrimSpace(mode))
+	if strings.Contains(lower, "tour") || strings.Contains(lower, "event") {
+		return "tour"
+	}
+	return "standard"
+}
+
+func (h *Handler) observeRequest(endpoint, _ string, start time.Time) {
+	if h.metricsReg == nil {
+		return
+	}
+	h.metricsReg.PirepRequestDuration.WithLabelValues(endpoint).Observe(time.Since(start).Seconds())
+}
+
+func (h *Handler) observeOutcome(endpoint, modeGroup, resultClass string) {
+	if h.metricsReg == nil {
+		return
+	}
+	h.metricsReg.PirepRequestsTotal.WithLabelValues(endpoint, modeGroup, resultClass).Inc()
 }
 
 // buildSimplePirepConfigResponse constructs a minimal SimpleConfigResponse

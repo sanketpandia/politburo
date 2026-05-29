@@ -535,6 +535,7 @@ func (a *App) initFeatures() error {
 		legacyVAConfigSvc,
 		pirepSvc,
 		pirepValidator,
+		a.Infra.MetricsReg,
 	)
 	logging.Debug("Full PIREP handler initialized")
 
