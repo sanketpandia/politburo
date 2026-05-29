@@ -1,0 +1,93 @@
+# Discord Bot Required Headers Middleware — Dev Log
+
+## Logical unit / commit intent: Add Discord bot context middleware
+- Commit: `2a4dcfc Add Discord bot context middleware`
+- Changed files:
+  - `internal/middleware/discord_context.go`
+  - `internal/middleware/discord_context_test.go`
+  - `internal/middleware/auth.go`
+  - `internal/routes/router.go`
+- Reused code / patterns / components:
+  - Reused existing `func(http.Handler) http.Handler` middleware constructor shape.
+  - Reused `internal/platform/httpdto.WriteError` for the `403` JSON envelope.
+  - Reused chi scoped group routing in `internal/routes/router.go`.
+- Logging added or affected:
+  - Added one warning on missing Discord context with method/path and boolean header-presence fields only.
+  - No API keys or raw Discord IDs are logged.
+- Metrics added or affected:
+  - No explicit metrics added; existing HTTP/status metrics visibility depends on existing middleware/runtime wiring.
+- Test surface touched or still needed:
+  - Added focused middleware tests for present headers, missing user header, missing server header, blank values, old headers only, and claims preservation.
+- Build/test command(s) run and status:
+  - `go test ./internal/middleware ./internal/api/... ./internal/pilots ./internal/memberships ./internal/servers ./internal/auth ./internal/platform/httpdto ./internal/platform/validation` — passed.
+- Deviations from plan, if any:
+  - None for runtime middleware/auth/router scope.
+- Blast-radius notes / dependent surfaces checked:
+  - Scoped middleware to only `/api/v1/user/status`, `/api/v1/pilots/register`, `/api/v1/server/init`, `/api/v1/memberships/join`, and `/api/v1/signed-link`.
+  - Left PIREP, events, stats, logbook, admin, Vizburo, jobs, and infra routes unchanged.
+- Live API compliance notes:
+  - Not applicable.
+- Follow-up notes:
+  - Observability agent can decide whether current access/status-code visibility is sufficient; no new metric was added.
+
+## Logical unit / commit intent: Update registration API forbidden context contract
+- Commit: `266ec72 Update registration API forbidden context contract`
+- Changed files:
+  - `api/openapi/registration.yaml`
+  - `internal/api/generated/registration/server.gen.go`
+  - `internal/api/registration/server.go`
+  - `internal/api/registration/server_test.go`
+- Reused code / patterns / components:
+  - Reused existing registration OpenAPI security scheme structure and `ErrorResponse` schema.
+  - Regenerated generated server code via oapi-codegen; did not hand-edit generated output.
+  - Reused strict-server adapter status mapping pattern.
+- Logging added or affected:
+  - None.
+- Metrics added or affected:
+  - None.
+- Test surface touched or still needed:
+  - Added strict-server adapter coverage ensuring `403` error envelopes map for all five registration/onboarding operations.
+- Build/test command(s) run and status:
+  - `make generate-api` — failed because `oapi-codegen` was not on PATH.
+  - `go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest -config registration.cfg.yaml registration.yaml` from `api/openapi/` — succeeded.
+  - `go test ./internal/middleware ./internal/api/... ./internal/pilots ./internal/memberships ./internal/servers ./internal/auth ./internal/platform/httpdto ./internal/platform/validation` — passed.
+- Deviations from plan, if any:
+  - Used `go run ... oapi-codegen@latest` because the repo Make target depends on an uninstalled `oapi-codegen` binary.
+- Blast-radius notes / dependent surfaces checked:
+  - Kept operation IDs unchanged.
+  - Added `403` only to registration/onboarding operations in `api/openapi/registration.yaml`.
+- Live API compliance notes:
+  - Not applicable.
+- Follow-up notes:
+  - Swagger/OpenAPI agent should review the generated diff if the team wants a pinned oapi-codegen binary/tool version rather than `@latest` invocation.
+
+## Logical unit / commit intent: Send new headers for registration endpoints
+- Commit: `76b7421 Send new headers for registration endpoints` in `comrade-bot/`
+- Changed files:
+  - `comrade-bot/src/helpers/utils.ts`
+  - `comrade-bot/src/services/apiService.ts`
+- Reused code / patterns / components:
+  - Reused central header-helper pattern and added a registration-specific helper instead of changing `generateMetaHeaders` globally.
+- Logging added or affected:
+  - None.
+- Metrics added or affected:
+  - None.
+- Test surface touched or still needed:
+  - No bot unit tests exist for the header helper.
+  - Compose-based TypeScript build was attempted.
+- Build/test command(s) run and status:
+  - `docker compose -f docker-compose.dev.yml run --rm comrade-bot npm run build` from `labour-bureau/` — failed on pre-existing unrelated TypeScript errors in `src/commands/stats.ts` (`additional_fields`) and `src/utils/commandLoader.ts` (missing `../commands/pilot`).
+- Deviations from plan, if any:
+  - None for targeted bot calls.
+- Blast-radius notes / dependent surfaces checked:
+  - Updated only the five migrated calls: register pilot, init server, user status, signed link, join membership.
+  - Kept logbook, live flights, pilot stats, PIREP, events, god-mode, and other API calls on existing old headers.
+- Live API compliance notes:
+  - Not applicable.
+- Follow-up notes:
+  - Unit Testing agent may add bot helper tests if a test framework is introduced.
+  - Bot build needs separate cleanup for existing `stats.ts` and `commandLoader.ts` failures before it can validate this change cleanly.
+
+## Non-code notes intentionally not committed
+- `docs/bruno/Politburo.yml` was updated in the working tree to reflect the new manual-test headers, but left uncommitted per request not to commit non-code material.
+- This dev-log file is also intentionally left uncommitted.

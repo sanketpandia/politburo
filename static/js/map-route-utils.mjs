@@ -34,6 +34,115 @@ export function getAltitudeColor(altitude, maxAltitude = 30000) {
   return hexColor;
 }
 
+function isValidLatLng(lat, lng) {
+  return (
+    !Number.isNaN(lat) &&
+    !Number.isNaN(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
+
+function normalizeRoutePoints(routePoints) {
+  const result = [];
+
+  for (const point of routePoints) {
+    const lat = Number(point.latitude);
+    const lng = Number(point.longitude);
+
+    if (!isValidLatLng(lat, lng)) continue;
+
+    const normalized = {
+      ...point,
+      latitude: lat,
+      longitude: lng,
+    };
+    const previous = result[result.length - 1];
+
+    if (!previous) {
+      result.push(normalized);
+      continue;
+    }
+
+    const epsilon = 0.0001;
+    if (Math.abs(lat - previous.latitude) > epsilon || Math.abs(lng - previous.longitude) > epsilon) {
+      result.push(normalized);
+    }
+  }
+
+  return result;
+}
+
+function crossesAntimeridian(a, b) {
+  return Math.abs(Number(b.longitude) - Number(a.longitude)) > 180;
+}
+
+function interpolateAntimeridianPoint(a, b, longitude) {
+  const latA = Number(a.latitude);
+  const lngA = Number(a.longitude);
+  const latB = Number(b.latitude);
+  let lngB = Number(b.longitude);
+
+  if (lngA > 0 && lngB < 0) {
+    lngB += 360;
+  } else if (lngA < 0 && lngB > 0) {
+    lngB -= 360;
+  }
+
+  const targetLng = longitude === 180 && lngA < 0 ? -180 : longitude;
+  const unwrappedTargetLng = lngA > 0 && targetLng < 0 ? targetLng + 360 : targetLng;
+  const ratio = (unwrappedTargetLng - lngA) / (lngB - lngA);
+  const lat = latA + ((latB - latA) * ratio);
+
+  return {
+    ...a,
+    latitude: lat,
+    longitude,
+  };
+}
+
+function splitRouteAtAntimeridian(routePoints) {
+  const normalized = normalizeRoutePoints(routePoints);
+
+  if (normalized.length < 2) return [];
+
+  const segments = [];
+  let current = [normalized[0]];
+
+  for (let i = 1; i < normalized.length; i++) {
+    const previous = normalized[i - 1];
+    const point = normalized[i];
+
+    if (crossesAntimeridian(previous, point)) {
+      current.push(interpolateAntimeridianPoint(previous, point, Number(previous.longitude) < 0 ? -180 : 180));
+
+      if (current.length >= 2) {
+        segments.push(current);
+      }
+
+      current = [interpolateAntimeridianPoint(previous, point, Number(point.longitude) < 0 ? -180 : 180), point];
+    } else {
+      current.push(point);
+    }
+  }
+
+  if (current.length >= 2) {
+    segments.push(current);
+  }
+
+  return segments;
+}
+
+function toLatLngTuple(point) {
+  return [Number(point.latitude), Number(point.longitude)];
+}
+
+function getLongestRouteSegment(segments) {
+  return segments.reduce((longest, current) => current.length > longest.length ? current : longest, []);
+}
+
 /**
  * Create a route manager for a Leaflet map instance
  * @param {L.Map} map - Leaflet map instance
@@ -75,10 +184,12 @@ export function createRouteManager(map, options = {}) {
     // Clear any existing route first
     clearRoute();
 
+    const normalizedRoutePoints = normalizeRoutePoints(routePoints);
+
     // Draw segments between consecutive points
-    for (let i = 0; i < routePoints.length - 1; i++) {
-      const point1 = routePoints[i];
-      const point2 = routePoints[i + 1];
+    for (let i = 0; i < normalizedRoutePoints.length - 1; i++) {
+      const point1 = normalizedRoutePoints[i];
+      const point2 = normalizedRoutePoints[i + 1];
 
       // Validate coordinates
       if (point1.latitude == null || point1.longitude == null ||
@@ -87,10 +198,15 @@ export function createRouteManager(map, options = {}) {
         continue;
       }
 
-      const segment = [
-        [point1.latitude, point1.longitude],
-        [point2.latitude, point2.longitude]
-      ];
+      if (crossesAntimeridian(point1, point2)) {
+        console.debug('mapRoute: Skipping antimeridian split segment', {
+          from: [point1.latitude, point1.longitude],
+          to: [point2.latitude, point2.longitude],
+        });
+        continue;
+      }
+
+      const segment = [toLatLngTuple(point1), toLatLngTuple(point2)];
 
       // Calculate average altitude for color interpolation
       const altitude1 = point1.altitude != null ? point1.altitude : 0;
@@ -112,9 +228,8 @@ export function createRouteManager(map, options = {}) {
     }
 
     // Fit map bounds to show the route
-    const routeBounds = routePoints
-      .filter(wp => wp.latitude != null && wp.longitude != null)
-      .map(wp => [wp.latitude, wp.longitude]);
+    const routeSegments = splitRouteAtAntimeridian(normalizedRoutePoints);
+    const routeBounds = getLongestRouteSegment(routeSegments).map(toLatLngTuple);
 
     if (routeBounds.length > 0) {
       map.fitBounds(routeBounds, {

@@ -49,6 +49,129 @@ export function getFlightPhaseColor(phase) {
   return colors[phase] || '#3b82f6'; // Default to blue
 }
 
+function isValidLatLng(lat, lng) {
+  return (
+    !Number.isNaN(lat) &&
+    !Number.isNaN(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
+
+function getValidLatLng(value) {
+  if (!value) return null;
+
+  const lat = Number(value.lat ?? value.latitude);
+  const lng = Number(value.lng ?? value.longitude);
+
+  if (!isValidLatLng(lat, lng)) return null;
+
+  return [lat, lng];
+}
+
+function normalizeRoutePoints(waypoints) {
+  const result = [];
+
+  for (const wp of waypoints) {
+    const lat = Number(wp.latitude);
+    const lng = Number(wp.longitude);
+
+    if (!isValidLatLng(lat, lng)) continue;
+
+    const normalized = {
+      ...wp,
+      latitude: lat,
+      longitude: lng,
+    };
+    const previous = result[result.length - 1];
+
+    if (!previous) {
+      result.push(normalized);
+      continue;
+    }
+
+    const prevLat = Number(previous.latitude);
+    const prevLng = Number(previous.longitude);
+    const epsilon = 0.0001;
+
+    if (Math.abs(lat - prevLat) > epsilon || Math.abs(lng - prevLng) > epsilon) {
+      result.push(normalized);
+    }
+  }
+
+  return result;
+}
+
+function crossesAntimeridian(a, b) {
+  return Math.abs(Number(b.longitude) - Number(a.longitude)) > 180;
+}
+
+function interpolateAntimeridianPoint(a, b, longitude) {
+  const latA = Number(a.latitude);
+  const lngA = Number(a.longitude);
+  const latB = Number(b.latitude);
+  let lngB = Number(b.longitude);
+
+  if (lngA > 0 && lngB < 0) {
+    lngB += 360;
+  } else if (lngA < 0 && lngB > 0) {
+    lngB -= 360;
+  }
+
+  const targetLng = longitude === 180 && lngA < 0 ? -180 : longitude;
+  const unwrappedTargetLng = lngA > 0 && targetLng < 0 ? targetLng + 360 : targetLng;
+  const ratio = (unwrappedTargetLng - lngA) / (lngB - lngA);
+  const lat = latA + ((latB - latA) * ratio);
+
+  return {
+    ...a,
+    latitude: lat,
+    longitude,
+  };
+}
+
+function splitRouteAtAntimeridian(waypoints) {
+  const normalized = normalizeRoutePoints(waypoints);
+
+  if (normalized.length < 2) return [];
+
+  const segments = [];
+  let current = [normalized[0]];
+
+  for (let i = 1; i < normalized.length; i++) {
+    const previous = normalized[i - 1];
+    const point = normalized[i];
+
+    if (crossesAntimeridian(previous, point)) {
+      current.push(interpolateAntimeridianPoint(previous, point, Number(previous.longitude) < 0 ? -180 : 180));
+
+      if (current.length >= 2) {
+        segments.push(current);
+      }
+
+      current = [interpolateAntimeridianPoint(previous, point, Number(point.longitude) < 0 ? -180 : 180), point];
+    } else {
+      current.push(point);
+    }
+  }
+
+  if (current.length >= 2) {
+    segments.push(current);
+  }
+
+  return segments;
+}
+
+function toLatLngTuple(point) {
+  return [Number(point.latitude), Number(point.longitude)];
+}
+
+function getLongestRouteSegment(segments) {
+  return segments.reduce((longest, current) => current.length > longest.length ? current : longest, []);
+}
+
 /**
  * Create a custom HTML icon for a flight marker
  * @param {Object} flight - Flight data object
@@ -125,6 +248,11 @@ export class FlightMap {
     this.maxAltitude = maxAltitude;
     this.routeLineWidth = routeLineWidth;
 
+    const worldBounds = [
+      [-85, -180],
+      [85, 180],
+    ];
+
     // Initialize Leaflet map
     this.map = L.map(container, {
       center: center,
@@ -132,13 +260,18 @@ export class FlightMap {
       zoomControl: true,
       attributionControl: true,
       maxZoom: 22,
-      minZoom: 2,
+      minZoom: 3,
+      maxBounds: worldBounds,
+      maxBoundsViscosity: 1.0,
+      worldCopyJump: false,
     });
 
     // Add OpenStreetMap tiles
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
-      maxZoom: 22
+      maxZoom: 22,
+      noWrap: true,
+      bounds: worldBounds,
     }).addTo(this.map);
 
     // Layer groups for managing flights and routes
@@ -166,9 +299,7 @@ export class FlightMap {
     // Clear existing flights
     this.clearFlights();
 
-    const validFlights = flights.filter(f => 
-      f.latitude != null && f.longitude != null
-    );
+    const validFlights = flights.filter(f => getValidLatLng(f) !== null);
 
     if (validFlights.length === 0) {
       return;
@@ -181,7 +312,10 @@ export class FlightMap {
         ? createFlightIcon(flight, color)
         : createCircleIcon(color);
 
-      const marker = L.marker([flight.latitude, flight.longitude], {
+      const position = getValidLatLng(flight);
+      if (!position) return;
+
+      const marker = L.marker(position, {
         icon: icon
       });
 
@@ -267,56 +401,7 @@ export class FlightMap {
 
     console.log(`FlightMap.addRoute: Processing ${waypoints.length} waypoints`);
 
-    // Filter out duplicate consecutive waypoints (stationary points)
-    // This prevents zero-length segments that won't render
-    const filteredWaypoints = [];
-    for (let i = 0; i < waypoints.length; i++) {
-      const wp = waypoints[i];
-      const lat = Number(wp.latitude);
-      const lng = Number(wp.longitude);
-      
-      // Skip invalid coordinates
-      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        continue;
-      }
-      
-      // Include first waypoint always
-      if (filteredWaypoints.length === 0) {
-        filteredWaypoints.push(wp);
-        continue;
-      }
-      
-      // Only include waypoint if coordinates changed from previous
-      const prevWp = filteredWaypoints[filteredWaypoints.length - 1];
-      const prevLat = Number(prevWp.latitude);
-      const prevLng = Number(prevWp.longitude);
-      
-      // Use small epsilon to handle floating point precision
-      const epsilon = 0.0001;
-      if (Math.abs(lat - prevLat) > epsilon || Math.abs(lng - prevLng) > epsilon) {
-        filteredWaypoints.push(wp);
-      }
-    }
-    
-    // Always include the last waypoint if it's different from the last filtered point
-    if (waypoints.length > 0) {
-      const lastWp = waypoints[waypoints.length - 1];
-      const lastLat = Number(lastWp.latitude);
-      const lastLng = Number(lastWp.longitude);
-      
-      if (filteredWaypoints.length > 0) {
-        const lastFiltered = filteredWaypoints[filteredWaypoints.length - 1];
-        const lastFilteredLat = Number(lastFiltered.latitude);
-        const lastFilteredLng = Number(lastFiltered.longitude);
-        const epsilon = 0.0001;
-        
-        if (Math.abs(lastLat - lastFilteredLat) > epsilon || Math.abs(lastLng - lastFilteredLng) > epsilon) {
-          filteredWaypoints.push(lastWp);
-        }
-      } else if (!isNaN(lastLat) && !isNaN(lastLng)) {
-        filteredWaypoints.push(lastWp);
-      }
-    }
+    const filteredWaypoints = normalizeRoutePoints(waypoints);
     
     console.log(`FlightMap.addRoute: Filtered to ${filteredWaypoints.length} unique waypoints (removed ${waypoints.length - filteredWaypoints.length} duplicates)`);
     
@@ -350,14 +435,21 @@ export class FlightMap {
       const lat2 = Number(point2.latitude);
       const lng2 = Number(point2.longitude);
 
-      if (isNaN(lat1) || isNaN(lng1) || isNaN(lat2) || isNaN(lng2)) {
+      if (Number.isNaN(lat1) || Number.isNaN(lng1) || Number.isNaN(lat2) || Number.isNaN(lng2)) {
         console.warn(`FlightMap.addRoute: Skipping segment ${i} - NaN coordinates`);
         continue;
       }
 
-      if (lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90 ||
-          lng1 < -180 || lng1 > 180 || lng2 < -180 || lng2 > 180) {
+      if (!isValidLatLng(lat1, lng1) || !isValidLatLng(lat2, lng2)) {
         console.warn(`FlightMap.addRoute: Skipping segment ${i} - coordinates out of range`);
+        continue;
+      }
+
+      if (Math.abs(lng2 - lng1) > 180) {
+        console.debug('FlightMap.addRoute: Skipping antimeridian split segment', {
+          from: [lat1, lng1],
+          to: [lat2, lng2],
+        });
         continue;
       }
 
@@ -463,16 +555,9 @@ export class FlightMap {
       });
     }
 
-    // Fit map bounds to show the route (use filtered waypoints)
-    const routeBounds = filteredWaypoints
-      .filter(wp => {
-        const lat = Number(wp.latitude);
-        const lng = Number(wp.longitude);
-        return !isNaN(lat) && !isNaN(lng) && 
-               lat >= -90 && lat <= 90 && 
-               lng >= -180 && lng <= 180;
-      })
-      .map(wp => [Number(wp.latitude), Number(wp.longitude)]);
+    const routeSegments = splitRouteAtAntimeridian(filteredWaypoints);
+    const fitSegment = getLongestRouteSegment(routeSegments);
+    const routeBounds = fitSegment.map(toLatLngTuple);
 
     if (routeBounds.length > 0) {
       try {
@@ -481,7 +566,7 @@ export class FlightMap {
           maxZoom: 22,
           minZoom: 2
         });
-        console.log(`FlightMap: Fitted bounds to route with ${routeBounds.length} valid points`);
+        console.log(`FlightMap: Fitted bounds to route segment with ${routeBounds.length} valid points`);
       } catch (error) {
         console.error('FlightMap: Error fitting bounds', error);
       }
@@ -507,24 +592,38 @@ export class FlightMap {
     this.clearPath(name);
 
     const { color = '#3b82f6', weight = 3, opacity = 0.85, dashArray = null, fit = false } = options;
-    const validPoints = waypoints
-      .map((wp) => [Number(wp.latitude), Number(wp.longitude)])
-      .filter(([lat, lng]) => !Number.isNaN(lat) && !Number.isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180);
-    if (validPoints.length < 2) return;
+    const routeSegments = splitRouteAtAntimeridian(waypoints);
 
-    const polyline = L.polyline(validPoints, {
-      color,
-      weight,
-      opacity,
-      dashArray,
-      lineCap: 'round',
-      lineJoin: 'round',
-      interactive: false,
-    }).addTo(this.routeLayerGroup);
-    this.namedRouteLayers.set(name, [polyline]);
+    if (routeSegments.length === 0) return;
+
+    const layers = [];
+    routeSegments.forEach((segment) => {
+      const polyline = L.polyline(segment.map(toLatLngTuple), {
+        color,
+        weight,
+        opacity,
+        dashArray,
+        lineCap: 'round',
+        lineJoin: 'round',
+        interactive: false,
+      }).addTo(this.routeLayerGroup);
+
+      layers.push(polyline);
+    });
+
+    this.namedRouteLayers.set(name, layers);
 
     if (fit) {
-      this.map.fitBounds(validPoints, { padding: [50, 50], maxZoom: 10 });
+      const fitSegment = getLongestRouteSegment(routeSegments);
+      const routeBounds = fitSegment.map(toLatLngTuple);
+
+      if (routeBounds.length > 0) {
+        try {
+          this.map.fitBounds(routeBounds, { padding: [50, 50], maxZoom: 10 });
+        } catch (error) {
+          console.warn('FlightMap.addPath: failed to fit route bounds', error);
+        }
+      }
     }
   }
 
@@ -559,7 +658,7 @@ export class FlightMap {
     
     if (marker) {
       // Use marker if it exists
-      position = marker.getLatLng();
+      position = getValidLatLng(marker.getLatLng());
       data = marker._flightData;
       this.flightMarkers.forEach((flightMarker) => {
         const flight = flightMarker._flightData;
@@ -567,12 +666,14 @@ export class FlightMap {
         flight._selected = flight.flight_id === flightId;
         flightMarker.setIcon(createFlightIcon(flight, getFlightPhaseColor(flight.phase)));
       });
-    } else if (flightData && flightData.latitude != null && flightData.longitude != null) {
+    } else if (flightData) {
       // Fallback to flight data if marker doesn't exist
-      position = [flightData.latitude, flightData.longitude];
+      position = getValidLatLng(flightData);
       data = flightData;
       console.log(`FlightMap.focusFlight: Using flight data for ${flightId} (marker not found)`);
-    } else {
+    }
+
+    if (!position) {
       console.warn(`FlightMap.focusFlight: Flight ${flightId} not found and no flight data provided`);
       return;
     }

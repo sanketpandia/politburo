@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Politburo** is a Go backend for the Infinite Experiment Discord bot and web client. It provides REST APIs for a virtual airline system, integrating with Infinite Flight Live API, Airtable, and PostgreSQL. It also serves the **Vizburo** dashboard UI (HTMX + Tailwind, rendered server-side).
+**Politburo** is a Go backend for the Infinite Experiment Discord bot and web client. It provides REST APIs for a virtual airline system, integrating with Infinite Flight Live API, Airtable, and PostgreSQL. It also serves the **Vizburo** dashboard UI (HTMX + server-rendered templates, with hand-authored design-system CSS).
 
 ## Development Commands
 
@@ -12,13 +12,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Start with Air (hot reload)
-air
+go tool air -c .air.toml
 
 # Manual build
 go build -buildvcs=false -o .air_tmp/main ./cmd/server
 
 # Vizburo UI (separate binary, shares DB/Redis)
-go build -o .air_tmp/vizburo ./cmd/vizburo
+go build -buildvcs=false -o .air_tmp/vizburo ./cmd/vizburo
 ```
 
 ### Utilities
@@ -27,8 +27,14 @@ go build -o .air_tmp/vizburo ./cmd/vizburo
 go mod tidy
 go test ./...
 
+# Regenerate OpenAPI artifacts after spec changes
+make generate-api
+
 # Focused registration/OpenAPI coverage
 go test ./internal/api/... ./internal/pilots ./internal/memberships ./internal/servers ./internal/auth ./internal/platform/httpdto ./internal/platform/validation
+
+# Focused LiveAPI wrapper coverage
+go test ./infra/liveapi ./infra/metrics ./internal/sessions ./internal/flights ./internal/platform/aircraft ./internal/pilots
 ```
 
 ## Architecture
@@ -36,7 +42,7 @@ go test ./internal/api/... ./internal/pilots ./internal/memberships ./internal/s
 ### Entry Points
 
 - **`cmd/server/main.go`**: Main HTTP server. Loads config → initializes `app.App` → builds router → registers jobs/workers → starts HTTP server with graceful shutdown.
-- **`cmd/vizburo/main.go`**: Vizburo UI binary. **Currently broken** — calls `routes.RegisterRoutes` which doesn't exist. Needs to be updated to use `app.New` + `routes.NewRouter`.
+- **`cmd/vizburo/main.go`**: Vizburo UI binary. Uses shared runtime/DI wiring and serves UI routes without API jobs/workers.
 
 ### Application Initialization (`internal/app/app.go`)
 
@@ -77,6 +83,7 @@ Horizontal infrastructure packages — no business logic:
 | `infra/redis` | Redis client factory |
 | `infra/queue` | Redis-backed queue service |
 | `infra/liveapi` | Infinite Flight Live API HTTP client |
+| `infra/liveapi/generated` | Generated upstream Infinite Flight Live API client/models; never import directly from feature/platform/UI code |
 | `infra/logging` | Structured logger (Zap-based) |
 | `infra/metrics` | Prometheus metrics registry |
 | `infra/session` | Session service (Redis-backed) |
@@ -127,7 +134,7 @@ Domain-feature packages — each owns its handler, service, repo, model:
 
 ### Authentication
 
-`internal/middleware/auth.go` — `AuthMiddleware(claimsRepo, keysRepo, sessionSvc)` populates `UserClaims` from either a Vizburo session cookie or API-key bot context headers (`X-API-Key`, `X-Discord-Server-Id`, `X-Discord-User-Id`). Registration/onboarding routes also use `RequireDiscordBotContextMiddleware()` so missing Discord context returns `403` after API-key auth.
+`internal/middleware/auth.go` — `AuthMiddleware(claimsRepo, keysRepo, sessionSvc)` populates `UserClaims` from either a Vizburo session cookie or API-key bot context headers (`X-API-Key`, `X-Discord-Server-Id`, `X-Discord-User-Id`). Registration/onboarding routes also use `RequireDiscordBotContextMiddleware()` so missing Discord context returns `403` after API-key auth. Older bot paths may still reference `X-Discord-Id`/`X-Server-Id`; do not expand that pattern without an explicit compatibility decision.
 
 `internal/auth/claims.go` — `UserClaims` interface; `APIKeyClaims` struct.
 `internal/auth/request_context.go` — `SetUserClaims`, `GetUserClaims`, `SetSessionData`, `GetSessionData`.
@@ -186,6 +193,18 @@ func (h *Handler) GetFoo() http.HandlerFunc { return func(w http.ResponseWriter,
 - API JSON: `internal/platform/httpdto/response.go` — `WriteSuccess`, `WriteError`, `WriteValidationError`
 - UI HTML: `templates.Renderer.Render(w, "pages/foo.html", data)` or `RenderStandalone`
 
+### Vizburo Styling
+Active Vizburo templates use root `templates/**` plus `static/css/design-system.css`. The old Tailwind path (`npm run css:build`, `static/css/output.css`, `vizburo/ui/**`, and stale `internal/platform/ui/templates/**`) has been retired. Do not add new styling or templates under retired trees; edit `design-system.css` and run focused template/build checks instead.
+
+The active `/dashboard/live` page uses `templates/pages/live.html`, partials under `templates/partials/`, `static/js/live-flights.mjs`, and `static/js/flight-map.mjs`. It receives cached live-flight JSON through the `live-flights-data` script tag and loads planned/flown paths from `GET /dashboard/flights/{flightID}/paths`.
+
+### Infinite Flight LiveAPI Boundary
+The upstream LiveAPI spec lives in `api/openapi/liveapi.yaml`, generation config is `api/openapi/liveapi.cfg.yaml`, and generated output is `infra/liveapi/generated/client.gen.go`. Generated code stays behind `infra/liveapi.Client`; domain/platform/UI code should not import `infra/liveapi/generated`.
+
+`infra/liveapi.Client` owns `IF_API_BASE_URL`, bearer auth with `IF_API_KEY`, compatibility DTO mapping, status/error normalization, and wrapper observability. `infra/providers.LiveAPIProvider` delegates to this client. `internal/common.LiveAPIService` is retired into a not-implemented compatibility stub, so new or migrated LiveAPI consumers should use `infra/liveapi.Client` or a small adapter with tests.
+
+LiveAPI wrapper metrics exposed on `/metrics` are `politburo_liveapi_requests_total` and `politburo_liveapi_request_duration_seconds` with bounded labels `provider`, `endpoint_group`, `status_class`, and `error_type`. Keep LiveAPI cache TTL values centralized in `infra/cache/ttl.go`; complete-flight and flight-plan-derived data currently use 48-hour operational TTLs.
+
 ### Watermill Handler Pattern
 Handlers are registered via `pireps.RegisterPirepHandlers(router, subscriber, handler)`. Each handler:
 1. Sets `msg.Metadata.Set("handler_name", HandlerName)` as first line (for MetricsMiddleware).
@@ -195,11 +214,11 @@ Middleware stack (outer→inner): `PoisonQueueMiddleware → MetricsMiddleware`.
 Order matters: MetricsMiddleware is inner so it sees the real error before PoisonQueue suppresses it.
 
 ### Cache Keys (Redis)
-- `game:live:session:{id}` — IF session data (24h)
-- `game:live:sessions` — pipe-delimited session ID list (24h)
-- `game:live:flight:{id}` — cached flight with waypoints (5min)
-- `game:live:vaflights:{va_id}` — VA's live flight IDs (1min)
-- `if:aircraft:{id}` — aircraft/livery data (1h)
+- `game:live:session:{id}` — IF session data; TTL from `cache.SessionTTL`
+- `game:live:sessions` — pipe-delimited session ID list; TTL from `cache.SessionTTL`
+- `game:live:flight:{id}` — cached complete flight with waypoints; TTL from `cache.LiveFlightTTL`
+- `game:live:vaflights:{va_id}` — VA's live flight IDs; TTL from `cache.LiveFlightListTTL`
+- `if:aircraft:{id}` — aircraft/livery data; TTL from `cache.AircraftTTL`
 
 ### Error Handling
 API errors: `http.Error()` or `httpdto.RespondError`. No panics. DB retries only at connection init.
@@ -216,7 +235,7 @@ API errors: `http.Error()` or `httpdto.RespondError`. No panics. DB retries only
 
 **Partially migrated legacy packages:**
 - `internal/services/` — `world_tour_service.go`, `flights_service.go`, `at_sync_service.go`, `flight_modes_config_service.go` still exist. Some are still imported. Migrate to domain packages.
-- `internal/common/` — `VAConfigService`, `AirtableApiService`, `LiveAPIService` wrappers still widely imported (~25 files). Equivalents are in `infra/` and `internal/platform/va/`.
+- `internal/common/` — `VAConfigService` and `AirtableApiService` wrappers still have legacy imports. `LiveAPIService` is intentionally a not-implemented compatibility stub; migrate remaining runtime consumers to `infra/liveapi.Client` or provider adapters before re-enabling behavior.
 - `internal/db/repositories/` — miscellaneous repositories not yet moved to domain packages.
 - `internal/models/entities/` and `internal/models/gorm/` — shared model files; domain packages should own their own models over time.
 

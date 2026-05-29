@@ -232,7 +232,7 @@ async function loadFlightPaths(flightID) {
       flightMap.addPath('flight-plan', flightPlan, { color: '#8b5cf6', weight: 3, opacity: 0.85, dashArray: '8 8' });
     }
     if (flownRoute.length > 1) {
-      flightMap.addPath('flown-route', flownRoute, { color: '#22c55e', weight: 4, opacity: 0.95, fit: true });
+      flightMap.addPath('flown-route', flownRoute, { color: '#22c55e', weight: 4, opacity: 0.95 });
     }
   } catch (error) {
     console.warn('Failed to load cached flight paths', error);

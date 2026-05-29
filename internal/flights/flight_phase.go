@@ -3,19 +3,22 @@ package flights
 import "time"
 
 const (
-	groundSpeedThreshold  = 50
-	flightSpeedThreshold  = 120
-	landingSpeedThreshold = 160
+	groundSpeedThreshold       = 50
+	flightSpeedThreshold       = 120
+	landingSpeedThreshold      = 160
+	impossibleGroundAltitudeFt = 15000
+	impossibleGroundSpeedKt    = 150
 )
 
-func updateFlightPhase(flight *CompleteFlight, speed int, _ int) {
+func updateFlightPhase(flight *CompleteFlight, speed int, altitude int) {
 	now := time.Now().UTC()
 	prevPhase := flight.Phase
 	trend := calculateTrendFromQueue(flight.TrendQueue)
 	nearZeroVerticalSpeed := flight.VerticalSpeed > -150 && flight.VerticalSpeed < 150
+	impossibleOnGround := altitude > impossibleGroundAltitudeFt || speed > impossibleGroundSpeedKt
 
 	if prevPhase == PhaseUnknown || prevPhase == "" {
-		flight.Phase = determineInitialPhase(speed, trend, nearZeroVerticalSpeed)
+		flight.Phase = determineInitialPhase(speed, altitude, trend, nearZeroVerticalSpeed)
 		markPhaseChange(flight, prevPhase, now)
 		if flight.Phase != PhaseOnGround && flight.Phase != PhaseUnknown && flight.TakeoffTime == nil {
 			takeoffTime := now.UTC()
@@ -27,7 +30,11 @@ func updateFlightPhase(flight *CompleteFlight, speed int, _ int) {
 	nextPhase := prevPhase
 	switch prevPhase {
 	case PhaseOnGround:
-		if trend.SpeedIncreasing && trend.AltitudeRising {
+		if impossibleOnGround && trend.AltitudeFalling {
+			nextPhase = PhaseDescent
+		} else if impossibleOnGround && trend.AltitudeStable {
+			nextPhase = PhaseCruise
+		} else if impossibleOnGround || trend.SpeedIncreasing && trend.AltitudeRising {
 			nextPhase = PhaseTakeoff
 		}
 	case PhaseTakeoff:
@@ -55,9 +62,13 @@ func updateFlightPhase(flight *CompleteFlight, speed int, _ int) {
 			nextPhase = PhaseLanded
 		}
 	case PhaseLanded:
-		if speed <= groundSpeedThreshold && trend.AltitudeStable && nearZeroVerticalSpeed {
+		if impossibleOnGround && trend.AltitudeFalling {
+			nextPhase = PhaseDescent
+		} else if impossibleOnGround && trend.AltitudeStable {
+			nextPhase = PhaseCruise
+		} else if speed <= groundSpeedThreshold && trend.AltitudeStable && nearZeroVerticalSpeed {
 			nextPhase = PhaseOnGround
-		} else if trend.AltitudeRising && speed >= flightSpeedThreshold {
+		} else if impossibleOnGround || trend.AltitudeRising && speed >= flightSpeedThreshold {
 			nextPhase = PhaseClimb
 		}
 	}
@@ -75,7 +86,18 @@ func updateFlightPhase(flight *CompleteFlight, speed int, _ int) {
 	}
 }
 
-func determineInitialPhase(speed int, trend FlightTrend, nearZeroVerticalSpeed bool) FlightPhase {
+func determineInitialPhase(speed int, altitude int, trend FlightTrend, nearZeroVerticalSpeed bool) FlightPhase {
+	if altitude > impossibleGroundAltitudeFt || speed > impossibleGroundSpeedKt {
+		switch {
+		case trend.AltitudeFalling:
+			return PhaseDescent
+		case trend.AltitudeRising:
+			return PhaseClimb
+		default:
+			return PhaseCruise
+		}
+	}
+
 	switch {
 	case speed <= groundSpeedThreshold && trend.AltitudeStable && nearZeroVerticalSpeed:
 		return PhaseOnGround

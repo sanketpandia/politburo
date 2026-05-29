@@ -1551,6 +1551,12 @@ body {
     display: none;
 }
 
+.flight-card-top,
+.flight-card-metrics,
+.flight-card-label {
+    display: contents;
+}
+
 .live-map-panel {
     display: flex;
     flex-direction: column;
@@ -2068,15 +2074,24 @@ body {
     .flight-list {
         height: 28rem;
         max-height: 28rem;
+        gap: 0.625rem;
+        padding-bottom: 7rem;
     }
 
     .flight-list-item {
-        grid-template-columns: minmax(0, 1fr);
+        display: flex;
+        flex-direction: column;
         gap: 0.75rem;
+        min-height: 96px;
         border: 1px solid var(--border-subtle);
         border-radius: 0.875rem;
-        margin-bottom: 0.75rem;
-        padding: 1rem;
+        margin-bottom: 0;
+        padding: 0.875rem 1rem;
+        overflow: hidden;
+    }
+
+    .flight-list-item.active {
+        box-shadow: 0 0 0 1px var(--accent-primary);
     }
 
     .flight-list-heading,
@@ -2084,11 +2099,83 @@ body {
         display: none;
     }
 
+    .flight-card-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+        min-width: 0;
+    }
+
+    .flight-card-identity {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .flight-card-callsign,
+    .flight-card-subtext {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .flight-card-phase {
+        display: flex;
+        flex-shrink: 0;
+        justify-content: flex-end;
+    }
+
+    .flight-card-metrics {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(72px, 0.8fr) minmax(64px, 0.7fr);
+        gap: 0.75rem;
+        align-items: end;
+        min-width: 0;
+    }
+
+    @media (max-width: 380px) {
+        .flight-card-metrics {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .flight-card-metric-route {
+            grid-column: 1 / -1;
+        }
+    }
+
+    .flight-card-metric {
+        min-width: 0;
+    }
+
+    .flight-card-label {
+        display: block;
+        color: var(--text-muted);
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        line-height: 1.2;
+        text-transform: uppercase;
+    }
+
     .flight-list-route,
     .flight-list-number,
     .flight-live-dot {
         color: var(--text-secondary);
         font-size: 0.95rem;
+    }
+
+    .flight-card-value {
+        display: block;
+        line-height: 1.25;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .flight-live-dot {
+        align-self: flex-start;
     }
 
     .flight-card-chevron {

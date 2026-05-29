@@ -29,17 +29,30 @@
         {{if .Flights}}
             {{range .Flights}}
             <button class="flight-list-item" type="button" data-flight-id="{{.FlightID}}">
-                <span class="flight-list-primary">
-                    <strong>{{.Callsign}}</strong>
-                    <small>{{if .AircraftName}}{{.AircraftName}}{{else}}Aircraft unknown{{end}}</small>
+                <span class="flight-card-top">
+                    <span class="flight-list-primary flight-card-identity">
+                        <strong class="flight-card-callsign">{{.Callsign}}</strong>
+                        <small class="flight-card-subtext">{{if .AircraftName}}{{.AircraftName}}{{else}}Aircraft unknown{{end}}</small>
+                    </span>
+                    <span class="flight-list-meta flight-card-phase">
+                        <span class="status-pill phase-{{.Phase}}">{{.Phase}}</span>
+                    </span>
                 </span>
                 <span class="flight-list-pilot">{{if .Username}}{{.Username}}{{else}}Unknown pilot{{end}}</span>
-                <span class="flight-list-route">{{if .Origin}}{{.Origin}}{{else}}—{{end}} → {{if .Destination}}{{.Destination}}{{else}}—{{end}}</span>
-                <span class="flight-list-meta">
-                    <span class="status-pill phase-{{.Phase}}">{{.Phase}}</span>
+                <span class="flight-card-metrics">
+                    <span class="flight-card-metric flight-card-metric-route">
+                        <span class="flight-card-label">Route</span>
+                        <span class="flight-list-route flight-card-value">{{if .Origin}}{{.Origin}}{{else}}—{{end}} → {{if .Destination}}{{.Destination}}{{else}}—{{end}}</span>
+                    </span>
+                    <span class="flight-card-metric">
+                        <span class="flight-card-label">Alt</span>
+                        <span class="flight-list-number flight-card-value">{{.Altitude}} ft</span>
+                    </span>
+                    <span class="flight-card-metric">
+                        <span class="flight-card-label">Speed</span>
+                        <span class="flight-list-number flight-card-value">{{.Speed}} kt</span>
+                    </span>
                 </span>
-                <span class="flight-list-number">{{.Altitude}} ft</span>
-                <span class="flight-list-number">{{.Speed}} kt</span>
                 <span class="flight-live-dot"><i></i><span>Live</span></span>
                 <span class="flight-card-chevron" aria-hidden="true">›</span>
             </button>

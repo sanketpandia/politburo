@@ -45,14 +45,14 @@ swagger.yaml
 # Swagger generated
 
 # AI tooling artifacts
-CLAUDE.md
-.claude/
-.cursor/
-.dev-log/
-plans/
-memory/
-PLAN.md
-WORKLOG.md
-ARCHITECTURE_NOTES.md
-LIVE_ENDPOINT_IMPLEMENTATION.md
-RELEASE_V1.0_PLAN.md
+# CLAUDE.md
+# .claude/
+# .cursor/
+# .dev-log/
+# plans/
+# memory/
+# PLAN.md
+# WORKLOG.md
+# ARCHITECTURE_NOTES.md
+# LIVE_ENDPOINT_IMPLEMENTATION.md
+# RELEASE_V1.0_PLAN.md

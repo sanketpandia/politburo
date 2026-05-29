@@ -57,6 +57,32 @@ Both metrics use the bounded labels `provider`, `endpoint_group`, `status_class`
 
 Wrapper completion logs use the same low-cardinality fields and do not include API keys or raw payloads. Successful calls log at debug level; failed or non-2xx calls log at warn level.
 
+Session and live-flight cache jobs also emit bounded work and cache-size metrics through the same registry:
+
+- `politburo_sync_job_duration_seconds{job_name="session_cache_job",provider="liveapi",entity_type="session"}`
+- `politburo_sync_job_duration_seconds{job_name="flights_cache_job",provider="liveapi",entity_type="flight"}`
+- `politburo_sync_job_records_processed_total{job_name="flights_cache_job",provider="liveapi",entity_type="session",status="processed",va_id="_"}`
+- `politburo_sync_job_records_processed_total{job_name="flights_cache_job",provider="liveapi",entity_type="flight",status="cached",va_id="_"}`
+- `politburo_sync_job_records_failed_total{job_name="flights_cache_job",provider="liveapi",entity_type="flight",va_id="_",error_type="..."}`
+- `politburo_cache_size_bytes{cache_name=~"session_cache|live_flights|live_session_flight_indexes|live_va_flight_indexes"}`
+
+The dev and production `politburo-background` Grafana dashboards include a **Live flight/session cache sizes** panel for those cache-size gauges. The metric name is historical; these gauges currently represent item/index counts, not byte totals.
+
+## Live session and flight cache behavior
+
+The session cache job refreshes Infinite Flight live sessions on the existing scheduled cadence and stores both session IDs and displayable server options for Vizburo Basic Setup. Use the shared helpers in `internal/sessions` when another package needs cached session IDs, names, or server options.
+
+The flights cache job remains cache-first for Discord `/live`, Vizburo `/dashboard/live`, signed map links, and live-flight webhooks. It now:
+
+- reads cached session IDs rather than discovering sessions inline;
+- matches flights by each VA's saved callsign start/end;
+- filters matches to the VA's enabled server IDs when the VA saved a non-empty server selection;
+- treats missing, empty, or `null` enabled-server config as “all servers enabled”;
+- stores complete flights by flight ID and keeps VA/session indexes of flight IDs for read-side consumers;
+- stores route/flight-plan data by flight ID through the existing flight-plan queue and worker.
+
+Flight phase detection uses a bounded FIFO trend queue on the cached complete-flight object. Preserve that queue-based approach when changing phase logic so transitions are based on recent ordered observations rather than a single sample.
+
 ## Endpoints covered by the initial spec
 
 The initial spec covers endpoints already used or already represented by the existing `infra/liveapi` boundary:

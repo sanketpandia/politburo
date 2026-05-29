@@ -22,9 +22,12 @@ Basic Setup shows the VA Code / ID as read-only and lets admins save:
 
 - optional display name;
 - callsign start, for callsigns such as `IFE123`;
-- callsign end, for callsigns such as `123VA`.
+- callsign end, for callsigns such as `123VA`;
+- enabled Infinite Flight servers for live-flight matching.
 
-At least one callsign start or callsign end is required before live-flight matching is ready. The sample callsign tester checks against the currently saved rule.
+At least one callsign start or callsign end is required before live-flight matching is ready. Basic Setup preserves the casing you enter when it saves the callsign rule, while matching remains case-insensitive. The sample callsign tester checks against the currently saved rule.
+
+The enabled servers list is populated from the cached Infinite Flight live sessions. Leave the selection empty to match flights on all available servers. If a previously selected server is no longer available, it is removed from the saved selection the next time Basic Setup is saved.
 
 The setup checklist currently marks bootstrap and flight-matching readiness. Other modules, such as Airtable records, flight logging, notifications, events, and livery mappings, remain optional and are configured from their existing Vizburo pages.
 
