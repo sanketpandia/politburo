@@ -11,7 +11,6 @@ import (
 	"infinite-experiment/politburo/internal/db/repositories"
 	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/platform/users"
-	"infinite-experiment/politburo/internal/services"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -135,14 +134,11 @@ func (h *Handler) SetFlightModesConfig() http.HandlerFunc {
 			return
 		}
 
-		// Use service to validate and save configuration
-		// Note: This still uses the services package FlightModesConfigService
-		// We may want to move this into VA package later
-		configSvc := services.NewFlightModesConfigService(h.legacyVARepo)
-		if err := configSvc.ValidateAndSaveConfig(r.Context(), vaGorm.ID, configPayload); err != nil {
-			common.RespondError(w, initTime, err, "Invalid configuration", http.StatusBadRequest)
-			return
-		}
+	// Validate + save strict v2 config via platform VA service
+	if err := h.svc.ValidateAndSaveFlightModesConfig(r.Context(), vaGorm.ID, configPayload); err != nil {
+		common.RespondError(w, initTime, err, "Invalid configuration", http.StatusBadRequest)
+		return
+	}
 
 		// Get the number of modes for response
 		flightModes := configPayload["flight_modes"].(map[string]interface{})

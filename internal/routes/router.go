@@ -195,6 +195,9 @@ func NewRouter(application *app.App) http.Handler {
 
 			})
 
+			// Flight modes config API (admin-only)
+			adminAPI.Post("/flight-modes/config", application.Platform.VAHandler.SetFlightModesConfig())
+
 			// Session management API
 			adminAPI.Route("/sessions", func(sessions chi.Router) {
 				// Destroy sessions endpoint requires god-mode with key header
@@ -214,7 +217,7 @@ func NewRouter(application *app.App) http.Handler {
 			})
 		})
 
-		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/user/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/user/{ifc_id}/flights, GET /api/v1/pireps/config, POST /api/v1/pireps/submit, GET /api/v1/admin/verify-god, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
+		logging.Info("Registered routes: GET /api/v1/user/status, POST /api/v1/user/register, POST /api/v1/server/init, POST /api/v1/memberships/join, GET /api/v1/flights/va, GET /api/v1/flights/{flight_id}, POST /api/v1/signed-link, GET /api/v1/pilots/{ifc_id}/logbook, GET /api/v1/user/{ifc_id}/flights, GET /api/v1/pireps/config, POST /api/v1/pireps/submit, GET /api/v1/admin/verify-god, GET /api/v1/events, POST /api/v1/events, GET /api/v1/events/{id}, PUT /api/v1/events/{id}, DELETE /api/v1/events/{id}, PATCH /api/v1/events/{id}/status, GET /api/v1/events/{id}/summary, GET /api/v1/events/{id}/legs, POST /api/v1/events/{id}/legs, GET /api/v1/events/{id}/legs/{leg_id}, PUT /api/v1/events/{id}/legs/{leg_id}, DELETE /api/v1/events/{id}/legs/{leg_id}, POST /api/v1/admin/airtable/credentials, POST /api/v1/admin/flight-modes/config, POST /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schema/{schemaType}, GET /api/v1/admin/airtable/schemas")
 	})
 
 	// Dashboard routes (require authentication)

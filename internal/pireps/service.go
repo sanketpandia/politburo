@@ -2,7 +2,6 @@ package pireps
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -117,18 +116,18 @@ func (s *Service) SubmitPirep(
 
 	// STEP 4: RESOLVE ROUTE
 	var route *sync.RouteATSynced
-	if modeConfig.AutoRoute != nil {
-		// Auto-route mode: lookup by route name
+	if modeConfig.RouteBehavior.RouteSource == dtos.RouteSourceFixedRoute {
+		// Fixed-route mode: lookup by configured route name
 		var err error
-		route, err = s.resolveAutoRoute(ctx, vaConfig.ID, modeConfig.AutoRoute.RouteName)
+		route, err = s.resolveAutoRoute(ctx, vaConfig.ID, modeConfig.RouteBehavior.FixedRoute.RouteName)
 		if err != nil {
 			return &dtos.PirepSubmitResponse{
 				Success:      false,
 				ErrorType:    "validation_error",
-				ErrorMessage: fmt.Sprintf("Auto-route not found: %s", modeConfig.AutoRoute.RouteName),
+				ErrorMessage: fmt.Sprintf("Fixed route not found: %s", modeConfig.RouteBehavior.FixedRoute.RouteName),
 			}, nil
 		}
-	} else {
+	} else if modeConfig.RouteBehavior.RouteSource == dtos.RouteSourceCurrentFPL {
 		// Manual route selection: use provided route string (e.g., "LFPG-EGLL")
 		if request.RouteID == "" {
 			return &dtos.PirepSubmitResponse{
@@ -148,6 +147,8 @@ func (s *Service) SubmitPirep(
 				ErrorMessage: fmt.Sprintf("Route not found in system: %s", request.RouteID),
 			}, nil
 		}
+	} else {
+		route = nil
 	}
 
 	// STEP 5: RESOLVE PILOT
@@ -297,41 +298,28 @@ func (s *Service) SubmitPirep(
 }
 
 // getModeConfig extracts and validates a flight mode configuration
-func (s *Service) getModeConfig(va *gormModels.VA, modeID string) (*dtos.FlightModeConfig, error) {
-	if va.FlightModesConfig == nil || len(va.FlightModesConfig) == 0 {
-		return nil, fmt.Errorf("no flight modes configured")
+func (s *Service) getModeConfig(va *gormModels.VA, modeID string) (*dtos.ModeRuntimeConfig, error) {
+	envelope, err := dtos.ParseModeRuntimeEnvelope(va.FlightModesConfig)
+	if err != nil {
+		return nil, err
 	}
 
-	flightModes, ok := va.FlightModesConfig["flight_modes"].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid flight modes structure")
-	}
-
-	modeData, ok := flightModes[modeID].(map[string]interface{})
+	mode, ok := envelope.FlightModes[modeID]
 	if !ok {
 		return nil, fmt.Errorf("mode not found: %s", modeID)
 	}
 
-	// Check if enabled
-	enabled, _ := modeData["enabled"].(bool)
-	if !enabled {
+	if !mode.Identity.Enabled {
 		return nil, fmt.Errorf("mode not enabled: %s", modeID)
 	}
 
-	// Convert to FlightModeConfig struct
-	modeConfigJSON, _ := json.Marshal(modeData)
-	var config dtos.FlightModeConfig
-	if err := json.Unmarshal(modeConfigJSON, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse mode config: %w", err)
-	}
-
-	return &config, nil
+	return &mode, nil
 }
 
 // validateRequiredFields checks that all required fields in the request are present
 func (s *Service) validateRequiredFields(
 	request *dtos.PirepSubmitRequest,
-	modeConfig *dtos.FlightModeConfig,
+	modeConfig *dtos.ModeRuntimeConfig,
 ) error {
 	if request.Mode == "" {
 		return fmt.Errorf("mode is required")
@@ -342,9 +330,9 @@ func (s *Service) validateRequiredFields(
 	}
 
 	// Check for mode-specific required fields
-	for _, field := range modeConfig.Fields {
+	for _, field := range modeConfig.PilotInputs {
 		if field.Required {
-			switch field.Name {
+			switch field.Key {
 			case "flight_time":
 				// Already checked above
 			case "fuel_kg":
@@ -390,7 +378,7 @@ func (s *Service) getUserWithVAAffiliations(ctx context.Context, discordID strin
 // buildPirepObject constructs the PIREP object for Airtable submission using schema field mappings
 func (s *Service) buildPirepObject(
 	request *dtos.PirepSubmitRequest,
-	modeConfig *dtos.FlightModeConfig,
+	modeConfig *dtos.ModeRuntimeConfig,
 	user *gormModels.User,
 	userVARole *gormModels.UserVARole,
 	route *sync.RouteATSynced,
@@ -443,8 +431,8 @@ func (s *Service) buildPirepObject(
 		}
 	}
 
-	if flightModeField := getFieldName("flight_mode"); flightModeField != "" && modeConfig.DisplayName != "" {
-		pirepObj[flightModeField] = modeConfig.DisplayName
+	if flightModeField := getFieldName("flight_mode"); flightModeField != "" && modeConfig.Identity.DisplayName != "" {
+		pirepObj[flightModeField] = modeConfig.Identity.DisplayName
 	}
 
 	// Flight time with multiplier
@@ -612,14 +600,9 @@ func (s *Service) parseFlightTime(flightTime string) int {
 }
 
 // getMultiplier extracts the multiplier from mode config metadata
-func (s *Service) getMultiplier(modeConfig *dtos.FlightModeConfig) float64 {
-	if modeConfig.Metadata != nil {
-		if m, ok := modeConfig.Metadata["multiplier"].(float64); ok {
-			return m
-		}
-	}
-	if modeConfig.AutoRoute != nil {
-		return modeConfig.AutoRoute.Multiplier
+func (s *Service) getMultiplier(modeConfig *dtos.ModeRuntimeConfig) float64 {
+	if modeConfig.RouteBehavior.RouteSource == dtos.RouteSourceFixedRoute && modeConfig.RouteBehavior.FixedRoute != nil {
+		return modeConfig.RouteBehavior.FixedRoute.Multiplier
 	}
 	return 1.0
 }
@@ -627,7 +610,7 @@ func (s *Service) getMultiplier(modeConfig *dtos.FlightModeConfig) float64 {
 // buildBotMetadataSection constructs the bot enriched metadata section for pilot remarks
 func (s *Service) buildBotMetadataSection(
 	request *dtos.PirepSubmitRequest,
-	modeConfig *dtos.FlightModeConfig,
+	modeConfig *dtos.ModeRuntimeConfig,
 	flightData *FlightData,
 ) string {
 	var metadata []string

@@ -16,6 +16,7 @@ import (
 	"infinite-experiment/politburo/internal/flights"
 	"infinite-experiment/politburo/internal/models/dtos"
 	gormModels "infinite-experiment/politburo/internal/models/gorm"
+	"infinite-experiment/politburo/internal/platform/httpdto"
 )
 
 // Handler handles PIREP filing endpoints (configuration and submission)
@@ -65,7 +66,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		// Get claims from context
 		claims := auth.GetUserClaims(r.Context())
 		if claims == nil {
-			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized: missing claims", http.StatusUnauthorized)
 			return
 		}
 
@@ -73,19 +74,24 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 
 		// Validate VA exists
 		if vaDiscordServerID == "" {
-			common.RespondError(w, initTime, fmt.Errorf("va not found"), "Virtual airline not found", http.StatusNotFound)
+			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
 			return
 		}
 
 		// Get VA configuration with flight modes using Discord Server ID
 		vaGorm, err := h.vaRepo.GetByDiscordServerID(r.Context(), vaDiscordServerID)
 		if err != nil {
-			common.RespondError(w, initTime, err, "Failed to fetch VA configuration", http.StatusInternalServerError)
+			httpdto.WriteError(w, initTime, "VA_FETCH_FAILED", "Failed to fetch VA configuration", http.StatusInternalServerError)
 			return
 		}
 
 		if vaGorm == nil {
-			common.RespondError(w, initTime, fmt.Errorf("va not found"), "Virtual airline not found", http.StatusNotFound)
+			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
+			return
+		}
+
+		if _, err := dtos.ParseModeRuntimeEnvelope(vaGorm.FlightModesConfig); err != nil {
+			httpdto.WriteError(w, initTime, "INVALID_MODE_CONFIG", "Flight mode configuration is invalid; contact VA admin", http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -93,7 +99,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		discordID := claims.DiscordUserID()
 		user, err := h.userRepo.GetUserWithVAAffiliations(r.Context(), discordID)
 		if err != nil || user == nil {
-			common.RespondError(w, initTime, fmt.Errorf("user not found"), "User not found", http.StatusNotFound)
+			httpdto.WriteError(w, initTime, "USER_NOT_FOUND", "User not found", http.StatusNotFound)
 			return
 		}
 
@@ -107,7 +113,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		}
 
 		if userCallsign == "" {
-			common.RespondError(w, initTime, fmt.Errorf("user not member of va"), "User is not a member of this virtual airline", http.StatusForbidden)
+			httpdto.WriteError(w, initTime, "USER_NOT_MEMBER", "User is not a member of this virtual airline", http.StatusForbidden)
 			return
 		}
 
@@ -159,7 +165,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 		)
 		if err != nil {
 			logging.Debug("GetPirepConfig: no matching live flight found", "error", err)
-			common.RespondError(w, initTime, fmt.Errorf("no live flight found"), "You are not currently flying. Please join a flight before filing a PIREP.", http.StatusNotFound)
+			httpdto.WriteError(w, initTime, "FLIGHT_NOT_FOUND", "You are not currently flying. Please join a flight before filing a PIREP.", http.StatusNotFound)
 			return
 		}
 
@@ -176,7 +182,7 @@ func (h *Handler) GetConfig() http.HandlerFunc {
 
 		// Build simplified response
 		response := h.buildSimplePirepConfigResponse(r.Context(), vaGorm, flight)
-		common.RespondSuccess(w, initTime, "PIREP configuration fetched successfully", response)
+		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
 	}
 }
 
@@ -189,7 +195,7 @@ func (h *Handler) Submit() http.HandlerFunc {
 		// Get claims from context
 		claims := auth.GetUserClaims(r.Context())
 		if claims == nil {
-			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized: missing claims", http.StatusUnauthorized)
 			return
 		}
 
@@ -197,26 +203,26 @@ func (h *Handler) Submit() http.HandlerFunc {
 
 		// Validate VA exists
 		if vaDiscordServerID == "" {
-			common.RespondError(w, initTime, fmt.Errorf("va not found"), "Virtual airline not found", http.StatusNotFound)
+			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
 			return
 		}
 
 		// Get VA configuration
 		va, err := h.vaRepo.GetByDiscordServerID(r.Context(), vaDiscordServerID)
 		if err != nil {
-			common.RespondError(w, initTime, err, "Failed to fetch VA configuration", http.StatusInternalServerError)
+			httpdto.WriteError(w, initTime, "VA_FETCH_FAILED", "Failed to fetch VA configuration", http.StatusInternalServerError)
 			return
 		}
 
 		if va == nil {
-			common.RespondError(w, initTime, fmt.Errorf("va not found"), "Virtual airline not found", http.StatusNotFound)
+			httpdto.WriteError(w, initTime, "VA_NOT_FOUND", "Virtual airline not found", http.StatusNotFound)
 			return
 		}
 
 		// Parse request body
 		var submitRequest dtos.PirepSubmitRequest
 		if err := json.NewDecoder(r.Body).Decode(&submitRequest); err != nil {
-			common.RespondError(w, initTime, err, "Invalid request body", http.StatusBadRequest)
+			httpdto.WriteError(w, initTime, "BAD_REQUEST", "Invalid request body", http.StatusBadRequest)
 			return
 		}
 
@@ -231,7 +237,7 @@ func (h *Handler) Submit() http.HandlerFunc {
 		discordID := claims.DiscordUserID()
 		user, err := h.userRepo.GetUserWithVAAffiliations(r.Context(), discordID)
 		if err != nil || user == nil {
-			common.RespondError(w, initTime, fmt.Errorf("user not found"), "User not found", http.StatusNotFound)
+			httpdto.WriteError(w, initTime, "USER_NOT_FOUND", "User not found", http.StatusNotFound)
 			return
 		}
 
@@ -245,24 +251,22 @@ func (h *Handler) Submit() http.HandlerFunc {
 		}
 
 		if userCallsign == "" {
-			common.RespondError(w, initTime, fmt.Errorf("user not member of va"), "User is not a member of this virtual airline", http.StatusForbidden)
+			httpdto.WriteError(w, initTime, "USER_NOT_MEMBER", "User is not a member of this virtual airline", http.StatusForbidden)
 			return
 		}
 
 		// Submit PIREP using the injected service
 		response, err := h.pirepSvc.SubmitPirep(r.Context(), &submitRequest, va, claims)
 		if err != nil {
-			common.RespondError(w, initTime, err, "Failed to submit PIREP", http.StatusInternalServerError)
+			httpdto.WriteError(w, initTime, "SUBMIT_FAILED", "Failed to submit PIREP", http.StatusInternalServerError)
 			return
 		}
 
 		// Return response (success or validation error)
 		if response.Success {
-			common.RespondSuccess(w, initTime, response.Message, response)
+			httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
 		} else {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(response)
+			httpdto.WriteError(w, initTime, response.ErrorType, response.ErrorMessage, http.StatusBadRequest)
 		}
 	}
 }
@@ -287,60 +291,54 @@ func (h *Handler) buildSimplePirepConfigResponse(
 		AvailableModes: []dtos.SimpleModeResponse{},
 	}
 
-	// Extract flight modes from config
-	if va.FlightModesConfig == nil || len(va.FlightModesConfig) == 0 {
+	modeEnvelope, err := dtos.ParseModeRuntimeEnvelope(va.FlightModesConfig)
+	if err != nil {
+		logging.Warn("Invalid v2 flight mode config", "va_id", va.ID, "error", err)
 		return response
 	}
 
-	flightModes, ok := va.FlightModesConfig["flight_modes"].(map[string]interface{})
-	if !ok {
-		return response
-	}
-
-	// Process each configured mode
-	for modeID, modeData := range flightModes {
-		modeConfig, ok := modeData.(map[string]interface{})
-		if !ok {
+	for _, modeID := range dtos.SortedModeKeysByDisplayName(modeEnvelope.FlightModes) {
+		modeConfig := modeEnvelope.FlightModes[modeID]
+		if !modeConfig.Identity.Enabled {
 			continue
 		}
 
-		// Check if enabled
-		enabled, _ := modeConfig["enabled"].(bool)
-		if !enabled {
-			continue
+		requiresRouteSelection := modeConfig.RouteBehavior.RouteSource == dtos.RouteSourceCurrentFPL
+
+		validationResult := &ValidationResult{Valid: true}
+		if modeConfig.RouteBehavior.RouteSource == dtos.RouteSourceFixedRoute && modeConfig.RouteBehavior.FixedRoute != nil && flight.Route != "" {
+			if flight.Route != modeConfig.RouteBehavior.FixedRoute.RouteName {
+				validationResult = &ValidationResult{Valid: false, ErrorMsg: "Current route does not match fixed route for this mode"}
+			}
 		}
 
-		// Get display name
-		displayName, _ := modeConfig["display_name"].(string)
-		if displayName == "" {
-			displayName = modeID
+		fields := make([]dtos.FormField, 0, len(modeConfig.PilotInputs))
+		for _, input := range modeConfig.PilotInputs {
+			fields = append(fields, dtos.FormField{
+				Name:     input.Key,
+				Type:     input.Type,
+				Label:    input.Label,
+				Required: input.Required,
+			})
 		}
 
-		// Get requires_route_selection
-		requiresRouteSelection, _ := modeConfig["requires_route_selection"].(bool)
-
-		// Convert to FlightModeConfig struct for validation
-		modeConfigJSON, _ := json.Marshal(modeConfig)
-		var flightModeConfig dtos.FlightModeConfig
-		if err := json.Unmarshal(modeConfigJSON, &flightModeConfig); err != nil {
-			continue
+		autofillRoute := ""
+		if modeConfig.RouteBehavior.RouteSource == dtos.RouteSourceFixedRoute && modeConfig.RouteBehavior.FixedRoute != nil {
+			autofillRoute = modeConfig.RouteBehavior.FixedRoute.RouteName
 		}
-
-		// Validate mode
-		validationResult := h.validator.ValidateFlightForMode(ctx, flight.Route, &flightModeConfig.Validations)
 
 		modeResponse := dtos.SimpleModeResponse{
 			ModeID:                 modeID,
-			DisplayName:            displayName,
+			DisplayName:            modeConfig.Identity.DisplayName,
 			RequiresRouteSelection: requiresRouteSelection,
-			AutofillRoute:          flightModeConfig.AutofillRoute,
-			Fields:                 flightModeConfig.Fields,
+			AutofillRoute:          autofillRoute,
+			Fields:                 fields,
 		}
 
 		if validationResult.Valid {
-			modeResponse.Status = "valid"
+			modeResponse.Status = dtos.ModeStatusValid
 		} else {
-			modeResponse.Status = "invalid"
+			modeResponse.Status = dtos.ModeStatusInvalid
 			modeResponse.ErrorReason = validationResult.ErrorMsg
 		}
 
