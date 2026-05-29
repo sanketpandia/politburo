@@ -112,7 +112,7 @@
     .radio-group input:focus + label {
         outline: none;
         border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        box-shadow: 0 0 0 3px var(--accent-primary-soft);
     }
 
     .form-helper {
@@ -206,13 +206,13 @@
     }
 
     .status-mapped {
-        background: rgba(34, 197, 94, 0.12);
-        color: #16a34a;
+        background: var(--accent-primary-soft);
+        color: var(--status-success);
     }
 
     .status-conflict {
-        background: rgba(220, 38, 38, 0.12);
-        color: #b91c1c;
+        background: var(--surface-hover);
+        color: var(--status-error);
     }
 
     .mapping-card {
@@ -283,7 +283,7 @@
 
     .radio-group input:checked + label {
         border-color: var(--accent-primary);
-        background: rgba(59, 130, 246, 0.08);
+        background: var(--accent-primary-soft);
         color: var(--accent-primary);
     }
 
@@ -431,8 +431,43 @@
         activeTab: 'aircraft',
         liveries: [],
         mappings: [],
-        selectedIds: new Set(),
+        selectedIdsByTab: {
+            aircraft: new Set(),
+            airline: new Set(),
+        },
     };
+
+    function getActiveSelectionSet() {
+        return state.selectedIdsByTab[state.activeTab];
+    }
+
+    function setMappingMessage(text, tone = 'info') {
+        const message = document.getElementById('mapping-message');
+        message.textContent = text || '';
+        if (tone === 'error') {
+            message.style.color = 'var(--status-error)';
+            return;
+        }
+        if (tone === 'success') {
+            message.style.color = 'var(--status-success)';
+            return;
+        }
+        message.style.color = 'var(--text-secondary)';
+    }
+
+    function switchTab(tab) {
+        if (tab !== 'aircraft' && tab !== 'airline') {
+            return;
+        }
+
+        state.activeTab = tab;
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.classList.toggle('active', button.dataset.tab === tab);
+        });
+        setMappingMessage('');
+        renderSourceList();
+        renderGroupCards();
+    }
 
     async function fetchLiveries() {
         try {
@@ -556,7 +591,7 @@
                     return !item.mappedTarget;
                 }
                 if (showSelected) {
-                    return state.selectedIds.has(item.liveryId);
+                    return getActiveSelectionSet().has(item.liveryId);
                 }
                 return true;
             });
@@ -568,7 +603,7 @@
         const activeTab = state.activeTab;
         const mappingIndex = getMappingIndex();
 
-        const selectedCount = state.selectedIds.size;
+        const selectedCount = getActiveSelectionSet().size;
         document.getElementById('selected-count').textContent = `${selectedCount} selected`;
 
         const title = activeTab === 'aircraft' ? 'Aircraft mapping workflow' : 'Airline mapping workflow';
@@ -582,7 +617,7 @@
         }
 
         const rows = sources.map(item => {
-            const checked = state.selectedIds.has(item.liveryId) ? 'checked' : '';
+            const checked = getActiveSelectionSet().has(item.liveryId) ? 'checked' : '';
             const mapped = item.mappedTarget ? true : false;
             const statusClass = mapped ? 'status-mapped' : 'status-unmapped';
             const statusText = mapped ? `Mapped to ${item.mappedTarget}` : 'Unmapped';
@@ -654,42 +689,43 @@
     }
 
     function toggleSelection(liveryId) {
-        if (state.selectedIds.has(liveryId)) {
-            state.selectedIds.delete(liveryId);
+        const selectedIds = getActiveSelectionSet();
+        if (selectedIds.has(liveryId)) {
+            selectedIds.delete(liveryId);
         } else {
-            state.selectedIds.add(liveryId);
+            selectedIds.add(liveryId);
         }
         renderSourceList();
     }
 
     function selectAllVisible() {
-        getCurrentSources().forEach(item => state.selectedIds.add(item.liveryId));
+        const selectedIds = getActiveSelectionSet();
+        getCurrentSources().forEach(item => selectedIds.add(item.liveryId));
         renderSourceList();
     }
 
     function clearSelection() {
-        state.selectedIds.clear();
+        getActiveSelectionSet().clear();
         renderSourceList();
     }
 
     async function saveBulkMapping(button) {
         const targetValue = document.getElementById('target-value').value.trim();
         const activeTab = state.activeTab;
-        const selectedIds = Array.from(state.selectedIds);
-        const conflictStrategy = document.querySelector('input[name="conflictStrategy"]:checked')?.value || 'overwrite';
-        const message = document.getElementById('mapping-message');
+        const selectedIds = Array.from(getActiveSelectionSet());
+        const conflictStrategy = document.querySelector('input[name="conflictStrategy"]:checked')?.value || 'skip';
 
         if (!targetValue) {
-            message.textContent = 'Target value is required.';
+            setMappingMessage('Target value is required.', 'error');
             return;
         }
 
         if (selectedIds.length === 0) {
-            message.textContent = 'Select at least one source row first.';
+            setMappingMessage('Select at least one source row first.', 'error');
             return;
         }
 
-        message.textContent = '';
+        setMappingMessage('');
         if (button) {
             button.disabled = true;
         }
@@ -710,17 +746,17 @@
             });
             const data = await response.json();
             if (data.status === 'ok') {
-                message.textContent = data.result?.message || 'Mappings saved successfully.';
+                setMappingMessage(data.result?.message || 'Mappings saved successfully.', 'success');
                 await fetchMappings();
                 renderSourceList();
                 renderGroupCards();
                 updateSummary();
             } else {
-                message.textContent = data.error?.message || 'Failed to save mappings.';
+                setMappingMessage(data.error?.message || 'Failed to save mappings.', 'error');
             }
         } catch (error) {
             console.error('Failed to save mapping:', error);
-            message.textContent = 'Failed to save mappings.';
+            setMappingMessage('Failed to save mappings.', 'error');
         } finally {
             if (button) {
                 button.disabled = false;
@@ -745,7 +781,9 @@
             const results = await Promise.all(responses.map(r => r.json()));
             const failed = results.some(result => result.status !== 'ok');
             if (failed) {
-                alert('Some mappings could not be deleted. Refresh the page and try again.');
+                setMappingMessage('Some mappings could not be deleted. Refresh and retry.', 'error');
+            } else {
+                setMappingMessage('Mapping group deleted successfully.', 'success');
             }
             await fetchMappings();
             renderSourceList();
@@ -753,7 +791,7 @@
             updateSummary();
         } catch (error) {
             console.error('Failed to delete group mappings:', error);
-            alert('Failed to delete group mappings.');
+            setMappingMessage('Failed to delete group mappings.', 'error');
         }
     }
 
@@ -766,6 +804,7 @@
     document.getElementById('search-input').addEventListener('input', renderSourceList);
     document.getElementById('filter-unmapped').addEventListener('change', renderSourceList);
     document.getElementById('filter-selected').addEventListener('change', renderSourceList);
+    document.getElementById('target-value').addEventListener('input', renderSourceList);
 
     document.getElementById('defaults-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -774,7 +813,7 @@
         const messageDiv = document.getElementById('defaults-message');
         const defaultAircraft = formData.get('defaultAircraft') || '';
         const defaultAirline = formData.get('defaultAirline') || '';
-        button = form.querySelector('button[type="submit"]');
+        const button = form.querySelector('button[type="submit"]');
         if (button) button.disabled = true;
         messageDiv.textContent = '';
         const result = await saveDefaults(defaultAircraft, defaultAirline);
@@ -787,6 +826,7 @@
     });
 
     async function initializePage() {
+        document.getElementById('conflict-skip').checked = true;
         await Promise.all([fetchLiveries(), fetchMappings(), loadDefaults()]);
         renderSourceList();
         renderGroupCards();
