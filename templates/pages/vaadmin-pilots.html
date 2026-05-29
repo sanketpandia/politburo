@@ -260,6 +260,17 @@
         <p class="page-subtitle" style="font-size: 0.875rem;">Manage pilots for {{.ActiveVA.VAName}}</p>
     </div>
 
+    <!-- Search input -->
+    <div style="margin-bottom: 1rem;">
+        <label class="sr-only" for="pilots-search-input">Search pilots</label>
+        <input id="pilots-search-input" 
+               class="form-input" 
+               type="search" 
+               placeholder="Search by callsign, username, or role" 
+               data-pilots-search
+               style="width: 100%;">
+    </div>
+
     <!-- Pilots Table Container (HTMX Target) -->
     <div id="pilots-container" class="pilots-table-container"
          hx-get="/dashboard/vaadmin/pilots/list"
@@ -272,4 +283,9 @@
         </div>
     </div>
 </div>
+
+<script type="module">
+    import { initPilotsSearch } from '/static/js/pilots-search.mjs';
+    initPilotsSearch();
+</script>
 {{end}}

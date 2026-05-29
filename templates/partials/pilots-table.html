@@ -12,7 +12,7 @@
     </thead>
     <tbody>
         {{range .Pilots}}
-        <tr>
+        <tr data-pilot-row data-pilot-username="{{.IFCommunityID}}" data-pilot-callsign="{{.Callsign}}" data-pilot-role="{{.Role}}">
             <td>{{.IFCommunityID}}</td>
             <td>
                 <form hx-post="/dashboard/vaadmin/pilots/{{.ID}}/callsign"
