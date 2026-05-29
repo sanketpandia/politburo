@@ -1,0 +1,22 @@
+{{define "vaadmin-datasource-status"}}
+<div class="vaadmin-datasource-status">
+    <div class="vaadmin-datasource-status-header">
+        <div>
+            <div class="vaadmin-datasource-status-kicker">Datasource status</div>
+            <h4 class="vaadmin-datasource-status-title">4 schema types</h4>
+        </div>
+        <div class="vaadmin-datasource-status-pill {{if .Status.AllConfigured}}is-ready{{else}}is-partial{{end}}">
+            {{.Status.Configured}}/{{.Status.Total}}
+        </div>
+    </div>
+
+    <div class="vaadmin-datasource-status-rows">
+        {{range .Status.Rows}}
+        <div class="vaadmin-datasource-status-row {{if .Configured}}is-configured{{else}}is-missing{{end}}">
+            <span class="vaadmin-datasource-status-icon" aria-hidden="true">{{if .Configured}}✓{{else}}○{{end}}</span>
+            <span class="vaadmin-datasource-status-label">{{.Label}}</span>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}

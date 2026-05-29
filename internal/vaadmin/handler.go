@@ -127,6 +127,35 @@ func (h *Handler) SetupPageHandler() http.HandlerFunc {
 	}
 }
 
+// DatasourceStatusCardHandler handles GET /dashboard/vaadmin/datasource/status
+// Returns the datasource readiness card for the VA Admin landing page.
+func (h *Handler) DatasourceStatusCardHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, activeVA, ok := h.requireActiveVASession(w, r)
+		if !ok {
+			return
+		}
+
+		schemas, err := h.vaSvc.GetAirtableSchemas(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to load datasource schemas", "error", err, "va_id", activeVA.VAID)
+			http.Error(w, "Failed to load datasource status", http.StatusInternalServerError)
+			return
+		}
+
+		data := map[string]interface{}{
+			"ActiveVA": activeVA,
+			"Status":   buildDatasourceStatusCardView(schemas),
+		}
+
+		if err := h.templateRenderer.RenderPartial(w, "partials/vaadmin-datasource-status.html", data); err != nil {
+			logging.Error("Error rendering datasource status card", "error", err)
+			http.Error(w, "Error rendering datasource status card", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
 func (h *Handler) BasicSetupFormHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, activeVA, ok := h.requireActiveVASession(w, r)
