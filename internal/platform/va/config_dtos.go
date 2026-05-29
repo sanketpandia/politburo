@@ -18,7 +18,7 @@ type SchemaConfig struct {
 	Enabled           bool           `json:"enabled"`
 	LastModifiedField string         `json:"last_modified_field,omitempty"`
 	Fields            []FieldMapping `json:"fields"`
-	
+
 	// Career mode specific configuration
 	CareerModeFlightMode *string `json:"career_mode_flight_mode,omitempty"` // Flight mode to filter PIREPs for last flown route
 }
@@ -30,20 +30,20 @@ type EntitySchema struct {
 	Enabled           bool           `json:"enabled"`
 	Fields            []FieldMapping `json:"fields"`
 	LastModifiedField string         `json:"last_modified_field,omitempty"`
-	
+
 	// Career mode specific configuration
 	CareerModeFlightMode *string `json:"career_mode_flight_mode,omitempty"` // Flight mode to filter PIREPs for last flown route
 }
 
 // FieldMapping maps an internal field to an external provider field
 type FieldMapping struct {
-	InternalName string  `json:"internal_name"`
-	AirtableName string  `json:"airtable_name"`
-	DataType     string  `json:"data_type"`
-	Required     bool    `json:"required"`
-	DefaultValue *string `json:"default_value,omitempty"`
-	DisplayName  string  `json:"display_name,omitempty"`
-	IsUserVisible bool   `json:"is_user_visible"`
+	InternalName  string  `json:"internal_name"`
+	AirtableName  string  `json:"airtable_name"`
+	DataType      string  `json:"data_type"`
+	Required      bool    `json:"required"`
+	DefaultValue  *string `json:"default_value,omitempty"`
+	DisplayName   string  `json:"display_name,omitempty"`
+	IsUserVisible bool    `json:"is_user_visible"`
 	DisplayFormat *string `json:"display_format,omitempty"`
 	BotMetadata   bool    `json:"bot_metadata"`
 }
@@ -54,6 +54,22 @@ type SyncSettings struct {
 	RateLimitPerSecond int `json:"rate_limit_per_second"`
 	RetryAttempts      int `json:"retry_attempts"`
 	TimeoutSeconds     int `json:"timeout_seconds"`
+}
+
+// FeaturePilotStatsConfig defines bounded pilot-stats card configuration.
+type FeaturePilotStatsConfig struct {
+	Enabled bool                    `json:"enabled"`
+	Cards   []PilotStatsFeatureCard `json:"cards,omitempty"`
+}
+
+type PilotStatsFeatureCard struct {
+	CardID          string   `json:"card_id"`
+	Mode            string   `json:"mode"` // direct_field|latest_row|recent_flights|bounded_aggregate
+	SourceSchema    string   `json:"source_schema,omitempty"`
+	SelectedFields  []string `json:"selected_fields,omitempty"`
+	DisplayFormat   string   `json:"display_format,omitempty"`
+	AggregationMode string   `json:"aggregation_mode,omitempty"`
+	Enabled         bool     `json:"enabled"`
 }
 
 // Helper methods for EntitySchema
@@ -127,6 +143,25 @@ func ParseSchemaConfig(jsonb JSONB) (*SchemaConfig, error) {
 	return &schema, nil
 }
 
+// ParseFeaturePilotStatsConfig parses feature_pilot_stats config from JSONB.
+func ParseFeaturePilotStatsConfig(jsonb JSONB) (*FeaturePilotStatsConfig, error) {
+	if jsonb == nil {
+		return nil, fmt.Errorf("jsonb is nil")
+	}
+
+	bytes, err := json.Marshal(jsonb)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal jsonb: %w", err)
+	}
+
+	var cfg FeaturePilotStatsConfig
+	if err := json.Unmarshal(bytes, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse feature pilot stats config: %w", err)
+	}
+
+	return &cfg, nil
+}
+
 // MarshalCredentialsConfig marshals credentials to JSONB
 func MarshalCredentialsConfig(creds *ProviderCredentials) (JSONB, error) {
 	if creds == nil {
@@ -181,4 +216,3 @@ func (s *SchemaConfig) ToEntitySchema(entityType string) *EntitySchema {
 	}
 	return entitySchema
 }
-

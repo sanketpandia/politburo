@@ -10,6 +10,7 @@ import (
 	platformMemberships "infinite-experiment/politburo/internal/platform/memberships"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"infinite-experiment/politburo/internal/sync"
+	stdsync "sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -194,6 +195,29 @@ func (s *StatsService) GetPilotStatusByCallsign(ctx context.Context, userDiscord
 // GetPilotStats fetches comprehensive pilot statistics (game stats + provider data)
 // This is the main entry point for the GET /api/v1/pilot/stats endpoint
 func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID string) (*StatsResponse, error) {
+	return s.GetPilotStatsWithOptions(ctx, userDiscordID, vaID, false)
+}
+
+func (s *StatsService) GetPilotStatsWithOptions(ctx context.Context, userDiscordID, vaID string, forceRefresh bool) (*StatsResponse, error) {
+	profileCacheKey := statsProfileCachePrefix + vaID + ":" + userDiscordID
+	refreshCooldownKey := statsRefreshCachePrefix + vaID + ":" + userDiscordID
+
+	if forceRefresh {
+		if _, inCooldown := s.cache.Get(refreshCooldownKey); inCooldown {
+			return nil, &StatsError{
+				Code:    constants.ErrCodeRateLimited,
+				Message: "Pilot stats refresh is on cooldown; try again in a minute",
+			}
+		}
+		s.cache.Set(refreshCooldownKey, true, statsRefreshCooldown)
+	} else if cached, found := s.cache.Get(profileCacheKey); found {
+		if cachedResp, ok := cached.(*StatsResponse); ok {
+			cachedCopy := *cachedResp
+			cachedCopy.Metadata.Cached = true
+			return &cachedCopy, nil
+		}
+	}
+
 	response := &StatsResponse{
 		Metadata: StatsMetadata{
 			LastFetched:        time.Now().Format(time.RFC3339),
@@ -213,26 +237,56 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 	}
 
 	response.Metadata.VAName = subject.VAName
-
-	// Fetch IF game stats from Live API using user's IFC Community ID
-	gameStats, err := s.liveAPIService.Fetch(ctx, subject)
-	if err == nil && gameStats != nil {
-		response.GameStats = gameStats
-	} else if err != nil {
-		logging.Warn("Failed to fetch IF game stats", "discord_id", userDiscordID, "va_id", vaID, "err", err)
-		// Game stats are optional - don't fail the entire request
+	if featureCfg, err := s.configAccessor.GetFeaturePilotStatsConfig(ctx, vaID); err != nil {
+		logging.Warn("Feature pilot stats config unavailable", "va_id", vaID, "err", err)
+	} else if featureCfg != nil && featureCfg.Enabled {
+		response.Metadata.SchemaVersion = platformVA.ConfigTypeFeaturePilotStats
 	}
 
-	// Fetch provider data (Airtable, etc.)
-	providerData, rawFields, cached, err := s.fetchProviderData(ctx, subject)
-	if err != nil {
-		logging.Warn("Provider data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", err)
+	var (
+		gameStats      *IFGameStats
+		gameErr        error
+		providerData   *ProviderPilotData
+		rawFields      map[string]interface{}
+		providerCached bool
+		providerErr    error
+		careerModeData *CareerModeData
+		cmCached       bool
+		careerErr      error
+	)
+
+	var wg stdsync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		gameStats, gameErr = s.liveAPIService.Fetch(ctx, subject)
+	}()
+
+	go func() {
+		defer wg.Done()
+		providerData, rawFields, providerCached, providerErr = s.fetchProviderData(ctx, subject)
+	}()
+
+	go func() {
+		defer wg.Done()
+		careerModeData, cmCached, careerErr = s.fetchCareerModeData(ctx, subject)
+	}()
+
+	wg.Wait()
+
+	if gameErr == nil && gameStats != nil {
+		response.GameStats = gameStats
+	} else if gameErr != nil {
+		logging.Warn("Failed to fetch IF game stats", "discord_id", userDiscordID, "va_id", vaID, "err", gameErr)
+	}
+
+	if providerErr != nil {
+		logging.Warn("Provider data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", providerErr)
 	} else {
 		response.ProviderData = providerData
 		response.Metadata.ProviderConfigured = true
-		response.Metadata.Cached = cached
-
-		// Fetch recent PIREPs using raw fields from Airtable
+		response.Metadata.Cached = providerCached
 		if rawFields != nil {
 			recentPIREPs, err := s.fetchRecentPIREPs(ctx, vaID, rawFields)
 			if err != nil {
@@ -243,17 +297,68 @@ func (s *StatsService) GetPilotStats(ctx context.Context, userDiscordID, vaID st
 		}
 	}
 
-	// Fetch career mode data if configured
-	careerModeData, cmCached, err := s.fetchCareerModeData(ctx, subject)
-	if err != nil {
-		logging.Warn("Career mode data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", err)
+	if careerErr != nil {
+		logging.Warn("Career mode data unavailable", "discord_id", userDiscordID, "va_id", vaID, "err", careerErr)
 	} else {
 		response.CareerModeData = careerModeData
-		// Update cached flag if career mode was also cached
 		response.Metadata.Cached = response.Metadata.Cached && cmCached
 	}
 
+	response.Insights = s.buildInsights(response)
+
+	s.cache.Set(profileCacheKey, response, statsProfileTTL)
+
 	return response, nil
+}
+
+func (s *StatsService) buildInsights(response *StatsResponse) *PilotStatsInsights {
+	if response == nil {
+		return nil
+	}
+
+	insights := &PilotStatsInsights{
+		ProviderFreshness: &ProviderFreshness{
+			LastFetchedAt: response.Metadata.LastFetched,
+			Cached:        response.Metadata.Cached,
+		},
+	}
+
+	if response.ProviderData != nil && response.ProviderData.LastActivity != nil {
+		insights.ProviderFreshness.ProviderLastActivity = response.ProviderData.LastActivity
+	}
+
+	if len(response.RecentPIREPs) > 0 {
+		recent := make([]RecentFlightCard, 0, len(response.RecentPIREPs))
+		for _, p := range response.RecentPIREPs {
+			recent = append(recent, RecentFlightCard{
+				Route:      p.Route,
+				FlightMode: p.FlightMode,
+				FlightTime: p.FlightTime,
+				Aircraft:   p.Aircraft,
+				Livery:     p.Livery,
+				OccurredAt: p.ATCreatedTime,
+			})
+			if len(recent) >= 5 {
+				break
+			}
+		}
+		insights.RecentFlights = recent
+	}
+
+	if response.CareerModeData != nil {
+		career := &CareerProgressCard{LastRoute: response.CareerModeData.LastCareerModeFlight}
+		if response.CareerModeData.AssignedRoutes != nil {
+			switch v := (*response.CareerModeData.AssignedRoutes).(type) {
+			case []interface{}:
+				career.AssignedRouteCount = len(v)
+			case []string:
+				career.AssignedRouteCount = len(v)
+			}
+		}
+		insights.Career = career
+	}
+
+	return insights
 }
 
 // fetchProviderData fetches and transforms data from the configured provider
@@ -288,8 +393,7 @@ func (s *StatsService) fetchProviderData(ctx context.Context, subject *platformM
 	cacheKey := fmt.Sprintf("pilot_stats:%s:%s", vaID, airtablePilotID)
 	if cachedData, found := s.cache.Get(cacheKey); found {
 		if data, ok := cachedData.(*ProviderPilotData); ok {
-			_ = data // Temporarily ignoring cache
-			// return data, nil, true, nil
+			return data, nil, true, nil
 		}
 	}
 

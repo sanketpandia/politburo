@@ -2,8 +2,10 @@
 {{if .PilotStats}}
 <div class="pilot-stats-card card section-card">
     <div class="section-header">
-        <h3 class="section-title">Your Stats</h3>
-        <p class="section-subtitle">Your pilot statistics and progress</p>
+        <div>
+            <h3 class="section-title">Your Stats</h3>
+            <p class="section-subtitle">Your pilot statistics and progress</p>
+        </div>
     </div>
 
     <div class="pilot-stats-grid">
@@ -41,6 +43,24 @@
                     <span class="pilot-stats-value">{{.PilotStats.GameStats.Grade}}</span>
                 </div>
                 {{end}}
+                {{if .PilotStats.GameStats.ViolationByLevel}}
+                <div class="pilot-stats-field">
+                    <span class="pilot-stats-label">Violations (L1/L2/L3):</span>
+                    <span class="pilot-stats-value">{{.PilotStats.GameStats.ViolationByLevel.Level1}} / {{.PilotStats.GameStats.ViolationByLevel.Level2}} / {{.PilotStats.GameStats.ViolationByLevel.Level3}}</span>
+                </div>
+                {{end}}
+                {{if .PilotStats.GameStats.ATC}}
+                <div class="pilot-stats-field">
+                    <span class="pilot-stats-label">ATC Operations:</span>
+                    <span class="pilot-stats-value">{{.PilotStats.GameStats.ATC.Operations}}</span>
+                </div>
+                {{if .PilotStats.GameStats.ATC.Rank}}
+                <div class="pilot-stats-field">
+                    <span class="pilot-stats-label">ATC Rank:</span>
+                    <span class="pilot-stats-value">{{.PilotStats.GameStats.ATC.Rank}}</span>
+                </div>
+                {{end}}
+                {{end}}
             </div>
         </div>
         {{end}}
@@ -52,7 +72,7 @@
                 {{if .PilotStats.ProviderData.FlightHours}}
                 <div class="pilot-stats-field">
                     <span class="pilot-stats-label">Flight Hours:</span>
-                    <span class="pilot-stats-value">{{.PilotStats.ProviderData.FlightHours}}</span>
+                    <span class="pilot-stats-value">{{formatDurationHHMM .PilotStats.ProviderData.FlightHours}}</span>
                 </div>
                 {{end}}
                 {{if .PilotStats.ProviderData.Rank}}
@@ -192,10 +212,50 @@
             </div>
         </div>
         {{end}}
+
+        {{if .PilotStats.Insights}}
+        {{if .PilotStats.Insights.Career}}
+        <div class="pilot-stats-section">
+            <h4 class="pilot-stats-section-title">Career Insights</h4>
+            <div class="pilot-stats-fields">
+                {{if .PilotStats.Insights.Career.LastRoute}}
+                <div class="pilot-stats-field">
+                    <span class="pilot-stats-label">Last Route:</span>
+                    <span class="pilot-stats-value">{{.PilotStats.Insights.Career.LastRoute}}</span>
+                </div>
+                {{end}}
+                <div class="pilot-stats-field">
+                    <span class="pilot-stats-label">Assigned Route Count:</span>
+                    <span class="pilot-stats-value">{{.PilotStats.Insights.Career.AssignedRouteCount}}</span>
+                </div>
+            </div>
+        </div>
+        {{end}}
+
+        {{if .PilotStats.Insights.RecentFlights}}
+        <div class="pilot-stats-section">
+            <h4 class="pilot-stats-section-title">Recent Flights</h4>
+            <div class="pilot-stats-fields">
+                {{range .PilotStats.Insights.RecentFlights}}
+                <div class="pilot-stats-field">
+                    <span class="pilot-stats-label">{{.Route}}{{if .Aircraft}} • {{.Aircraft}}{{end}}{{if .Livery}} • {{.Livery}}{{end}}</span>
+                    <span class="pilot-stats-value">{{if .OccurredAt}}{{formatTime .OccurredAt}}{{else}}Recent{{end}}</span>
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+        {{end}}
     </div>
 </div>
 {{else}}
 <div class="card section-card">
+    <div class="section-header">
+        <div>
+            <h3 class="section-title">Your Stats</h3>
+            <p class="section-subtitle">Your pilot statistics and progress</p>
+        </div>
+    </div>
     <div class="empty-state compact">
         <h3>No pilot stats yet</h3>
         <p>Your pilot statistics will appear here when data is available.</p>

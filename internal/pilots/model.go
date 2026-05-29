@@ -21,12 +21,12 @@ type PilotATSynced struct {
 
 // PilotATSyncedGORM represents a pilot record synced from Airtable (GORM)
 type PilotATSyncedGORM struct {
-	ID         string     `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
-	ATID       string     `gorm:"column:at_id;type:varchar(20);not null"`
-	Callsign   string     `gorm:"column:callsign;type:varchar(20)"`
-	Registered bool       `gorm:"column:registered;default:false"`
-	ServerID   string     `gorm:"column:server_id;type:uuid"`
-	PilotType  PilotType  `gorm:"column:pilot_type;type:pilot_type;default:'regular'"`
+	ID         string    `gorm:"column:id;primaryKey;type:uuid;default:gen_random_uuid()"`
+	ATID       string    `gorm:"column:at_id;type:varchar(20);not null"`
+	Callsign   string    `gorm:"column:callsign;type:varchar(20)"`
+	Registered bool      `gorm:"column:registered;default:false"`
+	ServerID   string    `gorm:"column:server_id;type:uuid"`
+	PilotType  PilotType `gorm:"column:pilot_type;type:pilot_type;default:'regular'"`
 }
 
 // TableName specifies the table name for GORM
@@ -55,17 +55,33 @@ type StatsResponse struct {
 
 	// Metadata about the response
 	Metadata StatsMetadata `json:"metadata"`
+
+	// Optional user-facing cards derived from already fetched data.
+	Insights *PilotStatsInsights `json:"insights,omitempty"`
 }
 
 // IFGameStats represents Infinite Flight Live API statistics
 // This will be populated in a future implementation
 type IFGameStats struct {
-	FlightTime    int `json:"flight_time,omitempty"`
-	OnlineFlights int `json:"online_flights,omitempty"`
-	LandingCount  int `json:"landing_count,omitempty"`
-	XP            int `json:"xp,omitempty"`
-	Grade         int `json:"grade,omitempty"`
-	Violations    int `json:"violations,omitempty"`
+	FlightTime       int                 `json:"flight_time,omitempty"`
+	OnlineFlights    int                 `json:"online_flights,omitempty"`
+	LandingCount     int                 `json:"landing_count,omitempty"`
+	XP               int                 `json:"xp,omitempty"`
+	Grade            int                 `json:"grade,omitempty"`
+	Violations       int                 `json:"violations,omitempty"`
+	ViolationByLevel *ViolationBreakdown `json:"violation_by_level,omitempty"`
+	ATC              *ATCProfile         `json:"atc,omitempty"`
+}
+
+type ViolationBreakdown struct {
+	Level1 int `json:"level1"`
+	Level2 int `json:"level2"`
+	Level3 int `json:"level3"`
+}
+
+type ATCProfile struct {
+	Operations int  `json:"operations"`
+	Rank       *int `json:"rank,omitempty"`
 }
 
 // ProviderPilotData contains standardized + custom fields from data provider
@@ -88,15 +104,15 @@ type ProviderPilotData struct {
 // CareerModeData contains career mode specific data from the provider
 type CareerModeData struct {
 	// Standardized career mode fields (all optional)
-	TotalCMHours              *interface{} `json:"total_cm_hours,omitempty"`               // Career mode hours completed
-	RequiredHoursToNext       *interface{} `json:"required_hours_to_next,omitempty"`       // Hours needed for next aircraft
-	LastActivityCM            *string      `json:"last_activity_cm,omitempty"`             // Last career mode activity
-	AssignedRoutes            *interface{} `json:"assigned_routes,omitempty"`              // Assigned flight routes (can be array)
-	Aircraft                  *string      `json:"aircraft,omitempty"`                     // Current aircraft
-	Airline                   *string      `json:"airline,omitempty"`                      // Current airline
-	LastFlownRoute            *string      `json:"last_flown_route,omitempty"`             // Last PIREP route
-	LastCareerModePIREP       *interface{} `json:"last_career_mode_pirep,omitempty"`       // Last PIREP log reference (Airtable IDs)
-	LastCareerModeFlight      *string      `json:"last_career_mode_flight,omitempty"`      // Last career mode flight route (enriched from route_at_synced)
+	TotalCMHours         *interface{} `json:"total_cm_hours,omitempty"`          // Career mode hours completed
+	RequiredHoursToNext  *interface{} `json:"required_hours_to_next,omitempty"`  // Hours needed for next aircraft
+	LastActivityCM       *string      `json:"last_activity_cm,omitempty"`        // Last career mode activity
+	AssignedRoutes       *interface{} `json:"assigned_routes,omitempty"`         // Assigned flight routes (can be array)
+	Aircraft             *string      `json:"aircraft,omitempty"`                // Current aircraft
+	Airline              *string      `json:"airline,omitempty"`                 // Current airline
+	LastFlownRoute       *string      `json:"last_flown_route,omitempty"`        // Last PIREP route
+	LastCareerModePIREP  *interface{} `json:"last_career_mode_pirep,omitempty"`  // Last PIREP log reference (Airtable IDs)
+	LastCareerModeFlight *string      `json:"last_career_mode_flight,omitempty"` // Last career mode flight route (enriched from route_at_synced)
 
 	// All other career mode fields that don't map to standard names
 	AdditionalFields map[string]interface{} `json:"additional_fields,omitempty"`
@@ -104,23 +120,49 @@ type CareerModeData struct {
 
 // StatsMetadata provides context about the data source and freshness
 type StatsMetadata struct {
-	ProviderType       string `json:"provider_type,omitempty"`   // e.g., "airtable", "google_sheets"
-	ProviderConfigured bool   `json:"provider_configured"`       // Whether a provider is configured for this VA
-	SchemaVersion      string `json:"schema_version,omitempty"`  // Config schema version
-	LastFetched        string `json:"last_fetched"`              // ISO 8601 timestamp
-	Cached             bool   `json:"cached"`                    // Whether data came from cache
-	VAName             string `json:"va_name,omitempty"`         // Name of the virtual airline
+	ProviderType       string `json:"provider_type,omitempty"`  // e.g., "airtable", "google_sheets"
+	ProviderConfigured bool   `json:"provider_configured"`      // Whether a provider is configured for this VA
+	SchemaVersion      string `json:"schema_version,omitempty"` // Config schema version
+	LastFetched        string `json:"last_fetched"`             // ISO 8601 timestamp
+	Cached             bool   `json:"cached"`                   // Whether data came from cache
+	VAName             string `json:"va_name,omitempty"`        // Name of the virtual airline
+}
+
+type PilotStatsInsights struct {
+	ProviderFreshness *ProviderFreshness  `json:"provider_freshness,omitempty"`
+	RecentFlights     []RecentFlightCard  `json:"recent_flights,omitempty"`
+	Career            *CareerProgressCard `json:"career,omitempty"`
+}
+
+type ProviderFreshness struct {
+	LastFetchedAt        string  `json:"last_fetched_at"`
+	Cached               bool    `json:"cached"`
+	ProviderLastActivity *string `json:"provider_last_activity,omitempty"`
+}
+
+type RecentFlightCard struct {
+	Route      string   `json:"route"`
+	FlightMode string   `json:"flight_mode,omitempty"`
+	FlightTime *float64 `json:"flight_time,omitempty"`
+	Aircraft   string   `json:"aircraft,omitempty"`
+	Livery     string   `json:"livery,omitempty"`
+	OccurredAt *string  `json:"occurred_at,omitempty"`
+}
+
+type CareerProgressCard struct {
+	LastRoute          *string `json:"last_route,omitempty"`
+	AssignedRouteCount int     `json:"assigned_route_count,omitempty"`
 }
 
 // RecentPIREP represents a recent PIREP (flight log) record
 type RecentPIREP struct {
-	ATID          string   `json:"at_id"`                    // Airtable record ID
-	Route         string   `json:"route"`                    // Flight route (e.g., "KLAX-KSFO")
-	FlightMode    string   `json:"flight_mode,omitempty"`    // Flight mode (e.g., "Casual", "Expert")
-	FlightTime    *float64 `json:"flight_time,omitempty"`    // Flight duration in hours
-	PilotCallsign string   `json:"pilot_callsign,omitempty"` // Pilot callsign
-	Aircraft      string   `json:"aircraft,omitempty"`       // Aircraft type (e.g., "B738")
-	Livery        string   `json:"livery,omitempty"`         // Aircraft livery/airline
+	ATID          string   `json:"at_id"`                     // Airtable record ID
+	Route         string   `json:"route"`                     // Flight route (e.g., "KLAX-KSFO")
+	FlightMode    string   `json:"flight_mode,omitempty"`     // Flight mode (e.g., "Casual", "Expert")
+	FlightTime    *float64 `json:"flight_time,omitempty"`     // Flight duration in hours
+	PilotCallsign string   `json:"pilot_callsign,omitempty"`  // Pilot callsign
+	Aircraft      string   `json:"aircraft,omitempty"`        // Aircraft type (e.g., "B738")
+	Livery        string   `json:"livery,omitempty"`          // Aircraft livery/airline
 	ATCreatedTime *string  `json:"at_created_time,omitempty"` // Airtable creation timestamp
 }
 

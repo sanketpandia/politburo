@@ -39,5 +39,14 @@ func (s *statsLiveAPIService) Fetch(ctx context.Context, subject *platformMember
 		XP:            userStats.XP,
 		Grade:         userStats.Grade,
 		Violations:    userStats.Violations,
+		ViolationByLevel: &ViolationBreakdown{
+			Level1: userStats.ViolationCountByLevel.Level1,
+			Level2: userStats.ViolationCountByLevel.Level2,
+			Level3: userStats.ViolationCountByLevel.Level3,
+		},
+		ATC: &ATCProfile{
+			Operations: userStats.ATCOperations,
+			Rank:       userStats.ATCRank,
+		},
 	}, nil
 }

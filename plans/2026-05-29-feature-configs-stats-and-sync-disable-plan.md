@@ -499,10 +499,31 @@ Swagger/OpenAPI agent tasks:
 - No direct infra/provider access from templates.
 - No polling for config editing; normal form/HTMX interactions are sufficient.
 - Mobile: admin editor may be desktop-first, but stacked responsive layout should remain readable.
+- Dashboard UI update (user-facing pilot stats):
+  - Add dashboard cards that render the new `/api/v1/pilot/stats` response sections (`game_stats`, `provider_data`, `career_mode_data`, and `insights`).
+  - Use HTMX-driven API calls from dashboard partials to fetch/refresh pilot stats cards.
+  - Show/hide individual cards based on response presence (only render cards for fields/sections returned by the API).
+  - Keep card rendering server-template-first with reusable partials under `templates/partials/`.
+  - Use one refresh interaction that calls the same endpoint with `refresh=true` and handles cooldown/error responses in the UI.
 
 ## Testing plan
 
 Unit Testing agent tasks:
+
+Short implementation guide for later unit-testing pass:
+
+- Start with fast, focused package runs before full-suite expansion:
+  - `go test ./internal/routes ./internal/pilots ./internal/platform/va ./internal/platform/memberships ./internal/datasource`
+- Add table-driven tests for cache-first stats behavior:
+  - cache hit returns cached response
+  - `refresh=true` bypasses cache
+  - refresh cooldown rejects requests within 1 minute
+- Prefer collaborator-level tests for decomposed stats pieces (`stats_subject_reader`, `stats_liveapi_service`, `stats_field_mapper`) before broad integration tests.
+- For provider-config accessor tests, use repository fixtures that cover:
+  - credentials present/missing
+  - schema present/missing by config type
+  - `feature_pilot_stats` present/missing and malformed payload handling
+- Keep assertions on API envelopes and status codes at handler tests (`httpdto` response shape, 429 on cooldown, graceful partial data when provider enrichment fails).
 
 - Add focused tests for disabled job registration behavior in `internal/routes/jobs.go`.
 - Add tests for the new provider-config accessor:

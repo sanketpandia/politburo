@@ -1,68 +1,56 @@
 {{define "datasource-field-mapper"}}
-<div style="padding: 1.5rem; background-color: var(--bg-primary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
-    <h5 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 1rem;">
-        Map Airtable columns to internal fields
-    </h5>
-    <p style="color: var(--text-secondary); font-size: 0.75rem; margin-bottom: 1.5rem;">
-        Select which Airtable column maps to each internal field. Leave unmapped if not needed.
-    </p>
+<div class="ds-mapper card section-card">
+    <div class="section-header">
+        <h4 class="section-title">Map Airtable columns to internal fields</h4>
+        <p class="section-subtitle">Click an Airtable field to choose where it maps.</p>
+    </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
-        <!-- Left: Available Airtable Columns -->
-        <div>
-            <h6 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">
-                Available Airtable Columns
-            </h6>
-            <div style="max-height: 400px; overflow-y: auto; padding: 0.75rem; background-color: var(--bg-secondary); border-radius: 0.375rem; border: 1px solid var(--border-color);">
+    <input type="hidden" name="table_name" value="{{.TableName}}">
+    {{range .InternalFields}}
+        {{$mapped := index $.Mappings .Name}}
+        <input type="hidden" name="field_mapping[{{.Name}}]" value="{{$mapped}}">
+    {{end}}
+
+    <div class="ds-mapper-grid">
+        <div class="ds-mapper-column">
+            <h5 class="ds-mapper-heading">Airtable Fields</h5>
+            <div class="ds-mapper-list" role="list">
                 {{range .AirtableFields}}
-                <div style="padding: 0.5rem; margin-bottom: 0.5rem; background-color: var(--bg-primary); border-radius: 0.25rem; border: 1px solid var(--border-color);">
-                    <div style="font-weight: 600; color: var(--text-primary); font-size: 0.875rem;">{{.Name}}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Type: {{.Type}}</div>
-                </div>
+                {{$isMapped := index $.MappedAirtable .Name}}
+                <button type="button"
+                        class="ds-mapper-airtable-row {{if $isMapped}}is-mapped{{end}} {{if eq $.SelectedField .Name}}is-selected{{end}}"
+                        hx-get="/dashboard/settings/datasource/schema/{{$.SchemaType}}/mapping-chooser?table_name={{$.TableName}}&airtable_field={{.Name}}"
+                        hx-include="#field-mapper-container"
+                        hx-target="#ds-mapping-chooser"
+                        hx-swap="innerHTML">
+                    <span class="ds-mapper-field-name">{{.Name}}</span>
+                    <span class="ds-mapper-field-type">{{.Type}}</span>
+                </button>
                 {{end}}
             </div>
         </div>
 
-        <!-- Right: Internal Fields with Dropdowns -->
-        <div>
-            <h6 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">
-                Internal Fields
-            </h6>
-            <div style="max-height: 400px; overflow-y: auto; padding: 0.75rem; background-color: var(--bg-secondary); border-radius: 0.375rem; border: 1px solid var(--border-color);">
+        <div class="ds-mapper-column">
+            <h5 class="ds-mapper-heading">Internal Fields (read-only targets)</h5>
+            <div class="ds-mapper-list" role="list">
                 {{range .InternalFields}}
-                <div style="padding: 0.75rem; margin-bottom: 0.75rem; background-color: var(--bg-primary); border-radius: 0.25rem; border: 1px solid var(--border-color);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <div>
-                            <div style="font-weight: 600; color: var(--text-primary); font-size: 0.875rem;">
-                                {{.DisplayName}}
-                                {{if .Required}}
-                                <span style="color: #ef4444; font-size: 0.75rem;">*</span>
-                                {{end}}
-                            </div>
-                            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
-                                {{.Description}}
-                            </div>
-                        </div>
+                {{$mapped := index $.Mappings .Name}}
+                <div class="ds-mapper-internal-row {{if $mapped}}is-mapped{{else}}is-unmapped{{end}}">
+                    <div class="ds-mapper-internal-main">
+                        <span class="ds-mapper-field-name">{{.DisplayName}}</span>
+                        {{if .Required}}<span class="ds-required-pill">required</span>{{end}}
                     </div>
-                    <select name="field_mapping[{{.Name}}]"
-                            style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 0.25rem; background-color: var(--bg-secondary); color: var(--text-primary); font-size: 0.875rem;">
-                        <option value="">-- No mapping --</option>
-                        {{$internalFieldName := .Name}}
-                        {{$existingMapping := ""}}
-                        {{if $.ExistingSchema}}
-                        {{range $.ExistingSchema.Fields}}
-                        {{if eq .InternalName $internalFieldName}}
-                        {{$existingMapping = .AirtableName}}
-                        {{end}}
-                        {{end}}
-                        {{end}}
-                        {{range $.AirtableFields}}
-                        <option value="{{.Name}}" {{if eq .Name $existingMapping}}selected{{end}}>{{.Name}} ({{.Type}})</option>
-                        {{end}}
-                    </select>
+                    <div class="ds-mapper-internal-meta">{{.Description}}</div>
+                    <div class="ds-mapper-mapped-value">{{if $mapped}}Mapped: {{$mapped}}{{else}}Unmapped{{end}}</div>
                 </div>
                 {{end}}
             </div>
+        </div>
+    </div>
+
+    <div id="ds-mapping-chooser" class="ds-mapper-chooser-shell">
+        <div class="empty-state compact">
+            <p>Select an Airtable field to map it.</p>
         </div>
     </div>
 </div>

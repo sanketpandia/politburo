@@ -314,6 +314,28 @@ func (r *Repository) GetAirtableSchema(ctx context.Context, vaID string, schemaT
 	return schema, nil
 }
 
+// GetFeaturePilotStatsConfig retrieves the feature_pilot_stats configuration for a VA.
+func (r *Repository) GetFeaturePilotStatsConfig(ctx context.Context, vaID string) (*FeaturePilotStatsConfig, error) {
+	var config DataProviderConfig
+	err := r.db.WithContext(ctx).
+		Where("va_id = ? AND provider_type = ? AND config_type = ? AND is_active = ?", vaID, "airtable", ConfigTypeFeaturePilotStats, true).
+		First(&config).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get feature pilot stats config: %w", err)
+	}
+
+	featureCfg, err := ParseFeaturePilotStatsConfig(config.ConfigData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse feature pilot stats config: %w", err)
+	}
+
+	return featureCfg, nil
+}
+
 // GetAirtableSchemas retrieves all schemas for a VA
 func (r *Repository) GetAirtableSchemas(ctx context.Context, vaID string) (map[string]*SchemaConfig, error) {
 	var configs []DataProviderConfig

@@ -137,8 +137,10 @@ func (h *Handler) GetPilotStats() http.HandlerFunc {
 			return
 		}
 
+		forceRefresh := r.URL.Query().Get("refresh") == "true" || r.URL.Query().Get("refresh") == "1"
+
 		// Fetch pilot stats (returns standardized mapped data)
-		stats, err := h.statsSvc.GetPilotStats(r.Context(), userDiscordID, vaUUID)
+		stats, err := h.statsSvc.GetPilotStatsWithOptions(r.Context(), userDiscordID, vaUUID, forceRefresh)
 		if err != nil {
 			h.handlePilotStatsError(w, initTime, err)
 			return

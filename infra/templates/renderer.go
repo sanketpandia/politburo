@@ -446,5 +446,50 @@ func (r *Renderer) getFuncMap() template.FuncMap {
 			mins := (secs % 3600) / 60
 			return fmt.Sprintf("%dh %dm", hours, mins)
 		},
+		"formatDurationHHMM": func(seconds interface{}) string {
+			var secs int
+			switch v := seconds.(type) {
+			case int:
+				secs = v
+			case int64:
+				secs = int(v)
+			case float64:
+				secs = int(v)
+			case *int:
+				if v == nil {
+					return ""
+				}
+				secs = *v
+			case *int64:
+				if v == nil {
+					return ""
+				}
+				secs = int(*v)
+			case *float64:
+				if v == nil {
+					return ""
+				}
+				secs = int(*v)
+			case *interface{}:
+				if v == nil || *v == nil {
+					return ""
+				}
+				switch val := (*v).(type) {
+				case int:
+					secs = val
+				case int64:
+					secs = int(val)
+				case float64:
+					secs = int(val)
+				default:
+					return fmt.Sprintf("%v", *v)
+				}
+			default:
+				return fmt.Sprintf("%v", seconds)
+			}
+			hours := secs / 3600
+			mins := (secs % 3600) / 60
+			return fmt.Sprintf("%02d:%02d", hours, mins)
+		},
 	}
 }

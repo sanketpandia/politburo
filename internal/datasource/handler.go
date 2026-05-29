@@ -500,37 +500,175 @@ func (h *Handler) SyncTableSchemaHandler() http.HandlerFunc {
 			return
 		}
 
-		// Fetch table fields from Airtable
-		fields, err := h.airtableProvider.FetchTableFields(r.Context(), creds, tableName)
-		if err != nil {
-			logging.Error("Failed to fetch table fields", "error", err)
-			http.Error(w, "Failed to fetch table fields: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// Get existing schema to preserve mappings
 		existingSchema, _ := h.vaSvc.GetAirtableSchema(r.Context(), activeVA.VAID, schemaType)
+		mappings := buildMappingsFromSchema(existingSchema)
 
-		// Get internal fields for this schema type
-		internalFields := getInternalFieldsForSchemaType(schemaType)
-
-		// Prepare data for template
-		data := map[string]interface{}{
-			"SchemaType":     schemaType,
-			"TableName":      tableName,
-			"AirtableFields": fields,
-			"InternalFields": internalFields,
-			"ExistingSchema": existingSchema,
-			"ActiveVA":       activeVA,
-		}
-
-		// Render field mapper partial
-		if err := h.templateRenderer.RenderPartial(w, "partials/datasource-field-mapper.html", data); err != nil {
+		if err := h.renderFieldMapperPartial(w, r, activeVA.VAID, schemaType, tableName, mappings, "", ""); err != nil {
 			logging.Error("Error rendering field mapper", "error", err)
 			http.Error(w, "Error rendering field mapper", http.StatusInternalServerError)
 			return
 		}
 	}
+}
+
+// GetFieldMappingChooserHandler returns HTMX chooser content for selected Airtable field.
+func (h *Handler) GetFieldMappingChooserHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+
+		activeVA := sessionData.GetActiveVA()
+		if activeVA == nil {
+			http.Error(w, "No active VA found", http.StatusInternalServerError)
+			return
+		}
+
+		schemaType := chi.URLParam(r, "schemaType")
+		tableName := r.URL.Query().Get("table_name")
+		airtableField := r.URL.Query().Get("airtable_field")
+		if schemaType == "" || tableName == "" || airtableField == "" {
+			http.Error(w, "Missing required chooser parameters", http.StatusBadRequest)
+			return
+		}
+
+		mappings := parseMappingsFromRequest(r)
+		internalFields := getInternalFieldsForSchemaType(schemaType)
+
+		data := map[string]interface{}{
+			"SchemaType":     schemaType,
+			"TableName":      tableName,
+			"AirtableField":  airtableField,
+			"InternalFields": internalFields,
+			"Mappings":       mappings,
+		}
+
+		if err := h.templateRenderer.RenderPartial(w, "partials/datasource-field-mapping-chooser.html", data); err != nil {
+			logging.Error("Error rendering field mapping chooser", "error", err)
+			http.Error(w, "Error rendering mapping chooser", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// ApplyFieldMappingHandler applies selected mapping and re-renders the mapper partial.
+func (h *Handler) ApplyFieldMappingHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+
+		activeVA := sessionData.GetActiveVA()
+		if activeVA == nil {
+			http.Error(w, "No active VA found", http.StatusInternalServerError)
+			return
+		}
+
+		schemaType := chi.URLParam(r, "schemaType")
+		tableName := r.FormValue("table_name")
+		airtableField := r.FormValue("airtable_field")
+		internalField := r.FormValue("internal_field")
+		if schemaType == "" || tableName == "" || airtableField == "" {
+			http.Error(w, "Missing required mapping parameters", http.StatusBadRequest)
+			return
+		}
+
+		mappings := parseMappingsFromRequest(r)
+		for internalName, mappedField := range mappings {
+			if mappedField == airtableField {
+				delete(mappings, internalName)
+			}
+		}
+		if internalField != "" {
+			mappings[internalField] = airtableField
+		}
+
+		if err := h.renderFieldMapperPartial(w, r, activeVA.VAID, schemaType, tableName, mappings, airtableField, ""); err != nil {
+			logging.Error("Error rendering field mapper after apply", "error", err)
+			http.Error(w, "Error applying field mapping", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func (h *Handler) renderFieldMapperPartial(w http.ResponseWriter, r *http.Request, vaID, schemaType, tableName string, mappings map[string]string, selectedField string, chooserError string) error {
+	creds, err := h.vaSvc.GetAirtableCredentials(r.Context(), vaID)
+	if err != nil || creds == nil {
+		return fmt.Errorf("credentials must be configured first")
+	}
+
+	fields, err := h.airtableProvider.FetchTableFields(r.Context(), creds, tableName)
+	if err != nil {
+		return fmt.Errorf("failed to fetch table fields: %w", err)
+	}
+
+	internalFields := getInternalFieldsForSchemaType(schemaType)
+
+	mappedAirtable := make(map[string]bool)
+	for _, field := range mappings {
+		if field != "" {
+			mappedAirtable[field] = true
+		}
+	}
+
+	data := map[string]interface{}{
+		"SchemaType":     schemaType,
+		"TableName":      tableName,
+		"AirtableFields": fields,
+		"InternalFields": internalFields,
+		"Mappings":       mappings,
+		"MappedAirtable": mappedAirtable,
+		"SelectedField":  selectedField,
+		"ChooserError":   chooserError,
+	}
+
+	return h.templateRenderer.RenderPartial(w, "partials/datasource-field-mapper.html", data)
+}
+
+func parseMappingsFromRequest(r *http.Request) map[string]string {
+	mappings := make(map[string]string)
+	_ = r.ParseForm()
+	for key, values := range r.Form {
+		if len(values) == 0 {
+			continue
+		}
+		if len(key) > len("field_mapping[]") && key[:14] == "field_mapping[" && key[len(key)-1] == ']' {
+			internal := key[14 : len(key)-1]
+			if internal != "" && values[0] != "" {
+				mappings[internal] = values[0]
+			}
+		}
+	}
+	return mappings
+}
+
+func buildMappingsFromSchema(schema *platformVA.SchemaConfig) map[string]string {
+	mappings := make(map[string]string)
+	if schema == nil {
+		return mappings
+	}
+	for _, field := range schema.Fields {
+		if field.InternalName != "" && field.AirtableName != "" {
+			mappings[field.InternalName] = field.AirtableName
+		}
+	}
+	return mappings
 }
 
 // SaveSchemaHandler handles POST /dashboard/settings/datasource/schema/{schemaType}

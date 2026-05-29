@@ -229,6 +229,7 @@ func NewRouter(application *app.App) http.Handler {
 
 			// Dashboard page (all members)
 			member.Get("/", application.Features.DashboardHandler.DashboardPageHandler())
+			member.Get("/pilot-stats", application.Features.DashboardHandler.GetPilotStatsPartialHandler())
 
 			// Leaderboard pilot logs endpoint
 			member.Get("/leaderboard/pilot/logs", application.Features.DashboardHandler.GetPilotPirepLogsHandler())
@@ -318,6 +319,8 @@ func NewRouter(application *app.App) http.Handler {
 				datasource.Get("/schema/{schemaType}", application.Features.DatasourceHandler.GetSchemaConfigHandler())
 				datasource.Post("/schema/{schemaType}", application.Features.DatasourceHandler.SaveSchemaHandler())
 				datasource.Post("/schema/{schemaType}/sync", application.Features.DatasourceHandler.SyncTableSchemaHandler())
+				datasource.Get("/schema/{schemaType}/mapping-chooser", application.Features.DatasourceHandler.GetFieldMappingChooserHandler())
+				datasource.Post("/schema/{schemaType}/mapping-apply", application.Features.DatasourceHandler.ApplyFieldMappingHandler())
 			})
 
 			// Livery Mappings

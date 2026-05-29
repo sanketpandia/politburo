@@ -137,16 +137,7 @@ func (h *Handler) DashboardPageHandler() http.HandlerFunc {
 			data["Leaderboard"] = leaderboard
 			data["ActiveEvent"] = activeEvent
 
-			// Fetch pilot stats (optional - don't fail if unavailable)
-			userDiscordID := sessionData.DiscordID
-			stats, err := h.dashboardSvc.GetPilotStats(r.Context(), userDiscordID, activeVA.VAID)
-			if err != nil {
-				logging.Warn("Failed to fetch pilot stats", "error", err, "va_id", activeVA.VAID, "discord_id", userDiscordID)
-				// Continue without stats - not critical
-				data["PilotStats"] = nil
-			} else {
-				data["PilotStats"] = stats
-			}
+			data["PilotStats"] = nil
 		} else {
 			data["Leaderboard"] = []LeaderboardEntry{}
 			data["ActiveEvent"] = nil
@@ -159,6 +150,56 @@ func (h *Handler) DashboardPageHandler() http.HandlerFunc {
 			http.Error(w, "Error rendering dashboard page", http.StatusInternalServerError)
 			return
 		}
+	}
+}
+
+// GetPilotStatsPartialHandler handles GET /dashboard/pilot-stats.
+// Returns an HTMX partial that renders user-facing pilot stats cards.
+func (h *Handler) GetPilotStatsPartialHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			h.writePilotStatsPartialError(w, "Your session has expired. Please sign in again.")
+			return
+		}
+
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			h.writePilotStatsPartialError(w, "Unable to read session context for pilot stats.")
+			return
+		}
+
+		activeVA := sessionData.GetActiveVA()
+		if activeVA == nil {
+			h.writePilotStatsPartialError(w, "No active VA found for this session.")
+			return
+		}
+
+		forceRefresh := r.URL.Query().Get("refresh") == "true" || r.URL.Query().Get("refresh") == "1"
+		stats, err := h.dashboardSvc.GetPilotStatsWithOptions(r.Context(), sessionData.DiscordID, activeVA.VAID, forceRefresh)
+		if err != nil {
+			logging.Warn("Failed to fetch pilot stats partial", "error", err, "va_id", activeVA.VAID, "discord_id", sessionData.DiscordID, "force_refresh", forceRefresh)
+			h.writePilotStatsPartialError(w, "Pilot stats are temporarily unavailable. Please try again.")
+			return
+		}
+
+		data := map[string]interface{}{
+			"PilotStats": stats,
+		}
+
+		if err := h.templateRenderer.RenderPartial(w, "partials/pilot-stats.html", data); err != nil {
+			logging.Error("Failed to render pilot stats partial", "error", err)
+			h.writePilotStatsPartialError(w, "Failed to render pilot stats cards.")
+			return
+		}
+	}
+}
+
+func (h *Handler) writePilotStatsPartialError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(`<div class="card section-card"><div class="empty-state compact"><h3>Pilot stats unavailable</h3><p>` + message + `</p></div></div>`)); err != nil {
+		logging.Warn("Failed to write pilot stats partial error", "error", err)
 	}
 }
 

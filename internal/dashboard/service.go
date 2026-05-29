@@ -14,10 +14,10 @@ import (
 
 // Service handles dashboard business logic
 type Service struct {
-	eventSvc   *events.Service
-	pirepRepo  *pireps.Repository
-	statsSvc   *pilots.StatsService
-	db         *gorm.DB
+	eventSvc  *events.Service
+	pirepRepo *pireps.Repository
+	statsSvc  *pilots.StatsService
+	db        *gorm.DB
 }
 
 // NewService creates a new dashboard service
@@ -35,6 +35,11 @@ func (s *Service) GetPilotStats(ctx context.Context, userDiscordID, vaID string)
 	return s.statsSvc.GetPilotStats(ctx, userDiscordID, vaID)
 }
 
+// GetPilotStatsWithOptions fetches pilot statistics with optional refresh behavior.
+func (s *Service) GetPilotStatsWithOptions(ctx context.Context, userDiscordID, vaID string, forceRefresh bool) (*pilots.StatsResponse, error) {
+	return s.statsSvc.GetPilotStatsWithOptions(ctx, userDiscordID, vaID, forceRefresh)
+}
+
 // LeaderboardEntry represents a single leaderboard entry
 type LeaderboardEntry struct {
 	PilotATID     string `json:"pilot_at_id"`
@@ -46,14 +51,14 @@ type LeaderboardEntry struct {
 
 // PilotPirepLog represents a single PIREP log entry for a pilot
 type PilotPirepLog struct {
-	ATID          string  `json:"at_id"`
-	Route         string  `json:"route"`
-	LegNumber     int     `json:"leg_number"`
-	FlightMode    string  `json:"flight_mode"`
+	ATID          string   `json:"at_id"`
+	Route         string   `json:"route"`
+	LegNumber     int      `json:"leg_number"`
+	FlightMode    string   `json:"flight_mode"`
 	FlightTime    *float64 `json:"flight_time"`
-	Aircraft      string  `json:"aircraft"`
-	Livery        string  `json:"livery"`
-	ATCreatedTime string  `json:"at_created_time"` // ISO 8601 timestamp
+	Aircraft      string   `json:"aircraft"`
+	Livery        string   `json:"livery"`
+	ATCreatedTime string   `json:"at_created_time"` // ISO 8601 timestamp
 }
 
 // GetEventLeaderboard retrieves the leaderboard for the active multi-leg event
@@ -88,12 +93,12 @@ func (s *Service) GetEventLeaderboard(ctx context.Context, vaID string) ([]Leade
 	// We'll need to do a raw SQL query to group by pilot and calculate max leg number
 	// Also join with pilot_at_synced and va_user_roles/users to get IFC ID
 	type LeaderboardResult struct {
-		PilotATID         string `gorm:"column:pilot_at_id"`
-		PilotCallsign     string `gorm:"column:pilot_callsign"`
-		IFCommunityID     string `gorm:"column:if_community_id"`
-		PirepCount        int64  `gorm:"column:pirep_count"`
-		MaxLegNumber      *int   `gorm:"column:max_leg_number"`
-		LatestLegTime     *string `gorm:"column:latest_leg_time"` // Earliest at_created_time for the latest leg
+		PilotATID     string  `gorm:"column:pilot_at_id"`
+		PilotCallsign string  `gorm:"column:pilot_callsign"`
+		IFCommunityID string  `gorm:"column:if_community_id"`
+		PirepCount    int64   `gorm:"column:pirep_count"`
+		MaxLegNumber  *int    `gorm:"column:max_leg_number"`
+		LatestLegTime *string `gorm:"column:latest_leg_time"` // Earliest at_created_time for the latest leg
 	}
 
 	var results []LeaderboardResult

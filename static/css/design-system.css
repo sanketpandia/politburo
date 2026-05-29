@@ -1266,6 +1266,128 @@ body {
     text-align: right;
 }
 
+.ds-mapper-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.ds-mapper-column,
+.ds-mapper-list,
+.ds-chooser-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.ds-mapper-heading {
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.ds-mapper-list {
+    max-height: 24rem;
+    overflow-y: auto;
+    gap: 0.5rem;
+}
+
+.ds-mapper-airtable-row,
+.ds-mapper-internal-row,
+.ds-chooser-option {
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background: var(--bg-primary);
+    padding: 0.75rem;
+}
+
+.ds-mapper-airtable-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ds-mapper-airtable-row:hover,
+.ds-chooser-option:hover {
+    background: var(--surface-hover);
+}
+
+.ds-mapper-airtable-row.is-selected {
+    border-color: var(--accent-primary);
+}
+
+.ds-mapper-airtable-row.is-mapped {
+    background: color-mix(in srgb, var(--status-landing) 10%, var(--bg-primary));
+}
+
+.ds-mapper-field-name,
+.ds-chooser-option-title {
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.ds-mapper-field-type,
+.ds-mapper-internal-meta,
+.ds-chooser-option-meta,
+.ds-mapper-mapped-value {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.ds-mapper-field-type {
+    margin-left: auto;
+    text-align: right;
+}
+
+.ds-mapper-internal-row.is-mapped {
+    background: color-mix(in srgb, var(--status-landing) 10%, var(--bg-primary));
+}
+
+.ds-mapper-internal-row.is-unmapped {
+    background: color-mix(in srgb, var(--status-warning) 8%, var(--bg-primary));
+}
+
+.ds-mapper-internal-main {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.ds-required-pill {
+    color: var(--status-error);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.ds-mapper-chooser-shell {
+    margin-top: 1rem;
+}
+
+.ds-chooser-list {
+    gap: 0.5rem;
+}
+
+.ds-chooser-option {
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.ds-chooser-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    justify-content: flex-end;
+}
+
 .table-scroll {
     overflow-x: auto;
 }

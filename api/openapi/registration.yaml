@@ -246,6 +246,66 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /pilot/stats:
+    get:
+      operationId: getCurrentUserPilotStats
+      summary: Get current authenticated user's pilot stats
+      description: |
+        Returns current-user pilot stats for the VA resolved from X-Discord-Server-Id.
+        Combines Infinite Flight game stats, configured provider fields, career-mode
+        details, and optional insight cards derived from already-fetched data.
+      tags: [registration]
+      parameters:
+        - in: query
+          name: refresh
+          required: false
+          schema:
+            type: boolean
+          description: Force refresh and bypass profile cache. May be rate-limited by cooldown.
+      responses:
+        "200":
+          description: Pilot stats retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotStatsResponse"
+        "400":
+          description: Missing required claim context or user not eligible for stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid X-API-Key authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing required Discord context headers X-Discord-User-Id or X-Discord-Server-Id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No pilot stats available for the current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Refresh cooldown active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected server or provider error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /signed-link:
     post:
       operationId: generateSignedLink
@@ -677,6 +737,237 @@ components:
           enum: [ok]
         result:
           $ref: "#/components/schemas/UserStatusData"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    # ── /pilot/stats ───────────────────────────────────────────────────────
+
+    PilotStatsViolationBreakdown:
+      type: object
+      required: [level1, level2, level3]
+      properties:
+        level1:
+          type: integer
+        level2:
+          type: integer
+        level3:
+          type: integer
+
+    PilotStatsATCProfile:
+      type: object
+      required: [operations]
+      properties:
+        operations:
+          type: integer
+        rank:
+          type: integer
+          nullable: true
+
+    PilotStatsGameStats:
+      type: object
+      properties:
+        flight_time:
+          type: integer
+        online_flights:
+          type: integer
+        landing_count:
+          type: integer
+        xp:
+          type: integer
+        grade:
+          type: integer
+        violations:
+          type: integer
+        violation_by_level:
+          $ref: "#/components/schemas/PilotStatsViolationBreakdown"
+        atc:
+          $ref: "#/components/schemas/PilotStatsATCProfile"
+
+    PilotStatsProviderData:
+      type: object
+      properties:
+        flight_hours:
+          nullable: true
+        rank:
+          type: string
+          nullable: true
+        join_date:
+          type: string
+          nullable: true
+        last_activity:
+          type: string
+          nullable: true
+        last_flight:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        total_flights:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        additional_fields:
+          type: object
+          additionalProperties: true
+
+    PilotStatsCareerData:
+      type: object
+      properties:
+        total_cm_hours:
+          nullable: true
+        required_hours_to_next:
+          nullable: true
+        last_activity_cm:
+          type: string
+          nullable: true
+        assigned_routes:
+          nullable: true
+        aircraft:
+          type: string
+          nullable: true
+        airline:
+          type: string
+          nullable: true
+        last_flown_route:
+          type: string
+          nullable: true
+        last_career_mode_pirep:
+          nullable: true
+        last_career_mode_flight:
+          type: string
+          nullable: true
+        additional_fields:
+          type: object
+          additionalProperties: true
+
+    PilotStatsRecentPIREP:
+      type: object
+      required: [at_id, route]
+      properties:
+        at_id:
+          type: string
+        route:
+          type: string
+        flight_mode:
+          type: string
+        flight_time:
+          type: number
+          format: float
+          nullable: true
+        pilot_callsign:
+          type: string
+        aircraft:
+          type: string
+        livery:
+          type: string
+        at_created_time:
+          type: string
+          nullable: true
+
+    PilotStatsProviderFreshness:
+      type: object
+      required: [last_fetched_at, cached]
+      properties:
+        last_fetched_at:
+          type: string
+          format: date-time
+        cached:
+          type: boolean
+        provider_last_activity:
+          type: string
+          nullable: true
+
+    PilotStatsRecentFlightCard:
+      type: object
+      required: [route]
+      properties:
+        route:
+          type: string
+        flight_mode:
+          type: string
+        flight_time:
+          type: number
+          format: float
+          nullable: true
+        aircraft:
+          type: string
+        livery:
+          type: string
+        occurred_at:
+          type: string
+          nullable: true
+
+    PilotStatsCareerCard:
+      type: object
+      properties:
+        last_route:
+          type: string
+          nullable: true
+        assigned_route_count:
+          type: integer
+
+    PilotStatsInsights:
+      type: object
+      properties:
+        provider_freshness:
+          $ref: "#/components/schemas/PilotStatsProviderFreshness"
+        recent_flights:
+          type: array
+          items:
+            $ref: "#/components/schemas/PilotStatsRecentFlightCard"
+        career:
+          $ref: "#/components/schemas/PilotStatsCareerCard"
+
+    PilotStatsMetadata:
+      type: object
+      required: [provider_configured, last_fetched, cached]
+      properties:
+        provider_type:
+          type: string
+        provider_configured:
+          type: boolean
+        schema_version:
+          type: string
+        last_fetched:
+          type: string
+          format: date-time
+        cached:
+          type: boolean
+        va_name:
+          type: string
+
+    PilotStatsData:
+      type: object
+      required: [metadata]
+      properties:
+        game_stats:
+          $ref: "#/components/schemas/PilotStatsGameStats"
+        provider_data:
+          $ref: "#/components/schemas/PilotStatsProviderData"
+        career_mode_data:
+          $ref: "#/components/schemas/PilotStatsCareerData"
+        recent_pireps:
+          type: array
+          items:
+            $ref: "#/components/schemas/PilotStatsRecentPIREP"
+        metadata:
+          $ref: "#/components/schemas/PilotStatsMetadata"
+        insights:
+          $ref: "#/components/schemas/PilotStatsInsights"
+
+    PilotStatsResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          $ref: "#/components/schemas/PilotStatsData"
         responseTimeMs:
           type: integer
           format: int64

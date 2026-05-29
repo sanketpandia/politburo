@@ -1,7 +1,4 @@
 {{define "content"}}
-<!-- Secondary Navigation -->
-{{template "secondary-nav" dict "ActiveVA" .ActiveVA "CurrentPage" .CurrentPage "MenuItems" .MenuItems}}
-
 <!-- Page Header -->
 <div class="page-header">
     <h2 class="page-title">Dashboard</h2>
@@ -9,7 +6,17 @@
 </div>
 
 <!-- Pilot Stats Section -->
-{{template "pilot-stats" .}}
+<div id="pilot-stats-container"
+     hx-get="/dashboard/pilot-stats"
+     hx-trigger="load"
+     hx-swap="innerHTML"
+     hx-indicator="#global-spinner">
+    <div class="card section-card">
+        <div class="empty-state compact">
+            <p>Loading pilot stats...</p>
+        </div>
+    </div>
+</div>
 
 <!-- Leaderboard Section -->
 {{if .ActiveEvent}}

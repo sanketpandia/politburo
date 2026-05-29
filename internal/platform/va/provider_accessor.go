@@ -11,14 +11,16 @@ import (
 const (
 	ProviderTypeAirtable = "airtable"
 
-	ConfigTypeCredentials = "credentials"
-	ConfigTypePilot       = "pilot"
-	ConfigTypeRoute       = "route"
-	ConfigTypePirep       = "pirep"
-	ConfigTypeCareerMode  = "career_mode"
+	ConfigTypeCredentials       = "credentials"
+	ConfigTypePilot             = "pilot"
+	ConfigTypeRoute             = "route"
+	ConfigTypePirep             = "pirep"
+	ConfigTypeCareerMode        = "career_mode"
+	ConfigTypeFeaturePilotStats = "feature_pilot_stats"
 
-	providerCredsCachePrefix  = "config:airtable_creds:"
-	providerSchemaCachePrefix = "config:airtable_schema:"
+	providerCredsCachePrefix     = "config:airtable_creds:"
+	providerSchemaCachePrefix    = "config:airtable_schema:"
+	featurePilotStatsCachePrefix = "config:feature_pilot_stats:"
 )
 
 type ProviderConfigAccessor struct {
@@ -92,4 +94,30 @@ func (a *ProviderConfigAccessor) GetAirtableSchema(ctx context.Context, vaID, sc
 	}
 
 	return schema, nil
+}
+
+func (a *ProviderConfigAccessor) GetFeaturePilotStatsConfig(ctx context.Context, vaID string) (*FeaturePilotStatsConfig, error) {
+	if a == nil || a.repo == nil {
+		return nil, fmt.Errorf("provider config accessor not initialized")
+	}
+
+	if a.cache != nil {
+		cacheKey := featurePilotStatsCachePrefix + vaID
+		if cached, found := a.cache.Get(cacheKey); found {
+			if cfg, ok := cached.(*FeaturePilotStatsConfig); ok {
+				return cfg, nil
+			}
+		}
+	}
+
+	featureCfg, err := a.repo.GetFeaturePilotStatsConfig(ctx, vaID)
+	if err != nil || featureCfg == nil {
+		return featureCfg, err
+	}
+
+	if a.cache != nil {
+		a.cache.Set(featurePilotStatsCachePrefix+vaID, featureCfg, 20*time.Minute)
+	}
+
+	return featureCfg, nil
 }

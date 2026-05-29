@@ -1,0 +1,40 @@
+{{define "datasource-field-mapping-chooser"}}
+<div class="ds-chooser card section-card">
+    <div class="section-header">
+        <h5 class="section-title">Map "{{.AirtableField}}"</h5>
+        <p class="section-subtitle">Choose one internal target field.</p>
+    </div>
+
+    {{if .ChooserError}}
+    <div class="alert alert-error" role="alert">{{.ChooserError}}</div>
+    {{end}}
+
+    <div class="ds-chooser-list">
+        {{range .InternalFields}}
+        <button type="button"
+                class="ds-chooser-option"
+                hx-post="/dashboard/settings/datasource/schema/{{$.SchemaType}}/mapping-apply"
+                hx-include="#field-mapper-container"
+                hx-target="#field-mapper-container"
+                hx-swap="innerHTML"
+                hx-vals='{"table_name":"{{$.TableName}}","airtable_field":"{{$.AirtableField}}","internal_field":"{{.Name}}"}'>
+            <span class="ds-chooser-option-title">{{.DisplayName}}</span>
+            <span class="ds-chooser-option-meta">{{.Description}}</span>
+            <span class="ds-chooser-option-meta">Supports: {{if .Required}}required mapping{{else}}optional mapping{{end}}{{if .IsUserVisible}}, user-visible output{{else}}, hidden/internal use{{end}}</span>
+        </button>
+        {{end}}
+    </div>
+
+    <div class="ds-chooser-actions">
+        <button type="button"
+                class="btn btn-secondary"
+                hx-post="/dashboard/settings/datasource/schema/{{$.SchemaType}}/mapping-apply"
+                hx-include="#field-mapper-container"
+                hx-target="#field-mapper-container"
+                hx-swap="innerHTML"
+                hx-vals='{"table_name":"{{$.TableName}}","airtable_field":"{{$.AirtableField}}","internal_field":""}'>
+            Unmap field
+        </button>
+    </div>
+</div>
+{{end}}
