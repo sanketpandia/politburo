@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"infinite-experiment/politburo/infra/logging"
@@ -195,34 +196,29 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 		}
 
 		// Parse request body
-		var req struct {
-			FieldType        string   `json:"fieldType"`
-			SourceIDs        []string `json:"sourceIds"`
-			SourceValue      string   `json:"sourceValue"`
-			TargetValue      string   `json:"targetValue"`
-			ConflictStrategy string   `json:"conflictStrategy"`
-		}
+		var req createMappingRequest
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			httpdto.WriteError(w, start, "invalid_request", "Invalid request body", http.StatusBadRequest)
 			return
 		}
+		normalizeCreateMappingRequest(&req)
 
 		if req.FieldType == "" || req.TargetValue == "" {
 			httpdto.WriteError(w, start, "invalid_request", "Missing required fields", http.StatusBadRequest)
 			return
 		}
 
-		if req.FieldType != "aircraft" && req.FieldType != "airline" {
+		if !isSupportedFieldType(req.FieldType) {
 			httpdto.WriteError(w, start, "invalid_request", "Field type must be 'aircraft' or 'airline'", http.StatusBadRequest)
 			return
 		}
 
 		conflictStrategy := req.ConflictStrategy
 		if conflictStrategy == "" {
-			conflictStrategy = "overwrite"
+			conflictStrategy = conflictStrategySkip
 		}
-		if conflictStrategy != "overwrite" && conflictStrategy != "skip" {
+		if conflictStrategy != conflictStrategyOverwrite && conflictStrategy != conflictStrategySkip {
 			httpdto.WriteError(w, start, "invalid_request", "Conflict strategy must be 'overwrite' or 'skip'", http.StatusBadRequest)
 			return
 		}
@@ -230,9 +226,13 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 		var matchingLiveries []aircraft.AircraftLivery
 		var err error
 		var sourceValue string
+		notFoundIDs := make([]string, 0)
+		usedLegacyAPI := false
 
-		if len(req.SourceIDs) > 0 {
-			matchingLiveries, err = h.aircraftRepo.GetLiveriesByIDs(r.Context(), uniqueStrings(req.SourceIDs))
+		uniqueSourceIDs := uniqueStrings(req.SourceIDs)
+
+		if len(uniqueSourceIDs) > 0 {
+			matchingLiveries, err = h.aircraftRepo.GetLiveriesByIDs(r.Context(), uniqueSourceIDs)
 			if err != nil {
 				logging.Error("Failed to fetch liveries by ids", "error", err, "fieldType", req.FieldType)
 				httpdto.WriteError(w, start, "internal_error", "Failed to fetch liveries", http.StatusInternalServerError)
@@ -242,13 +242,25 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 				httpdto.WriteError(w, start, "not_found", "No liveries found for the selected IDs", http.StatusNotFound)
 				return
 			}
+
+			foundMap := make(map[string]struct{}, len(matchingLiveries))
+			for _, livery := range matchingLiveries {
+				foundMap[livery.LiveryID] = struct{}{}
+			}
+			for _, id := range uniqueSourceIDs {
+				if _, ok := foundMap[id]; !ok {
+					notFoundIDs = append(notFoundIDs, id)
+				}
+			}
+			sort.Strings(notFoundIDs)
 		} else {
 			if req.SourceValue == "" {
-				httpdto.WriteError(w, start, "invalid_request", "Missing source value or source IDs", http.StatusBadRequest)
+				httpdto.WriteError(w, start, "invalid_request", "sourceIds is required for bulk mapping", http.StatusBadRequest)
 				return
 			}
+			usedLegacyAPI = true
 
-			if req.FieldType == "aircraft" {
+			if req.FieldType == fieldTypeAircraft {
 				matchingLiveries, err = h.aircraftRepo.GetLiveriesByAircraftName(r.Context(), req.SourceValue)
 			} else {
 				matchingLiveries, err = h.aircraftRepo.GetLiveriesByLiveryName(r.Context(), req.SourceValue)
@@ -285,7 +297,7 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 				IsActive:    true,
 			}
 
-			if req.FieldType == "aircraft" {
+			if req.FieldType == fieldTypeAircraft {
 				mapping.SourceValue = livery.AircraftName
 			} else {
 				mapping.SourceValue = livery.LiveryName
@@ -299,7 +311,9 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 			mappings = append(mappings, mapping)
 		}
 
-		if conflictStrategy == "skip" {
+		requestedCount := len(mappings)
+
+		if conflictStrategy == conflictStrategySkip {
 			existingMappings, err := h.aircraftRepo.GetMappingsByLiveryIDs(r.Context(), vaID, liveryIDs)
 			if err != nil {
 				logging.Error("Failed to fetch existing mappings", "error", err, "vaID", vaID)
@@ -319,14 +333,28 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 			mappings = filtered
 		}
 
+		skippedCount := requestedCount - len(mappings)
+
 		if len(mappings) == 0 {
-			response := map[string]interface{}{
-				"count":        0,
-				"fieldType":    req.FieldType,
-				"targetValue":  req.TargetValue,
-				"message":      "No mappings created because all selected items already have mappings",
-				"conflictMode": conflictStrategy,
+			response := createMappingResponse{
+				Requested:     requestedCount,
+				Created:       0,
+				Skipped:       skippedCount,
+				FieldType:     req.FieldType,
+				TargetValue:   req.TargetValue,
+				Message:       "No mappings created because all selected items already have mappings",
+				ConflictMode:  conflictStrategy,
+				NotFoundIDs:   notFoundIDs,
+				UsedLegacyAPI: usedLegacyAPI,
 			}
+			logging.Info("Livery mappings bulk create completed with no changes",
+				"vaID", vaID,
+				"fieldType", req.FieldType,
+				"selectedCount", requestedCount,
+				"createdCount", 0,
+				"skippedCount", skippedCount,
+				"conflictStrategy", conflictStrategy,
+			)
 			httpdto.WriteSuccess(w, start, response, http.StatusOK)
 			return
 		}
@@ -337,21 +365,26 @@ func (h *Handler) CreateMappingHandler() http.HandlerFunc {
 			return
 		}
 
-		type MappingResponse struct {
-			Count        int    `json:"count"`
-			FieldType    string `json:"fieldType"`
-			TargetValue  string `json:"targetValue"`
-			Message      string `json:"message"`
-			ConflictMode string `json:"conflictMode"`
+		response := createMappingResponse{
+			Requested:     requestedCount,
+			Created:       len(mappings),
+			Skipped:       skippedCount,
+			FieldType:     req.FieldType,
+			TargetValue:   req.TargetValue,
+			Message:       fmt.Sprintf("Created %d mapping(s) successfully", len(mappings)),
+			ConflictMode:  conflictStrategy,
+			NotFoundIDs:   notFoundIDs,
+			UsedLegacyAPI: usedLegacyAPI,
 		}
 
-		response := MappingResponse{
-			Count:        len(mappings),
-			FieldType:    req.FieldType,
-			TargetValue:  req.TargetValue,
-			Message:      fmt.Sprintf("Created %d mapping(s) successfully", len(mappings)),
-			ConflictMode: conflictStrategy,
-		}
+		logging.Info("Livery mappings bulk create succeeded",
+			"vaID", vaID,
+			"fieldType", req.FieldType,
+			"selectedCount", requestedCount,
+			"createdCount", len(mappings),
+			"skippedCount", skippedCount,
+			"conflictStrategy", conflictStrategy,
+		)
 
 		httpdto.WriteSuccess(w, start, response, http.StatusCreated)
 	}
