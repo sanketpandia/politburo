@@ -1,0 +1,130 @@
+openapi: 3.0.3
+info:
+  title: Politburo PIREP and Flight Modes API
+  version: 0.1.0
+paths:
+  /api/v1/pireps/config:
+    get:
+      operationId: getPirepConfig
+      summary: Get PIREP mode config for current pilot
+      responses:
+        '200':
+          description: PIREP config envelope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '404':
+          description: Flight not found or VA/user not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/pireps/submit:
+    post:
+      operationId: submitPirep
+      summary: Submit pilot PIREP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PirepSubmitRequest'
+      responses:
+        '200':
+          description: Submission accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Validation or business error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/admin/flight-modes/config:
+    post:
+      operationId: saveFlightModesConfig
+      summary: Save strict v2 flight mode config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlightModesConfigV2'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Invalid v2 configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+components:
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          type: object
+          additionalProperties: true
+        responseTimeMs:
+          type: integer
+      required: [status, responseTimeMs]
+    ErrorEnvelope:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [error]
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required: [code, message]
+        responseTimeMs:
+          type: integer
+      required: [status, error, responseTimeMs]
+    PirepSubmitRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+        route_id:
+          type: string
+        flight_time:
+          type: string
+          example: "02:35"
+        pilot_remarks:
+          type: string
+        fuel_kg:
+          type: integer
+        cargo_kg:
+          type: integer
+        passengers:
+          type: integer
+      required: [mode, flight_time]
+    FlightModesConfigV2:
+      type: object
+      properties:
+        config_version:
+          type: integer
+          enum: [2]
+        flight_modes:
+          type: object
+          additionalProperties:
+            type: object
+      required: [config_version, flight_modes]

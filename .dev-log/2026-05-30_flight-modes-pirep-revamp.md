@@ -116,3 +116,64 @@ Branch: `feat/flight-modes-pirep-revamp`
 - Swagger/OpenAPI: update/add PIREP and admin flight-mode endpoint schemas to reflect `httpdto` envelope and strict v2 `config_version` requirement.
 - Observability: add counters for invalid mode-config parse rejects and submit error-code classes.
 - Unit Testing: add table-driven tests for v2 parser enums (`detection_mode`, `route_source`) and handler envelope error mappings.
+
+---
+
+Date: 2026-05-30
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
+- Phase 2 VaAdmin flow completion: migrate flight-mode admin list/edit/toggle/update to strict v2 config model and ship sectioned editor UI with section-status chips; add PIREP/flight-mode OpenAPI source spec file.
+
+## Changed files
+
+- `internal/vaadmin/handler.go`
+- `templates/partials/flight-modes-list.html`
+- `templates/partials/flight-mode-edit-form.html`
+- `api/openapi/pireps.yaml`
+
+## Reused code / patterns / components
+
+- Reused existing vaadmin HTMX route pattern (`/dashboard/vaadmin/flight-modes/...`).
+- Reused shared v2 parser/constants in `internal/models/dtos` for all mode list/edit/toggle/update operations.
+- Reused existing `ValidateAndSaveFlightModesConfig` write path for save safety.
+
+## Logging added or affected
+
+- Added warning path for invalid v2 payloads during admin list rendering.
+
+## Metrics added or affected
+
+- No metrics added in this unit.
+
+## Test surface touched or still needed
+
+- Touched vaadmin handlers + templates for flight-mode admin path.
+- Still needed: focused handler tests for sectioned editor form validation (`fixed_route` requires route name) and card rendering status chips.
+
+## Build/test command(s) run and status
+
+- `go test ./internal/vaadmin ./internal/routes ./internal/pireps ./internal/platform/va`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+
+## Deviations from plan, if any
+
+- OpenAPI file added as source contract (`api/openapi/pireps.yaml`) without generated artifact wiring because no generator config exists yet for this domain.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Checked route ownership/middleware remained within dashboard admin + API admin scopes.
+- Checked bot-facing `/api/v1/pireps/*` routes unchanged path-wise to preserve comrade-bot compatibility.
+
+## Live API compliance notes when relevant
+
+- No direct liveapi client boundary changes in this unit.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Swagger/OpenAPI: decide whether to register `pireps.yaml` in make generation targets for client/server generation workflow.
+- Observability: add outcome counters for vaadmin mode save validation failures.
+- Unit Testing: add table tests for `buildModeSectionStatus` and `buildModeCards` conversion behavior.

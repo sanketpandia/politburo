@@ -276,12 +276,14 @@
                         {{if index . "requires_route_selection"}}Required{{else}}Optional{{end}}
                     </span>
                 </div>
-                {{if index . "fields"}}
                 <div class="mode-metadata-item">
-                    <span class="mode-metadata-label">Custom Fields</span>
-                    <span class="mode-metadata-value">{{len (index . "fields")}} field{{if ne (len (index . "fields")) 1}}s{{end}}</span>
+                    <span class="mode-metadata-label">Route Source</span>
+                    <span class="mode-metadata-value">{{index . "route_source"}}</span>
                 </div>
-                {{end}}
+                <div class="mode-metadata-item">
+                    <span class="mode-metadata-label">Pilot Inputs</span>
+                    <span class="mode-metadata-value">{{index . "field_count"}} field{{if ne (index . "field_count") 1}}s{{end}}</span>
+                </div>
             </div>
 
             <!-- Controls -->

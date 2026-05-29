@@ -11,6 +11,7 @@ import (
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
+	"infinite-experiment/politburo/internal/models/dtos"
 	"infinite-experiment/politburo/internal/pilots"
 	"infinite-experiment/politburo/internal/platform/roles"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
@@ -717,7 +718,6 @@ func (h *Handler) FlightModesListHandler() http.HandlerFunc {
 			return
 		}
 
-		// Fetch config from service
 		config, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
 		if err != nil {
 			logging.Error("Failed to fetch flight modes config", "error", err, "va_id", activeVA.VAID)
@@ -725,20 +725,9 @@ func (h *Handler) FlightModesListHandler() http.HandlerFunc {
 			return
 		}
 
-		// Extract flight modes from config
-		var modes []map[string]interface{}
-		if config != nil {
-			if flightModes, ok := config["flight_modes"]; ok {
-				if modesMap, ok := flightModes.(map[string]interface{}); ok {
-					for modeID, modeData := range modesMap {
-						if modeObj, ok := modeData.(map[string]interface{}); ok {
-							// Add the mode ID to the mode object
-							modeObj["mode_id"] = modeID
-							modes = append(modes, modeObj)
-						}
-					}
-				}
-			}
+		modes, parseErr := buildModeCards(config)
+		if parseErr != nil {
+			logging.Warn("Invalid flight mode config for list render", "va_id", activeVA.VAID, "error", parseErr)
 		}
 
 		// Prepare template data
@@ -787,7 +776,6 @@ func (h *Handler) GetFlightModeEditHandler() http.HandlerFunc {
 			return
 		}
 
-		// Fetch current config
 		config, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
 		if err != nil {
 			logging.Error("Failed to fetch flight modes config", "error", err)
@@ -795,31 +783,36 @@ func (h *Handler) GetFlightModeEditHandler() http.HandlerFunc {
 			return
 		}
 
-		// Extract flight modes and find the specific mode
-		flightModes, ok := config["flight_modes"].(map[string]interface{})
-		if !ok {
-			http.Error(w, "No flight modes configured", http.StatusBadRequest)
+		envelope, err := dtos.ParseModeRuntimeEnvelope(config)
+		if err != nil {
+			http.Error(w, "Invalid flight mode configuration. Save a valid v2 payload first.", http.StatusBadRequest)
 			return
 		}
 
-		// Get the mode data
-		modeData, ok := flightModes[modeID].(map[string]interface{})
+		mode, ok := envelope.FlightModes[modeID]
 		if !ok {
 			http.Error(w, fmt.Sprintf("Mode not found: %s", modeID), http.StatusNotFound)
 			return
 		}
 
-		// Add the mode_id to the data for template use
-		modeData["mode_id"] = modeID
-
-		// Also include Fields array reference for the JSON template function
-		if fields, ok := modeData["fields"].([]interface{}); ok {
-			// Convert to proper structure for JSON marshaling in template
-			modeData["Fields"] = fields
+		data := map[string]interface{}{
+			"mode_id":               modeID,
+			"display_name":          mode.Identity.DisplayName,
+			"description":           mode.Identity.Description,
+			"enabled":               mode.Identity.Enabled,
+			"detection_mode":        mode.FlightDetection.DetectionMode,
+			"require_active_flight": mode.FlightDetection.RequireActiveFlight,
+			"route_source":          mode.RouteBehavior.RouteSource,
+			"fixed_route_name":      "",
+			"fields":                mode.PilotInputs,
+			"section_status":        buildModeSectionStatus(mode),
+		}
+		if mode.RouteBehavior.FixedRoute != nil {
+			data["fixed_route_name"] = mode.RouteBehavior.FixedRoute.RouteName
 		}
 
 		// Render the edit form partial
-		if err := h.templateRenderer.RenderPartial(w, "partials/flight-mode-edit-form.html", modeData); err != nil {
+		if err := h.templateRenderer.RenderPartial(w, "partials/flight-mode-edit-form.html", data); err != nil {
 			logging.Error("Error rendering edit form", "error", err)
 			http.Error(w, "Error rendering edit form", http.StatusInternalServerError)
 			return
@@ -857,7 +850,6 @@ func (h *Handler) ToggleFlightModeHandler() http.HandlerFunc {
 			return
 		}
 
-		// Fetch current config
 		config, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
 		if err != nil {
 			logging.Error("Failed to fetch flight modes config", "error", err)
@@ -865,29 +857,29 @@ func (h *Handler) ToggleFlightModeHandler() http.HandlerFunc {
 			return
 		}
 
-		// Extract flight modes
-		flightModes, ok := config["flight_modes"].(map[string]interface{})
-		if !ok {
-			http.Error(w, "No flight modes configured", http.StatusBadRequest)
+		envelope, err := dtos.ParseModeRuntimeEnvelope(config)
+		if err != nil {
+			http.Error(w, "Invalid flight mode configuration", http.StatusBadRequest)
 			return
 		}
 
-		// Get the mode to toggle
-		modeData, ok := flightModes[modeID].(map[string]interface{})
+		mode, ok := envelope.FlightModes[modeID]
 		if !ok {
 			http.Error(w, fmt.Sprintf("Mode not found: %s", modeID), http.StatusNotFound)
 			return
 		}
 
-		// Toggle enabled state
-		currentEnabled, _ := modeData["enabled"].(bool)
-		modeData["enabled"] = !currentEnabled
+		currentEnabled := mode.Identity.Enabled
+		mode.Identity.Enabled = !currentEnabled
+		envelope.FlightModes[modeID] = mode
 
-		// Update config
-		config["flight_modes"] = flightModes
+		configToSave := map[string]interface{}{
+			"config_version": float64(envelope.ConfigVersion),
+			"flight_modes":   envelope.FlightModes,
+		}
 
 		// Save config using service (includes validation)
-		if err := h.vaSvc.ValidateAndSaveFlightModesConfig(r.Context(), activeVA.VAID, config); err != nil {
+		if err := h.vaSvc.ValidateAndSaveFlightModesConfig(r.Context(), activeVA.VAID, configToSave); err != nil {
 			logging.Error("Failed to save flight modes config", "error", err)
 			http.Error(w, "Failed to save configuration", http.StatusInternalServerError)
 			return
@@ -895,27 +887,13 @@ func (h *Handler) ToggleFlightModeHandler() http.HandlerFunc {
 
 		logging.Info("Toggled flight mode", "mode_id", modeID, "va_id", activeVA.VAID, "enabled", !currentEnabled)
 
-		// Re-fetch and render updated modes list
 		updatedConfig, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
 		if err != nil {
 			http.Error(w, "Failed to fetch updated config", http.StatusInternalServerError)
 			return
 		}
 
-		// Extract modes for re-render
-		var modes []map[string]interface{}
-		if updatedConfig != nil {
-			if flightModes, ok := updatedConfig["flight_modes"]; ok {
-				if modesMap, ok := flightModes.(map[string]interface{}); ok {
-					for mID, mData := range modesMap {
-						if mObj, ok := mData.(map[string]interface{}); ok {
-							mObj["mode_id"] = mID
-							modes = append(modes, mObj)
-						}
-					}
-				}
-			}
-		}
+		modes, _ := buildModeCards(updatedConfig)
 
 		data := map[string]interface{}{
 			"Modes":    modes,
@@ -969,8 +947,10 @@ func (h *Handler) UpdateFlightModeHandler() http.HandlerFunc {
 
 		displayName := strings.TrimSpace(r.FormValue("display_name"))
 		description := strings.TrimSpace(r.FormValue("description"))
-		requiresRouteStr := r.FormValue("requires_route_selection")
-		requiresRoute := requiresRouteStr == "on" || requiresRouteStr == "true"
+		detectionMode := strings.TrimSpace(r.FormValue("detection_mode"))
+		routeSource := strings.TrimSpace(r.FormValue("route_source"))
+		fixedRouteName := strings.TrimSpace(r.FormValue("fixed_route_name"))
+		requireActiveFlight := r.FormValue("require_active_flight") == "on" || r.FormValue("require_active_flight") == "true"
 
 		// Validate required field
 		if displayName == "" {
@@ -978,7 +958,6 @@ func (h *Handler) UpdateFlightModeHandler() http.HandlerFunc {
 			return
 		}
 
-		// Fetch current config
 		config, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
 		if err != nil {
 			logging.Error("Failed to fetch flight modes config", "error", err)
@@ -986,44 +965,42 @@ func (h *Handler) UpdateFlightModeHandler() http.HandlerFunc {
 			return
 		}
 
-		// Extract flight modes
-		flightModes, ok := config["flight_modes"].(map[string]interface{})
-		if !ok {
-			flightModes = make(map[string]interface{})
+		envelope, err := dtos.ParseModeRuntimeEnvelope(config)
+		if err != nil {
+			http.Error(w, "Invalid flight mode configuration", http.StatusBadRequest)
+			return
 		}
 
-		// Get the mode to update
-		modeData, ok := flightModes[modeID].(map[string]interface{})
+		modeData, ok := envelope.FlightModes[modeID]
 		if !ok {
 			http.Error(w, fmt.Sprintf("Mode not found: %s", modeID), http.StatusNotFound)
 			return
 		}
 
-		// Update the mode fields
-		modeData["display_name"] = displayName
-		modeData["description"] = description
-		modeData["requires_route_selection"] = requiresRoute
-
-		// Process field visibility updates from form
-		if fields, ok := modeData["fields"].([]interface{}); ok {
-			for _, fieldData := range fields {
-				if field, ok := fieldData.(map[string]interface{}); ok {
-					fieldName, _ := field["name"].(string)
-
-					// Check if field visibility was toggled (the form sends field_show_* checkboxes)
-					// By default, if not in the form, it wasn't checked (unchecked checkbox), so show_in_discord = false
-					// If it was in the form AND checked, show_in_discord = true
-					fieldShowValue := r.FormValue("field_show_" + fieldName)
-					field["show_in_discord"] = fieldShowValue == "on" || fieldShowValue == "true"
-				}
-			}
+		modeData.Identity.DisplayName = displayName
+		modeData.Identity.Description = description
+		modeData.FlightDetection.DetectionMode = detectionMode
+		modeData.FlightDetection.RequireActiveFlight = requireActiveFlight
+		modeData.RouteBehavior.RouteSource = routeSource
+		if routeSource == dtos.RouteSourceFixedRoute {
+			modeData.RouteBehavior.FixedRoute = &dtos.RouteBehaviorFixed{RouteName: fixedRouteName, Multiplier: 1.0}
+		} else {
+			modeData.RouteBehavior.FixedRoute = nil
 		}
 
-		// Update config
-		config["flight_modes"] = flightModes
+		for i := range modeData.PilotInputs {
+			fieldShowValue := r.FormValue("field_required_" + modeData.PilotInputs[i].Key)
+			modeData.PilotInputs[i].Required = fieldShowValue == "on" || fieldShowValue == "true"
+		}
+
+		envelope.FlightModes[modeID] = modeData
+		configToSave := map[string]interface{}{
+			"config_version": float64(envelope.ConfigVersion),
+			"flight_modes":   envelope.FlightModes,
+		}
 
 		// Save config using service (includes validation)
-		if err := h.vaSvc.ValidateAndSaveFlightModesConfig(r.Context(), activeVA.VAID, config); err != nil {
+		if err := h.vaSvc.ValidateAndSaveFlightModesConfig(r.Context(), activeVA.VAID, configToSave); err != nil {
 			logging.Error("Failed to save flight modes config", "error", err)
 			http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1031,27 +1008,13 @@ func (h *Handler) UpdateFlightModeHandler() http.HandlerFunc {
 
 		logging.Info("Updated flight mode", "mode_id", modeID, "va_id", activeVA.VAID)
 
-		// Re-fetch and render updated modes list
 		updatedConfig, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
 		if err != nil {
 			http.Error(w, "Failed to fetch updated config", http.StatusInternalServerError)
 			return
 		}
 
-		// Extract modes for re-render
-		var modes []map[string]interface{}
-		if updatedConfig != nil {
-			if flightModes, ok := updatedConfig["flight_modes"]; ok {
-				if modesMap, ok := flightModes.(map[string]interface{}); ok {
-					for mID, mData := range modesMap {
-						if mObj, ok := mData.(map[string]interface{}); ok {
-							mObj["mode_id"] = mID
-							modes = append(modes, mObj)
-						}
-					}
-				}
-			}
-		}
+		modes, _ := buildModeCards(updatedConfig)
 
 		data := map[string]interface{}{
 			"Modes":    modes,
@@ -1065,4 +1028,61 @@ func (h *Handler) UpdateFlightModeHandler() http.HandlerFunc {
 			return
 		}
 	}
+}
+
+func buildModeCards(config map[string]interface{}) ([]map[string]interface{}, error) {
+	envelope, err := dtos.ParseModeRuntimeEnvelope(config)
+	if err != nil {
+		return []map[string]interface{}{}, err
+	}
+
+	keys := dtos.SortedModeKeysByDisplayName(envelope.FlightModes)
+	modes := make([]map[string]interface{}, 0, len(keys))
+	for _, modeID := range keys {
+		mode := envelope.FlightModes[modeID]
+		fieldCount := len(mode.PilotInputs)
+		modes = append(modes, map[string]interface{}{
+			"mode_id":               modeID,
+			"enabled":               mode.Identity.Enabled,
+			"display_name":          mode.Identity.DisplayName,
+			"description":           mode.Identity.Description,
+			"requires_route_selection": mode.RouteBehavior.RouteSource == dtos.RouteSourceCurrentFPL,
+			"route_source":          mode.RouteBehavior.RouteSource,
+			"field_count":           fieldCount,
+		})
+	}
+
+	return modes, nil
+}
+
+func buildModeSectionStatus(mode dtos.ModeRuntimeConfig) map[string]string {
+	status := map[string]string{
+		"basics":           "Complete",
+		"flight_detection": "Complete",
+		"route_behavior":   "Complete",
+		"pilot_inputs":     "Complete",
+		"validation":       "Warnings",
+		"discord_preview":  "Complete",
+		"save_review":      "Complete",
+	}
+
+	if strings.TrimSpace(mode.Identity.DisplayName) == "" {
+		status["basics"] = "Needs setup"
+	}
+	if mode.FlightDetection.DetectionMode == "" {
+		status["flight_detection"] = "Needs setup"
+	}
+	if mode.RouteBehavior.RouteSource == dtos.RouteSourceFixedRoute {
+		if mode.RouteBehavior.FixedRoute == nil || strings.TrimSpace(mode.RouteBehavior.FixedRoute.RouteName) == "" {
+			status["route_behavior"] = "Needs setup"
+		}
+	}
+	if len(mode.PilotInputs) == 0 {
+		status["pilot_inputs"] = "Needs setup"
+	}
+	if len(mode.PilotInputs) > 5 {
+		status["discord_preview"] = "Warnings"
+	}
+
+	return status
 }

@@ -209,7 +209,15 @@
     <!-- Error Message (shown when validation fails) -->
     <div class="form-error" id="form-error-{{.mode_id}}"></div>
 
-    <!-- Display Name -->
+    <div class="mode-metadata" style="margin-bottom: 1rem;">
+        <div class="mode-metadata-item"><span class="mode-metadata-label">Basics</span><span class="mode-metadata-value">{{index .section_status "basics"}}</span></div>
+        <div class="mode-metadata-item"><span class="mode-metadata-label">Flight Detection</span><span class="mode-metadata-value">{{index .section_status "flight_detection"}}</span></div>
+        <div class="mode-metadata-item"><span class="mode-metadata-label">Route Behavior</span><span class="mode-metadata-value">{{index .section_status "route_behavior"}}</span></div>
+        <div class="mode-metadata-item"><span class="mode-metadata-label">Pilot Inputs</span><span class="mode-metadata-value">{{index .section_status "pilot_inputs"}}</span></div>
+        <div class="mode-metadata-item"><span class="mode-metadata-label">Discord Preview</span><span class="mode-metadata-value">{{index .section_status "discord_preview"}}</span></div>
+    </div>
+
+    <!-- Section 1: Basics -->
     <div class="form-group">
         <label class="form-label" for="display_name">Display Name</label>
         <input
@@ -238,49 +246,61 @@
         <div class="form-help-text">Optional: Help text displayed to pilots</div>
     </div>
 
-    <!-- Requires Route Selection -->
+    <!-- Section 2: Flight Detection -->
+    <div class="form-group">
+        <label class="form-label" for="detection_mode">Detection Mode</label>
+        <select id="detection_mode" name="detection_mode" class="form-input" required>
+            <option value="required" {{if eq .detection_mode "required"}}selected{{end}}>required</option>
+            <option value="optional" {{if eq .detection_mode "optional"}}selected{{end}}>optional</option>
+            <option value="not_used" {{if eq .detection_mode "not_used"}}selected{{end}}>not_used</option>
+        </select>
+    </div>
+
     <div class="form-group">
         <div class="checkbox-group">
-            <input
-                type="checkbox"
-                id="requires_route_selection"
-                name="requires_route_selection"
-                class="checkbox-input"
-                {{if index . "requires_route_selection"}}checked{{end}}
-                value="true"
-            >
-            <label class="checkbox-label" for="requires_route_selection">
-                Require route selection during PIREP submission
-            </label>
-        </div>
-        <div class="form-help-text" style="margin-left: 0; margin-top: 0.5rem;">
-            When enabled, pilots must select a specific route before filing a PIREP in this mode
+            <input type="checkbox" id="require_active_flight" name="require_active_flight" class="checkbox-input" {{if .require_active_flight}}checked{{end}} value="true">
+            <label class="checkbox-label" for="require_active_flight">Require active flight</label>
         </div>
     </div>
 
-    <!-- Field Visibility Settings -->
-    {{if index . "fields"}}
+    <!-- Section 3: Route Behavior -->
     <div class="form-group">
-        <label class="form-label">Discord Field Visibility</label>
+        <label class="form-label" for="route_source">Route Source</label>
+        <select id="route_source" name="route_source" class="form-input" required>
+            <option value="current_fpl" {{if eq .route_source "current_fpl"}}selected{{end}}>current_fpl</option>
+            <option value="fixed_route" {{if eq .route_source "fixed_route"}}selected{{end}}>fixed_route</option>
+            <option value="none" {{if eq .route_source "none"}}selected{{end}}>none</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label class="form-label" for="fixed_route_name">Fixed Route Name (when route_source=fixed_route)</label>
+        <input type="text" id="fixed_route_name" name="fixed_route_name" class="form-input" value="{{.fixed_route_name}}" placeholder="LFPG-EGLL">
+    </div>
+
+    <!-- Section 4: Pilot Inputs -->
+    {{if .fields}}
+    <div class="form-group">
+        <label class="form-label">Pilot Input Requirements</label>
         <div class="form-help-text" style="margin-bottom: 1rem;">
-            Choose which fields appear in the Discord PIREP submission modal
+            Define required inputs used by the single-modal Discord flow
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-            {{range index . "fields"}}
+            {{range .fields}}
             <div class="checkbox-group">
                 <input
                     type="checkbox"
-                    id="field_show_{{.name}}"
-                    name="field_show_{{.name}}"
+                    id="field_required_{{.key}}"
+                    name="field_required_{{.key}}"
                     class="checkbox-input"
-                    {{if index . "show_in_discord"}}checked{{else}}checked{{end}}
+                    {{if .required}}checked{{end}}
                     value="true"
                 >
-                <label class="checkbox-label" for="field_show_{{.name}}">
+                <label class="checkbox-label" for="field_required_{{.key}}">
                     <strong>{{.label}}</strong>
                     <span style="color: var(--text-muted); font-size: 0.85rem; display: block;">
-                        {{.name}} ({{.type}}){{if .required}} • Required{{end}}
+                        {{.key}} ({{.type}})
                     </span>
                 </label>
             </div>
@@ -312,9 +332,6 @@
         const errorDiv = document.getElementById('form-error-{{.mode_id}}');
 
         if (form) {
-            // Store original field visibility state before submission
-            const originalFields = {{json .Fields}};
-
             // Show error if display_name is empty on submit attempt
             form.addEventListener('submit', function(e) {
                 const displayName = document.getElementById('display_name').value.trim();
@@ -325,25 +342,13 @@
                     return false;
                 }
 
-                // Update field visibility from form checkboxes
-                if (originalFields && Array.isArray(originalFields)) {
-                    originalFields.forEach(function(field) {
-                        const checkbox = document.getElementById('field_show_' + field.name);
-                        if (checkbox) {
-                            field.show_in_discord = checkbox.checked;
-                        }
-                    });
-
-                    // Store updated fields back in form (as hidden input)
-                    let fieldsInput = document.getElementById('fields_json_{{.mode_id}}');
-                    if (!fieldsInput) {
-                        fieldsInput = document.createElement('input');
-                        fieldsInput.type = 'hidden';
-                        fieldsInput.id = 'fields_json_{{.mode_id}}';
-                        fieldsInput.name = 'fields_json';
-                        form.appendChild(fieldsInput);
-                    }
-                    fieldsInput.value = JSON.stringify(originalFields);
+                const routeSource = document.getElementById('route_source').value;
+                const fixedRouteName = document.getElementById('fixed_route_name').value.trim();
+                if (routeSource === 'fixed_route' && fixedRouteName === '') {
+                    e.preventDefault();
+                    errorDiv.textContent = 'Fixed route name is required when route source is fixed_route';
+                    errorDiv.classList.add('show');
+                    return false;
                 }
             });
 
