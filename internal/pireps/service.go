@@ -336,16 +336,20 @@ func (s *Service) validateRequiredFields(
 			case "flight_time":
 				// Already checked above
 			case "fuel_kg":
-				if request.FuelKg == nil {
+				if request.FuelKg == nil && strings.TrimSpace(s.getInputValue(request, "fuel_kg")) == "" {
 					return fmt.Errorf("missing required field: fuel_kg")
 				}
 			case "cargo_kg":
-				if request.CargoKg == nil {
+				if request.CargoKg == nil && strings.TrimSpace(s.getInputValue(request, "cargo_kg")) == "" {
 					return fmt.Errorf("missing required field: cargo_kg")
 				}
 			case "passengers":
-				if request.Passengers == nil {
+				if request.Passengers == nil && strings.TrimSpace(s.getInputValue(request, "passengers")) == "" {
 					return fmt.Errorf("missing required field: passengers")
+				}
+			default:
+				if strings.TrimSpace(s.getInputValue(request, field.Key)) == "" {
+					return fmt.Errorf("missing required field: %s", field.Key)
 				}
 			}
 		}
@@ -448,20 +452,25 @@ func (s *Service) buildPirepObject(
 		pirepObj[dateCompletedField] = today.Format("2006-01-02")
 	}
 
-	// Mode-specific fields
-	if request.FuelKg != nil {
-		if fuelField := getFieldName("fuel_kg"); fuelField != "" {
-			pirepObj[fuelField] = *request.FuelKg
+	// Mode-specific fields (dynamic from config + request inputs)
+	for _, field := range modeConfig.PilotInputs {
+		fieldName := getFieldName(field.Key)
+		if fieldName == "" {
+			continue
 		}
-	}
-	if request.CargoKg != nil {
-		if cargoField := getFieldName("cargo_kg"); cargoField != "" {
-			pirepObj[cargoField] = *request.CargoKg
+
+		value := strings.TrimSpace(s.getInputValue(request, field.Key))
+		if value == "" {
+			continue
 		}
-	}
-	if request.Passengers != nil {
-		if paxField := getFieldName("passengers"); paxField != "" {
-			pirepObj[paxField] = *request.Passengers
+
+		switch field.Type {
+		case "number", "integer":
+			if n, err := strconv.Atoi(value); err == nil {
+				pirepObj[fieldName] = n
+			}
+		default:
+			pirepObj[fieldName] = value
 		}
 	}
 
@@ -651,6 +660,35 @@ func (s *Service) buildBotMetadataSection(
 	}
 
 	return strings.Join(metadata, "\n")
+}
+
+func (s *Service) getInputValue(request *dtos.PirepSubmitRequest, key string) string {
+	switch key {
+	case "flight_time":
+		return request.FlightTime
+	case "pilot_remarks":
+		return request.PilotRemarks
+	case "fuel_kg":
+		if request.FuelKg != nil {
+			return strconv.Itoa(*request.FuelKg)
+		}
+	case "cargo_kg":
+		if request.CargoKg != nil {
+			return strconv.Itoa(*request.CargoKg)
+		}
+	case "passengers":
+		if request.Passengers != nil {
+			return strconv.Itoa(*request.Passengers)
+		}
+	case "route_id":
+		return request.RouteID
+	}
+
+	if request.Inputs == nil {
+		return ""
+	}
+
+	return request.Inputs[key]
 }
 
 // getCallsignPrefix retrieves the VA callsign prefix from config

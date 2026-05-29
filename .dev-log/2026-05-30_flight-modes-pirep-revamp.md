@@ -177,3 +177,114 @@ Branch: `feat/flight-modes-pirep-revamp`
 - Swagger/OpenAPI: decide whether to register `pireps.yaml` in make generation targets for client/server generation workflow.
 - Observability: add outcome counters for vaadmin mode save validation failures.
 - Unit Testing: add table tests for `buildModeSectionStatus` and `buildModeCards` conversion behavior.
+
+---
+
+Date: 2026-05-30
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
+- Dynamic submit-contract slice: extend PIREP submit DTO/runtime to carry config-driven dynamic inputs while preserving known typed fields.
+
+## Changed files
+
+- `internal/models/dtos/pirep_config.go`
+- `internal/pireps/service.go`
+
+## Reused code / patterns / components
+
+- Reused existing PIREP submit service pipeline and schema-field mapping flow in `buildPirepObject`.
+- Reused current known top-level fields (`flight_time`, `fuel_kg`, `cargo_kg`, `passengers`) with fallback to dynamic `inputs` map.
+
+## Logging added or affected
+
+- No new logging families.
+
+## Metrics added or affected
+
+- No metrics changes.
+
+## Test surface touched or still needed
+
+- Touched submit validation and payload-composition runtime path.
+- Still needed: dedicated tests for required dynamic-field validation and numeric coercion behavior.
+
+## Build/test command(s) run and status
+
+- `go test ./internal/pireps ./internal/models/dtos ./internal/platform/va ./internal/vaadmin ./internal/routes`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+
+## Deviations from plan, if any
+
+- None for this logical unit.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Checked bot request shaping compatibility remains backward-safe by keeping known fields and adding dynamic map.
+
+## Live API compliance notes when relevant
+
+- No liveapi boundary change.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Unit Testing: add table tests for `getInputValue` + required-key validation across dynamic and typed fields.
+
+---
+
+Date: 2026-05-30
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
+- OpenAPI generation wiring slice: add PIREP oapi-codegen config + Makefile targets and generate server artifact from `api/openapi/pireps.yaml`.
+
+## Changed files
+
+- `api/openapi/pireps.cfg.yaml`
+- `api/openapi/pireps.yaml`
+- `internal/api/generated/pireps/server.gen.go`
+- `Makefile`
+
+## Reused code / patterns / components
+
+- Reused existing oapi-codegen repo convention from registration/liveapi targets.
+
+## Logging added or affected
+
+- None.
+
+## Metrics added or affected
+
+- None.
+
+## Test surface touched or still needed
+
+- Generation/build pipeline touched.
+- Still needed: follow-on adapter/mounting tests if generated strict server is integrated into runtime routes later.
+
+## Build/test command(s) run and status
+
+- `make generate-pireps-api`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+
+## Deviations from plan, if any
+
+- Generated strict server artifact is wired and committed, but runtime mounting through generated strict adapter is not introduced in this slice.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Checked `make generate-api` composition now includes PIREP generation through new target.
+
+## Live API compliance notes when relevant
+
+- No liveapi changes.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Swagger/OpenAPI: decide if generated PIREP strict server should become canonical mounted route path (matching registration pattern) in a dedicated integration slice.

@@ -100,6 +100,7 @@ type PirepSubmitRequest struct {
 	FuelKg       *int   `json:"fuel_kg,omitempty"`
 	CargoKg      *int   `json:"cargo_kg,omitempty"`
 	Passengers   *int   `json:"passengers,omitempty"`
+	Inputs       map[string]string `json:"inputs,omitempty"`
 }
 
 // PirepSubmitResponse represents the response from POST /api/v1/pireps/submit

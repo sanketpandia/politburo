@@ -116,6 +116,10 @@ components:
           type: integer
         passengers:
           type: integer
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
       required: [mode, flight_time]
     FlightModesConfigV2:
       type: object

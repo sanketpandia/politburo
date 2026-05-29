@@ -1,12 +1,16 @@
-.PHONY: test test-verbose test-coverage test-watch help generate-api generate-registration-api generate-liveapi-client
+.PHONY: test test-verbose test-coverage test-watch help generate-api generate-registration-api generate-pireps-api generate-liveapi-client
 
 # Regenerate OpenAPI artifacts from spec files.
 # Run after any change to api/openapi/*.yaml.
-generate-api: generate-registration-api generate-liveapi-client
+generate-api: generate-registration-api generate-pireps-api generate-liveapi-client
 
 # Regenerate Politburo registration server stubs.
 generate-registration-api:
 	cd api/openapi && go tool oapi-codegen -config registration.cfg.yaml registration.yaml
+
+# Regenerate Politburo PIREP/flight-modes server stubs.
+generate-pireps-api:
+	cd api/openapi && go tool oapi-codegen -config pireps.cfg.yaml pireps.yaml
 
 # Regenerate Infinite Flight Live API upstream client and models.
 generate-liveapi-client:
