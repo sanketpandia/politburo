@@ -288,3 +288,60 @@ Branch: `feat/flight-modes-pirep-revamp`
 ## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
 
 - Swagger/OpenAPI: decide if generated PIREP strict server should become canonical mounted route path (matching registration pattern) in a dedicated integration slice.
+
+---
+
+Date: 2026-05-30
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
+- Runtime integration slice: wire generated PIREP OpenAPI strict server into live routing with handwritten adapter, mirroring registration generated-handler pattern.
+
+## Changed files
+
+- `internal/api/pireps/server.go`
+- `internal/routes/router.go`
+
+## Reused code / patterns / components
+
+- Reused registration adapter pattern (`internal/api/registration/server.go`) with request replay into existing domain handlers.
+- Reused existing domain handlers (`internal/pireps.Handler`, `internal/platform/va.Handler`) without moving business logic into transport adapter.
+- Reused existing middleware boundaries (`IsRegistered`, `IsMember`, `IsAdmin`) around mounted generated strict routes.
+
+## Logging added or affected
+
+- No new logging families.
+
+## Metrics added or affected
+
+- No metrics changes.
+
+## Test surface touched or still needed
+
+- Touched generated adapter + runtime route mounting.
+- Still needed: adapter-level tests for status-code mapping edge cases beyond 200/400/404.
+
+## Build/test command(s) run and status
+
+- `go test ./internal/api/... ./internal/pireps ./internal/platform/va ./internal/routes`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+
+## Deviations from plan, if any
+
+- None; this unit explicitly makes generated PIREP OpenAPI interface live in routing.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Checked registration generated route pattern remains intact and separate.
+- Replaced direct PIREP route handler mounting with generated strict server methods while preserving same URL paths and middleware scopes.
+
+## Live API compliance notes when relevant
+
+- No Live API boundary changes.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Unit Testing: add targeted tests for adapter unexpected-status behavior and envelope decoding failures.

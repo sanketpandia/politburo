@@ -10,6 +10,8 @@ import (
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
+	pirepsgen "infinite-experiment/politburo/internal/api/generated/pireps"
+	pirepsapi "infinite-experiment/politburo/internal/api/pireps"
 	registrationgen "infinite-experiment/politburo/internal/api/generated/registration"
 	registration "infinite-experiment/politburo/internal/api/registration"
 	"infinite-experiment/politburo/internal/app"
@@ -153,13 +155,7 @@ func NewRouter(application *app.App) http.Handler {
 			logbookSelf.Get("/", application.Features.PilotsHandler.GetUserLogbookSelf())
 		})
 
-		// PIREP endpoints - require registration and membership
-		v1.Route("/pireps", func(pireps chi.Router) {
-			pireps.Use(middleware.IsRegisteredMiddleware())
-			pireps.Use(middleware.IsMemberMiddleware())
-			pireps.Get("/config", application.Features.PirepHandler.GetConfig())
-			pireps.Post("/submit", application.Features.PirepHandler.Submit())
-		})
+		registerPirepRoutes(v1, application)
 
 		// Events endpoints (tours and tour legs) - require registration and membership
 		v1.Route("/events", func(events chi.Router) {
@@ -194,9 +190,6 @@ func NewRouter(application *app.App) http.Handler {
 				airtable.Post("/credentials", application.Platform.VAHandler.SaveAirtableCredentialsHandler())
 
 			})
-
-			// Flight modes config API (admin-only)
-			adminAPI.Post("/flight-modes/config", application.Platform.VAHandler.SetFlightModesConfig())
 
 			// Session management API
 			adminAPI.Route("/sessions", func(sessions chi.Router) {
@@ -382,6 +375,26 @@ func registerRegistrationRoutes(bot chi.Router, application *app.App) {
 	)
 	strictServer := registrationgen.NewStrictHandler(registrationServer, nil)
 	registrationgen.HandlerFromMux(strictServer, bot)
+}
+
+func registerPirepRoutes(v1 chi.Router, application *app.App) {
+	pirepsServer := pirepsapi.NewServer(
+		application.Features.PirepHandler,
+		application.Platform.VAHandler,
+	)
+	strictServer := pirepsgen.NewStrictHandler(pirepsServer, nil)
+
+	v1.Group(func(memberPireps chi.Router) {
+		memberPireps.Use(middleware.IsRegisteredMiddleware())
+		memberPireps.Use(middleware.IsMemberMiddleware())
+		memberPireps.Get("/pireps/config", strictServer.GetPirepConfig)
+		memberPireps.Post("/pireps/submit", strictServer.SubmitPirep)
+	})
+
+	v1.Group(func(adminPireps chi.Router) {
+		adminPireps.Use(middleware.IsAdminMiddleware())
+		adminPireps.Post("/admin/flight-modes/config", strictServer.SaveFlightModesConfig)
+	})
 }
 
 // uiAuthMiddleware checks for a valid session directly and renders the 401 error page
