@@ -1,3 +1,5 @@
+let globalUIListenersBound = false;
+
 export class UIDropdown {
   constructor(root) {
     this.root = root;
@@ -74,25 +76,73 @@ export class UIModal {
   }
 }
 
+export class UIListSearch {
+  constructor(input) {
+    this.input = input;
+    this.root = input.closest('[data-ui-list-search]') || input.parentElement;
+    this.items = Array.from(this.root?.querySelectorAll('[data-ui-list-search-item]') || []);
+    this.emptyState = this.root?.querySelector('[data-ui-list-search-empty]');
+
+    if (this.input.dataset.uiListSearchInitialized === 'true') return;
+    this.input.dataset.uiListSearchInitialized = 'true';
+
+    this.input.addEventListener('input', () => this.filter());
+    this.input.addEventListener('search', () => this.filter());
+    this.input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') event.preventDefault();
+    });
+    this.filter();
+  }
+
+  filter() {
+    const query = this.input.value.trim().toLowerCase();
+    let visibleCount = 0;
+
+    this.items.forEach((item) => {
+      const searchableText = (item.dataset.searchText || item.textContent || '').toLowerCase();
+      const matches = query === '' || searchableText.includes(query);
+      item.classList.toggle('hidden', !matches);
+      if (matches) visibleCount += 1;
+    });
+
+    if (this.emptyState) {
+      this.emptyState.classList.toggle('hidden', visibleCount !== 0 || query === '');
+    }
+  }
+}
+
 export function initUIComponents(root = document) {
   const dropdowns = [];
   root.querySelectorAll('[data-ui-dropdown]').forEach((node) => {
-    dropdowns.push(node.matches('[data-ui-multiselect]') ? new UIMultiSelect(node) : new UIDropdown(node));
+    const dropdown = node.matches('[data-ui-multiselect]') ? new UIMultiSelect(node) : new UIDropdown(node);
+    node.__uiDropdownInstance = dropdown;
+    dropdowns.push(dropdown);
   });
 
-  const modals = Array.from(root.querySelectorAll('[data-ui-modal]')).map((node) => new UIModal(node));
+  const modals = Array.from(root.querySelectorAll('[data-ui-modal]')).map((node) => {
+    const modal = new UIModal(node);
+    node.__uiModalInstance = modal;
+    return modal;
+  });
+  root.querySelectorAll('[data-ui-list-search-input]').forEach((node) => new UIListSearch(node));
 
-  document.addEventListener('click', (event) => {
-    dropdowns.forEach((dropdown) => {
-      if (!dropdown.root.contains(event.target)) dropdown.close();
+  if (!globalUIListenersBound) {
+    globalUIListenersBound = true;
+
+    document.addEventListener('click', (event) => {
+      document.querySelectorAll('[data-ui-dropdown]').forEach((node) => {
+        const dropdown = node.__uiDropdownInstance;
+        if (!dropdown) return;
+        if (!dropdown.root.contains(event.target)) dropdown.close();
+      });
     });
-  });
 
-  document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    dropdowns.forEach((dropdown) => dropdown.close());
-    modals.forEach((modal) => modal.close());
-  });
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      document.querySelectorAll('[data-ui-dropdown]').forEach((node) => node.__uiDropdownInstance?.close());
+      document.querySelectorAll('[data-ui-modal]').forEach((node) => node.__uiModalInstance?.close());
+    });
+  }
 
   return { dropdowns, modals };
 }

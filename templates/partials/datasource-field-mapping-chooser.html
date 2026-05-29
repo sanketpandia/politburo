@@ -1,13 +1,27 @@
 {{define "datasource-field-mapping-chooser"}}
-<div class="ds-chooser">
+<div class="ds-chooser ui-list-search" data-ui-list-search>
     {{if .ChooserError}}
     <div class="alert alert-error" role="alert">{{.ChooserError}}</div>
     {{end}}
+
+    <div class="ui-list-search-search">
+        <label class="sr-only" for="ds-field-search">Search fields</label>
+        <input
+            id="ds-field-search"
+            class="form-input"
+            type="search"
+            placeholder="Search fields by name, description, or internal key"
+            autocomplete="off"
+            data-ui-list-search-input
+        >
+    </div>
 
     <div class="ds-chooser-list">
         {{range .InternalFields}}
         <button type="button"
                 class="ds-chooser-option"
+                data-ui-list-search-item
+                data-search-text="{{.Name}} {{.DisplayName}} {{.Description}} {{if .Required}}required{{end}} {{if .IsUserVisible}}user-visible{{else}}hidden internal{{end}}"
                 hx-post="/dashboard/settings/datasource/schema/{{$.SchemaType}}/mapping-apply"
                 hx-include="#field-mapper-container"
                 hx-target="#field-mapper-container"
@@ -20,9 +34,13 @@
         {{end}}
     </div>
 
+    <div class="empty-state compact hidden" data-ui-list-search-empty>
+        <p>No fields match your search.</p>
+    </div>
+
     <div class="ds-chooser-actions">
         <button type="button"
-                class="btn btn-secondary"
+                class="ui-button ui-button-secondary"
                 hx-post="/dashboard/settings/datasource/schema/{{$.SchemaType}}/mapping-apply"
                 hx-include="#field-mapper-container"
                 hx-target="#field-mapper-container"

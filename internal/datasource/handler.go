@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"infinite-experiment/politburo/infra/logging"
 	"infinite-experiment/politburo/infra/providers"
@@ -619,6 +620,8 @@ func (h *Handler) renderFieldMapperPartial(w http.ResponseWriter, r *http.Reques
 	}
 
 	internalFields := getInternalFieldsForSchemaType(schemaType)
+	sortedAirtableFields := sortAirtableFields(fields)
+	sortedInternalFields := sortInternalFieldsForMapper(internalFields, mappings)
 
 	mappedAirtable := make(map[string]bool)
 	for _, field := range mappings {
@@ -630,8 +633,8 @@ func (h *Handler) renderFieldMapperPartial(w http.ResponseWriter, r *http.Reques
 	data := map[string]interface{}{
 		"SchemaType":     schemaType,
 		"TableName":      tableName,
-		"AirtableFields": fields,
-		"InternalFields": internalFields,
+		"AirtableFields": sortedAirtableFields,
+		"InternalFields": sortedInternalFields,
 		"Mappings":       mappings,
 		"MappedAirtable": mappedAirtable,
 		"SelectedField":  selectedField,
@@ -669,6 +672,41 @@ func buildMappingsFromSchema(schema *platformVA.SchemaConfig) map[string]string 
 		}
 	}
 	return mappings
+}
+
+type mapperInternalField struct {
+	InternalFieldDefinition
+	MappedAirtable string
+	IsMapped       bool
+}
+
+func sortAirtableFields(fields []dtos.AirtableFieldMetadata) []dtos.AirtableFieldMetadata {
+	clone := append([]dtos.AirtableFieldMetadata(nil), fields...)
+	sort.Slice(clone, func(i, j int) bool {
+		return clone[i].Name < clone[j].Name
+	})
+	return clone
+}
+
+func sortInternalFieldsForMapper(fields []InternalFieldDefinition, mappings map[string]string) []mapperInternalField {
+	view := make([]mapperInternalField, 0, len(fields))
+	for _, f := range fields {
+		mapped := mappings[f.Name]
+		view = append(view, mapperInternalField{
+			InternalFieldDefinition: f,
+			MappedAirtable:          mapped,
+			IsMapped:                mapped != "",
+		})
+	}
+
+	sort.Slice(view, func(i, j int) bool {
+		if view[i].IsMapped != view[j].IsMapped {
+			return !view[i].IsMapped
+		}
+		return view[i].DisplayName < view[j].DisplayName
+	})
+
+	return view
 }
 
 // SaveSchemaHandler handles POST /dashboard/settings/datasource/schema/{schemaType}

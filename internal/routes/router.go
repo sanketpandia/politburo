@@ -83,6 +83,15 @@ func NewRouter(application *app.App) http.Handler {
 	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, faviconPath)
 	})
+	// Serve logo assets referenced by the base layout.
+	logoSVGPath := resolveProjectPath("logo.svg")
+	r.Get("/logo.svg", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, logoSVGPath)
+	})
+	logoPNGPath := resolveProjectPath("logo.png")
+	r.Get("/logo.png", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, logoPNGPath)
+	})
 
 	// Health check endpoint
 	r.Get("/healthCheck", health.HealthCheckHandler(
@@ -264,6 +273,7 @@ func NewRouter(application *app.App) http.Handler {
 			// VA Admin features
 			admin.Route("/vaadmin", func(vaadmin chi.Router) {
 				vaadmin.Get("/", application.Features.VAAdminHandler.IndexPageHandler())
+				vaadmin.Get("/datasource/status", application.Features.VAAdminHandler.DatasourceStatusCardHandler())
 				vaadmin.Get("/setup", application.Features.VAAdminHandler.SetupPageHandler())
 				vaadmin.Get("/setup/basic", application.Features.VAAdminHandler.BasicSetupFormHandler())
 				vaadmin.Post("/setup/basic", application.Features.VAAdminHandler.SaveBasicSetupHandler())
