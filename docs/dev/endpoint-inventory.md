@@ -188,7 +188,6 @@ Notes:
 | Method | Path | Purpose | Status | Return type |
 | --- | --- | --- | --- | --- |
 | `POST` | `/api/v1/admin/airtable/credentials` | Save Airtable credentials | Legacy-sensitive | `json` |
-| `GET` | `/api/v1/admin/airtable/credentials` | Read Airtable credentials | Legacy-sensitive | `json` |
 | `POST` | `/api/v1/admin/airtable/schema/{schemaType}` | Save Airtable schema | Legacy-sensitive | `json` |
 | `GET` | `/api/v1/admin/airtable/schema/{schemaType}` | Read Airtable schema | Legacy-sensitive | `json` |
 | `GET` | `/api/v1/admin/airtable/schemas` | List Airtable schemas | Legacy-sensitive | `json` |

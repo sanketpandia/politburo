@@ -208,39 +208,6 @@ func (h *Handler) SaveAirtableCredentialsHandler() http.HandlerFunc {
 	}
 }
 
-// GetAirtableCredentialsHandler handles GET /api/v1/admin/airtable/credentials
-// Returns current Airtable credentials for the current VA
-func (h *Handler) GetAirtableCredentialsHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		initTime := time.Now()
-
-		claims := auth.GetUserClaims(r.Context())
-		if claims == nil {
-			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
-			return
-		}
-
-		vaID := claims.ServerID()
-		if vaID == "" {
-			common.RespondError(w, initTime, fmt.Errorf("va not found"), "VA ID not found", http.StatusBadRequest)
-			return
-		}
-
-		creds, err := h.svc.GetAirtableCredentials(r.Context(), vaID)
-		if err != nil {
-			common.RespondError(w, initTime, err, "Failed to get credentials: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if creds == nil {
-			common.RespondError(w, initTime, nil, "No credentials configured", http.StatusNotFound)
-			return
-		}
-
-		common.RespondSuccess(w, initTime, "Credentials retrieved successfully", creds)
-	}
-}
-
 // SaveAirtableSchemaHandler handles POST /api/v1/admin/airtable/schema/{schemaType}
 // Saves or updates a specific schema configuration
 func (h *Handler) SaveAirtableSchemaHandler() http.HandlerFunc {

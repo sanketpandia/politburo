@@ -58,20 +58,20 @@ func GetMenuItems(activeVA *session.VAMembership) []MenuItem {
 				RequiredRole: roles.RoleAdmin,
 				Icon:         "vaadmin",
 			},
-			{
-				Label:        "Datasource",
-				Path:         "/dashboard/settings/datasource",
-				PageID:       "datasource",
-				RequiredRole: roles.RoleAdmin,
-				Icon:         "datasource",
-			},
-			{
-				Label:        "Events",
-				Path:         "/dashboard/events",
-				PageID:       "events",
-				RequiredRole: roles.RoleAdmin,
-				Icon:         "events",
-			},
+			// {
+			// 	Label:        "Datasource",
+			// 	Path:         "/dashboard/settings/datasource",
+			// 	PageID:       "datasource",
+			// 	RequiredRole: roles.RoleAdmin,
+			// 	Icon:         "datasource",
+			// },
+			// {
+			// 	Label:        "Events",
+			// 	Path:         "/dashboard/events",
+			// 	PageID:       "events",
+			// 	RequiredRole: roles.RoleAdmin,
+			// 	Icon:         "events",
+			// },
 		}...)
 	}
 
