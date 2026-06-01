@@ -102,6 +102,8 @@ func TestVaadminIndexPageIncludesDatasourceStatusCard(t *testing.T) {
 		"Setup datasource",
 		`hx-get="/dashboard/vaadmin/datasource/status"`,
 		`href="/dashboard/settings/datasource"`,
+		`href="/dashboard/settings/livery-mappings"`,
+		"Aircraft &amp; Livery Mapping",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected rendered body to contain %q, got:\n%s", want, body)

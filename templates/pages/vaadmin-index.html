@@ -93,7 +93,7 @@
 <!-- Page Header -->
 <div class="page-header">
     <h2 class="page-title">VA Administration</h2>
-    <p class="page-subtitle">Manage flight modes, pilots, and webhooks for {{.ActiveVA.VAName}}</p>
+    <p class="page-subtitle">Manage setup, flight modes, pilots, mappings, and webhooks for {{.ActiveVA.VAName}}</p>
 </div>
 
 <a href="/dashboard/settings/datasource" class="vaadmin-datasource-card ui-card ui-card-sm">
@@ -144,6 +144,13 @@
             <h3 class="vaadmin-link-card-title">Setup webhooks</h3>
         </div>
         <p class="vaadmin-link-card-description">Send live flight snapshots to Discord every 30 minutes</p>
+    </a>
+    <a href="/dashboard/settings/livery-mappings" class="vaadmin-link-card">
+        <div class="vaadmin-link-card-header">
+            <div class="vaadmin-link-card-icon">🛩️</div>
+            <h3 class="vaadmin-link-card-title">Aircraft &amp; Livery Mapping</h3>
+        </div>
+        <p class="vaadmin-link-card-description">Map Infinite Flight aircraft and liveries to your VA target values and manage mapping groups</p>
     </a>
 </div>
 {{end}}

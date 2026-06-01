@@ -213,6 +213,11 @@ Notes:
 | `POST` | `/api/v1/admin/livery-mappings/defaults` | Save defaults | Aligned | `json` |
 | `GET` | `/dashboard/settings/livery-mappings` | Livery mappings page | Aligned | `page` |
 
+Notes:
+
+- The June 2026 workflow UX split (Map Sources vs Manage Groups) reuses the existing endpoint family above.
+- No additional livery-mappings endpoints were introduced for this UI update.
+
 ## Explicitly not mounted or intentionally superseded
 
 | Endpoint/path | Current state | Evidence |
