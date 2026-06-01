@@ -57,6 +57,38 @@
         color: var(--text-primary);
     }
 
+    .tabs {
+        display: inline-flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        padding: 0.25rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        background: var(--bg-primary);
+    }
+
+    .tab-button {
+        border: 1px solid transparent;
+        border-radius: 0.375rem;
+        background: transparent;
+        color: var(--text-secondary);
+        padding: 0.5rem 0.875rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .tab-button:hover {
+        color: var(--text-primary);
+        background: var(--surface-hover);
+    }
+
+    .tab-button.active {
+        border-color: var(--accent-primary);
+        background: var(--accent-primary-soft);
+        color: var(--accent-primary);
+    }
+
     .details-summary {
         background: transparent;
         border: none;
@@ -136,6 +168,15 @@
     .panel-section {
         display: grid;
         gap: 1rem;
+    }
+
+    .workflow-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
     }
 
     #manage-pane {
@@ -385,20 +426,23 @@
             <button class="tab-button" data-tab="airline" type="button" onclick="switchTab('airline')">Airline mapping</button>
         </div>
 
+        <div class="workflow-controls">
+            <div class="mode-toggle" role="tablist" aria-label="Workflow mode">
+                <button class="mode-button active" type="button" id="mode-map" onclick="switchMode('map')">Map Sources</button>
+                <button class="mode-button" type="button" id="mode-manage" onclick="switchMode('manage')">Manage Groups</button>
+            </div>
+            <div class="button-row" id="map-actions">
+                <button class="btn btn-secondary" type="button" onclick="selectAllVisible()">Select all visible</button>
+                <button class="btn btn-secondary" type="button" onclick="clearSelection()">Clear selection</button>
+            </div>
+        </div>
+
         <div class="panel-grid">
             <div class="panel-section" id="map-pane-left">
                 <div class="panel-heading">
                     <div>
                         <h3 class="mapping-card-title" id="current-tab-title">Aircraft mapping workflow</h3>
                         <p class="form-helper" id="current-tab-subtitle">Choose a VA target value and bulk-assign selected Infinite Flight sources.</p>
-                    </div>
-                    <div class="button-row">
-                        <div class="mode-toggle" role="tablist" aria-label="Workflow mode">
-                            <button class="mode-button active" type="button" id="mode-map" onclick="switchMode('map')">Map Sources</button>
-                            <button class="mode-button" type="button" id="mode-manage" onclick="switchMode('manage')">Manage Groups</button>
-                        </div>
-                        <button class="btn btn-secondary" type="button" onclick="selectAllVisible()">Select all visible</button>
-                        <button class="btn btn-secondary" type="button" onclick="clearSelection()">Clear selection</button>
                     </div>
                 </div>
 
@@ -410,8 +454,7 @@
                     <div class="form-group">
                         <label class="form-label">Filters</label>
                         <div class="button-row">
-                            <label><input type="checkbox" id="filter-unmapped" onchange="renderSourceList()"> Show unmapped only</label>
-                            <label><input type="checkbox" id="filter-selected" onchange="renderSourceList()"> Show selected only</label>
+                            <label><input type="checkbox" id="filter-unmapped" checked onchange="renderSourceList()"> Show unmapped only</label>
                         </div>
                     </div>
                 </div>
@@ -476,8 +519,8 @@
             airline: 'map',
         },
         tabUiByTab: {
-            aircraft: { search: '', showUnmapped: false, showSelected: false, targetValue: '' },
-            airline: { search: '', showUnmapped: false, showSelected: false, targetValue: '' },
+            aircraft: { search: '', showUnmapped: true, targetValue: '' },
+            airline: { search: '', showUnmapped: true, targetValue: '' },
         },
     };
 
@@ -507,7 +550,6 @@
         const tabUI = state.tabUiByTab[state.activeTab];
         document.getElementById('search-input').value = tabUI.search;
         document.getElementById('filter-unmapped').checked = tabUI.showUnmapped;
-        document.getElementById('filter-selected').checked = tabUI.showSelected;
         document.getElementById('target-value').value = tabUI.targetValue;
     }
 
@@ -515,7 +557,6 @@
         const tabUI = state.tabUiByTab[state.activeTab];
         tabUI.search = document.getElementById('search-input')?.value || '';
         tabUI.showUnmapped = document.getElementById('filter-unmapped').checked;
-        tabUI.showSelected = document.getElementById('filter-selected').checked;
         tabUI.targetValue = document.getElementById('target-value')?.value || '';
     }
 
@@ -524,6 +565,7 @@
         document.getElementById('map-pane-left').classList.toggle('hidden', !mapMode);
         document.getElementById('map-pane-right').classList.toggle('hidden', !mapMode);
         document.getElementById('manage-pane').classList.toggle('hidden', mapMode);
+        document.getElementById('map-actions').classList.toggle('hidden', !mapMode);
         document.getElementById('mode-map').classList.toggle('active', mapMode);
         document.getElementById('mode-manage').classList.toggle('active', !mapMode);
     }
@@ -661,7 +703,6 @@
         const tabUI = state.tabUiByTab[state.activeTab];
         const search = (tabUI.search || '').toLowerCase();
         const showUnmapped = tabUI.showUnmapped;
-        const showSelected = tabUI.showSelected;
         const mappingIndex = getMappingIndex();
         const activeTab = state.activeTab;
 
@@ -685,9 +726,6 @@
             .filter(item => {
                 if (showUnmapped) {
                     return !item.mappedTarget;
-                }
-                if (showSelected) {
-                    return getActiveSelectionSet().has(item.liveryId);
                 }
                 return true;
             });
@@ -921,10 +959,6 @@
         renderSourceList();
     });
     document.getElementById('filter-unmapped').addEventListener('change', () => {
-        persistTabControlsToState();
-        renderSourceList();
-    });
-    document.getElementById('filter-selected').addEventListener('change', () => {
         persistTabControlsToState();
         renderSourceList();
     });
