@@ -138,6 +138,33 @@
         gap: 1rem;
     }
 
+    #manage-pane {
+        grid-column: 1 / -1;
+    }
+
+    .mode-toggle {
+        display: inline-flex;
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        background: var(--bg-primary);
+    }
+
+    .mode-button {
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .mode-button.active {
+        background: var(--accent-primary-soft);
+        color: var(--accent-primary);
+    }
+
     .panel-heading {
         display: flex;
         justify-content: space-between;
@@ -359,13 +386,17 @@
         </div>
 
         <div class="panel-grid">
-            <div class="panel-section">
+            <div class="panel-section" id="map-pane-left">
                 <div class="panel-heading">
                     <div>
                         <h3 class="mapping-card-title" id="current-tab-title">Aircraft mapping workflow</h3>
                         <p class="form-helper" id="current-tab-subtitle">Choose a VA target value and bulk-assign selected Infinite Flight sources.</p>
                     </div>
                     <div class="button-row">
+                        <div class="mode-toggle" role="tablist" aria-label="Workflow mode">
+                            <button class="mode-button active" type="button" id="mode-map" onclick="switchMode('map')">Map Sources</button>
+                            <button class="mode-button" type="button" id="mode-manage" onclick="switchMode('manage')">Manage Groups</button>
+                        </div>
                         <button class="btn btn-secondary" type="button" onclick="selectAllVisible()">Select all visible</button>
                         <button class="btn btn-secondary" type="button" onclick="clearSelection()">Clear selection</button>
                     </div>
@@ -392,11 +423,13 @@
                 </div>
             </div>
 
-            <div class="panel-section">
-                <div class="section-card">
+            <div class="panel-section" id="map-pane-right">
+                <div class="section-card" id="target-card">
                     <div class="form-group">
                         <label class="form-label" for="target-value">Target value</label>
-                        <input type="text" class="form-input" id="target-value" placeholder="B738 or KLM">
+                        <input type="text" class="form-input" id="target-value" list="target-suggestions" placeholder="B738 or KLM">
+                        <datalist id="target-suggestions"></datalist>
+                        <span class="form-helper">Suggestions come from existing mapped targets for the active tab.</span>
                     </div>
                     <div class="form-group">
                         <div class="form-label">Conflict behavior</div>
@@ -416,9 +449,12 @@
                     </div>
                     <div class="message-line" id="mapping-message"></div>
                 </div>
+            </div>
 
+            <div class="panel-section hidden" id="manage-pane">
                 <div class="section-card">
                     <h3 class="mapping-card-title">Grouped mappings</h3>
+                    <p class="form-helper">Delete-only mode. Select a target group and remove all source mappings for that target.</p>
                     <div id="mapping-groups"></div>
                 </div>
             </div>
@@ -434,6 +470,14 @@
         selectedIdsByTab: {
             aircraft: new Set(),
             airline: new Set(),
+        },
+        modeByTab: {
+            aircraft: 'map',
+            airline: 'map',
+        },
+        tabUiByTab: {
+            aircraft: { search: '', showUnmapped: false, showSelected: false, targetValue: '' },
+            airline: { search: '', showUnmapped: false, showSelected: false, targetValue: '' },
         },
     };
 
@@ -455,18 +499,69 @@
         message.style.color = 'var(--text-secondary)';
     }
 
+    function getActiveMode() {
+        return state.modeByTab[state.activeTab] || 'map';
+    }
+
+    function syncTabControlsFromState() {
+        const tabUI = state.tabUiByTab[state.activeTab];
+        document.getElementById('search-input').value = tabUI.search;
+        document.getElementById('filter-unmapped').checked = tabUI.showUnmapped;
+        document.getElementById('filter-selected').checked = tabUI.showSelected;
+        document.getElementById('target-value').value = tabUI.targetValue;
+    }
+
+    function persistTabControlsToState() {
+        const tabUI = state.tabUiByTab[state.activeTab];
+        tabUI.search = document.getElementById('search-input')?.value || '';
+        tabUI.showUnmapped = document.getElementById('filter-unmapped').checked;
+        tabUI.showSelected = document.getElementById('filter-selected').checked;
+        tabUI.targetValue = document.getElementById('target-value')?.value || '';
+    }
+
+    function applyModeVisibility() {
+        const mapMode = getActiveMode() === 'map';
+        document.getElementById('map-pane-left').classList.toggle('hidden', !mapMode);
+        document.getElementById('map-pane-right').classList.toggle('hidden', !mapMode);
+        document.getElementById('manage-pane').classList.toggle('hidden', mapMode);
+        document.getElementById('mode-map').classList.toggle('active', mapMode);
+        document.getElementById('mode-manage').classList.toggle('active', !mapMode);
+    }
+
+    function switchMode(mode) {
+        if (mode !== 'map' && mode !== 'manage') {
+            return;
+        }
+        state.modeByTab[state.activeTab] = mode;
+        setMappingMessage('');
+        applyModeVisibility();
+        if (mode === 'map') {
+            renderSourceList();
+            renderTargetSuggestions();
+            return;
+        }
+        renderGroupCards();
+    }
+
     function switchTab(tab) {
         if (tab !== 'aircraft' && tab !== 'airline') {
             return;
         }
 
+        persistTabControlsToState();
         state.activeTab = tab;
         document.querySelectorAll('.tab-button').forEach(button => {
             button.classList.toggle('active', button.dataset.tab === tab);
         });
         setMappingMessage('');
-        renderSourceList();
-        renderGroupCards();
+        syncTabControlsFromState();
+        applyModeVisibility();
+        if (getActiveMode() === 'map') {
+            renderSourceList();
+            renderTargetSuggestions();
+        } else {
+            renderGroupCards();
+        }
     }
 
     async function fetchLiveries() {
@@ -563,9 +658,10 @@
     }
 
     function getCurrentSources() {
-        const search = document.getElementById('search-input')?.value.toLowerCase() || '';
-        const showUnmapped = document.getElementById('filter-unmapped').checked;
-        const showSelected = document.getElementById('filter-selected').checked;
+        const tabUI = state.tabUiByTab[state.activeTab];
+        const search = (tabUI.search || '').toLowerCase();
+        const showUnmapped = tabUI.showUnmapped;
+        const showSelected = tabUI.showSelected;
         const mappingIndex = getMappingIndex();
         const activeTab = state.activeTab;
 
@@ -621,7 +717,8 @@
             const mapped = item.mappedTarget ? true : false;
             const statusClass = mapped ? 'status-mapped' : 'status-unmapped';
             const statusText = mapped ? `Mapped to ${item.mappedTarget}` : 'Unmapped';
-            const conflict = mapped && document.getElementById('target-value').value && document.getElementById('target-value').value !== item.mappedTarget;
+            const targetValue = state.tabUiByTab[state.activeTab].targetValue.trim();
+            const conflict = mapped && targetValue && targetValue !== item.mappedTarget;
             const conflictBadge = conflict ? '<span class="status-pill status-conflict">Conflict</span>' : `<span class="status-pill ${statusClass}">${statusText}</span>`;
 
             return `
@@ -641,6 +738,19 @@
         }).join('');
 
         container.innerHTML = rows;
+    }
+
+    function renderTargetSuggestions() {
+        const suggestionNode = document.getElementById('target-suggestions');
+        const activeTab = state.activeTab;
+        const values = Array.from(new Set(
+            state.mappings
+                .filter(mapping => mapping.fieldType === activeTab && mapping.targetValue)
+                .map(mapping => mapping.targetValue.trim())
+                .filter(Boolean)
+        )).sort((a, b) => a.localeCompare(b));
+
+        suggestionNode.innerHTML = values.map(value => `<option value="${escapeHtml(value)}"></option>`).join('');
     }
 
     function renderGroupCards() {
@@ -710,7 +820,7 @@
     }
 
     async function saveBulkMapping(button) {
-        const targetValue = document.getElementById('target-value').value.trim();
+        const targetValue = state.tabUiByTab[state.activeTab].targetValue.trim();
         const activeTab = state.activeTab;
         const selectedIds = Array.from(getActiveSelectionSet());
         const conflictStrategy = document.querySelector('input[name="conflictStrategy"]:checked')?.value || 'skip';
@@ -747,9 +857,10 @@
             const data = await response.json();
             if (data.status === 'ok') {
                 setMappingMessage(data.result?.message || 'Mappings saved successfully.', 'success');
+                getActiveSelectionSet().clear();
                 await fetchMappings();
                 renderSourceList();
-                renderGroupCards();
+                renderTargetSuggestions();
                 updateSummary();
             } else {
                 setMappingMessage(data.error?.message || 'Failed to save mappings.', 'error');
@@ -779,15 +890,19 @@
         try {
             const responses = await Promise.all(deletePromises);
             const results = await Promise.all(responses.map(r => r.json()));
-            const failed = results.some(result => result.status !== 'ok');
-            if (failed) {
-                setMappingMessage('Some mappings could not be deleted. Refresh and retry.', 'error');
+            const failedCount = results.filter(result => result.status !== 'ok').length;
+            const deletedCount = results.length - failedCount;
+            if (failedCount > 0) {
+                setMappingMessage(`Deleted ${deletedCount}/${results.length} mapping(s). ${failedCount} failed; retry failed deletes.`, 'error');
             } else {
-                setMappingMessage('Mapping group deleted successfully.', 'success');
+                setMappingMessage(`Deleted ${deletedCount}/${results.length} mapping(s) successfully.`, 'success');
             }
             await fetchMappings();
-            renderSourceList();
             renderGroupCards();
+            renderTargetSuggestions();
+            if (getActiveMode() === 'map') {
+                renderSourceList();
+            }
             updateSummary();
         } catch (error) {
             console.error('Failed to delete group mappings:', error);
@@ -801,10 +916,24 @@
         return div.innerHTML;
     }
 
-    document.getElementById('search-input').addEventListener('input', renderSourceList);
-    document.getElementById('filter-unmapped').addEventListener('change', renderSourceList);
-    document.getElementById('filter-selected').addEventListener('change', renderSourceList);
-    document.getElementById('target-value').addEventListener('input', renderSourceList);
+    document.getElementById('search-input').addEventListener('input', () => {
+        persistTabControlsToState();
+        renderSourceList();
+    });
+    document.getElementById('filter-unmapped').addEventListener('change', () => {
+        persistTabControlsToState();
+        renderSourceList();
+    });
+    document.getElementById('filter-selected').addEventListener('change', () => {
+        persistTabControlsToState();
+        renderSourceList();
+    });
+    document.getElementById('target-value').addEventListener('input', () => {
+        persistTabControlsToState();
+        if (getActiveMode() === 'map') {
+            renderSourceList();
+        }
+    });
 
     document.getElementById('defaults-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -828,8 +957,10 @@
     async function initializePage() {
         document.getElementById('conflict-skip').checked = true;
         await Promise.all([fetchLiveries(), fetchMappings(), loadDefaults()]);
+        syncTabControlsFromState();
+        applyModeVisibility();
         renderSourceList();
-        renderGroupCards();
+        renderTargetSuggestions();
         updateSummary();
     }
 
