@@ -11,6 +11,39 @@
     <script src="/static/js/htmx.min.js"></script>
 </head>
 <body>
+    <style>
+        .toastr-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-width: 24rem;
+            pointer-events: none;
+        }
+
+        .toastr-item {
+            pointer-events: auto;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+            font-size: 0.9rem;
+            line-height: 1.35;
+        }
+
+        .toastr-item.success { border-color: var(--status-success); }
+        .toastr-item.error { border-color: var(--status-danger); }
+        .toastr-item.warning { border-color: var(--status-warning); }
+        .toastr-item.info { border-color: var(--accent-primary); }
+    </style>
+
+    <div id="toastr-container" class="toastr-container" aria-live="polite" aria-atomic="true"></div>
+
     <!-- Global HTMX Loading Spinner -->
     <div id="global-spinner" class="htmx-indicator">
         <div class="spinner-backdrop"></div>
@@ -50,6 +83,24 @@
 
     <!-- JavaScript for shell interactions -->
     <script>
+        window.toastr = {
+            show(type, message, timeoutMs = 3500) {
+                const container = document.getElementById('toastr-container');
+                if (!container || !message) return;
+                const el = document.createElement('div');
+                el.className = `toastr-item ${type || 'info'}`;
+                el.textContent = message;
+                container.appendChild(el);
+                window.setTimeout(() => {
+                    el.remove();
+                }, timeoutMs);
+            },
+            success(message, timeoutMs) { this.show('success', message, timeoutMs); },
+            error(message, timeoutMs) { this.show('error', message, timeoutMs); },
+            warning(message, timeoutMs) { this.show('warning', message, timeoutMs); },
+            info(message, timeoutMs) { this.show('info', message, timeoutMs); },
+        };
+
         function toggleDrawer() {
             const drawer = document.getElementById('drawer');
             const overlay = document.getElementById('overlay');

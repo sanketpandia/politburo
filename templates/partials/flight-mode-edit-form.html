@@ -530,6 +530,9 @@
                     e.preventDefault();
                     errorDiv.textContent = 'Display name is required';
                     errorDiv.classList.add('show');
+                    if (window.toastr) {
+                        window.toastr.warning('Display name is required.');
+                    }
                     return false;
                 }
 
@@ -539,6 +542,9 @@
                     e.preventDefault();
                     errorDiv.textContent = 'Fixed route name is required when route source is fixed_route';
                     errorDiv.classList.add('show');
+                    if (window.toastr) {
+                        window.toastr.warning('Fixed route name is required for fixed_route.');
+                    }
                     return false;
                 }
 
@@ -547,6 +553,9 @@
                     e.preventDefault();
                     errorDiv.textContent = 'Discord allows a maximum of 5 pilot inputs per mode.';
                     errorDiv.classList.add('show');
+                    if (window.toastr) {
+                        window.toastr.warning('Discord allows a maximum of 5 pilot inputs per mode.');
+                    }
                     return false;
                 }
 
@@ -557,12 +566,18 @@
                         e.preventDefault();
                         errorDiv.textContent = 'Pilot input keys must be snake_case and start with a letter.';
                         errorDiv.classList.add('show');
+                        if (window.toastr) {
+                            window.toastr.warning('Pilot input keys must be snake_case and start with a letter.');
+                        }
                         return false;
                     }
                     if (seen.has(key)) {
                         e.preventDefault();
                         errorDiv.textContent = 'Pilot input keys must be unique within a mode.';
                         errorDiv.classList.add('show');
+                        if (window.toastr) {
+                            window.toastr.warning('Pilot input keys must be unique within a mode.');
+                        }
                         return false;
                     }
                     seen.add(key);
@@ -576,9 +591,34 @@
 
             // Handle HTMX response errors
             htmx.on(form, 'htmx:responseError', function(evt) {
-                errorDiv.textContent = 'Failed to save changes. Please try again.';
+                let message = 'Failed to save changes. Please try again.';
+                const responseText = evt?.detail?.xhr?.responseText;
+                if (responseText && typeof responseText === 'string') {
+                    message = responseText;
+                }
+                errorDiv.textContent = message;
                 errorDiv.classList.add('show');
-                console.error('HTMX Error:', evt.detail.xhr.responseText);
+                if (window.toastr) {
+                    window.toastr.error(message);
+                }
+            });
+
+            htmx.on(form, 'htmx:afterRequest', function(evt) {
+                const xhr = evt?.detail?.xhr;
+                if (xhr && xhr.status >= 200 && xhr.status < 300) {
+                    if (window.toastr) {
+                        window.toastr.success('Flight mode saved successfully.');
+                    }
+                }
+            });
+
+            htmx.on(form, 'htmx:targetError', function() {
+                const message = 'UI target error while updating flight mode. Please refresh and try again.';
+                errorDiv.textContent = message;
+                errorDiv.classList.add('show');
+                if (window.toastr) {
+                    window.toastr.error(message);
+                }
             });
         }
     })();

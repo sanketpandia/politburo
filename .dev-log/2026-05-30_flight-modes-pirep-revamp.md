@@ -529,3 +529,60 @@ Branch: `feat/flight-modes-pirep-revamp`
 ## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
 
 - Unit Testing: add table-driven tests for `UpdateFlightModeHandler` pilot input validation (duplicate keys, regex, max field count, unsupported type).
+
+---
+
+Date: 2026-06-01
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
+- UX feedback closure: add plan recommendations snapshot and configure toast notifications for successful and non-success HTMX save flows in flight-mode edit.
+
+## Changed files
+
+- `plans/2026-06-01-flight-mode-airtable-mapping-scope-decision-plan.md`
+- `templates/layouts/base.html`
+- `templates/partials/flight-mode-edit-form.html`
+
+## Reused code / patterns / components
+
+- Reused existing base layout script bootstrapping to register a global `window.toastr` helper.
+- Reused form-level HTMX event handling in flight-mode edit (`htmx:responseError`, `htmx:afterRequest`).
+
+## Logging added or affected
+
+- Removed ad-hoc client console HTMX error logging in edit form path; replaced with user-facing toast/error messaging.
+
+## Metrics added or affected
+
+- No metrics changes.
+
+## Test surface touched or still needed
+
+- Touched client-side validation and save feedback behavior in mode edit form.
+- Still needed: browser-level manual verification for toast behavior on save success, validation failure, and target errors.
+
+## Build/test command(s) run and status
+
+- `go test ./internal/vaadmin ./internal/routes`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+
+## Deviations from plan, if any
+
+- No deviations; this unit improves UX/error signaling within the same flight-mode authoring scope.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Toast helper introduced at base layout level; available to all dashboard pages without changing route contracts.
+- Flight-mode edit HTMX flow still posts to existing endpoints and swaps same target container.
+
+## Live API compliance notes when relevant
+
+- No Live API changes.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Unit Testing: add browser-automation or integration checks for toast messages and validation text when backend returns 4xx.
