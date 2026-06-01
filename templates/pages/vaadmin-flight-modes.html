@@ -6,9 +6,21 @@
 </div>
 
 <div class="card">
-    <div style="margin-bottom: 1.5rem;">
-        <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;">Flight Modes</h3>
-        <p class="page-subtitle" style="font-size: 0.875rem;">Enable or disable modes and customize which fields are shown</p>
+    <div style="margin-bottom: 1.5rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+        <div>
+            <h3 class="page-title" style="font-size: 1.25rem; margin-bottom: 0.5rem;">Flight Modes</h3>
+            <p class="page-subtitle" style="font-size: 0.875rem;">Enable or disable modes and customize which fields are shown</p>
+        </div>
+        <button
+            type="button"
+            class="btn btn-primary"
+            hx-post="/dashboard/vaadmin/flight-modes/create"
+            hx-target="#flight-modes-container"
+            hx-swap="innerHTML"
+            hx-indicator="#global-spinner"
+        >
+            + Add Flight Mode
+        </button>
     </div>
 
     <!-- Flight Modes List Container (HTMX Target) -->

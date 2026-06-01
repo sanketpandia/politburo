@@ -282,6 +282,7 @@ func NewRouter(application *app.App) http.Handler {
 
 				// Flight Modes Configuration
 				vaadmin.Get("/flight-modes/list", application.Features.VAAdminHandler.FlightModesListHandler())
+				vaadmin.Post("/flight-modes/create", application.Features.VAAdminHandler.CreateFlightModeHandler())
 				vaadmin.Get("/flight-modes/{mode_id}/edit", application.Features.VAAdminHandler.GetFlightModeEditHandler())
 				vaadmin.Post("/flight-modes/{mode_id}/toggle", application.Features.VAAdminHandler.ToggleFlightModeHandler())
 				vaadmin.Post("/flight-modes/{mode_id}/update", application.Features.VAAdminHandler.UpdateFlightModeHandler())

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 
 	"infinite-experiment/politburo/infra/logging"
@@ -746,6 +748,93 @@ func (h *Handler) FlightModesListHandler() http.HandlerFunc {
 	}
 }
 
+// CreateFlightModeHandler handles POST /dashboard/vaadmin/flight-modes/create
+// Creates a new mode with safe defaults and re-renders the list partial.
+func (h *Handler) CreateFlightModeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionDataInterface := auth.GetSessionData(r.Context())
+		if sessionDataInterface == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		sessionData, ok := sessionDataInterface.(*session.SessionData)
+		if !ok {
+			http.Error(w, "Invalid session data", http.StatusInternalServerError)
+			return
+		}
+
+		activeVA := sessionData.GetActiveVA()
+		if activeVA == nil {
+			http.Error(w, "No active VA found", http.StatusInternalServerError)
+			return
+		}
+
+		config, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
+		if err != nil {
+			logging.Error("Failed to fetch flight modes config", "error", err, "va_id", activeVA.VAID)
+			http.Error(w, "Failed to fetch configuration", http.StatusInternalServerError)
+			return
+		}
+
+		envelope, parseErr := dtos.ParseModeRuntimeEnvelope(config)
+		if parseErr != nil {
+			logging.Warn("Invalid existing flight mode config; initializing fresh v2 envelope", "va_id", activeVA.VAID, "error", parseErr)
+			envelope = &dtos.ModeRuntimeEnvelope{
+				ConfigVersion: dtos.FlightModesConfigVersionV2,
+				FlightModes:   map[string]dtos.ModeRuntimeConfig{},
+			}
+		}
+
+		newModeID := nextNewModeID(envelope.FlightModes)
+		envelope.FlightModes[newModeID] = dtos.ModeRuntimeConfig{
+			Identity: dtos.ModeIdentity{
+				DisplayName: "New Flight Mode",
+				InternalKey: newModeID,
+				Enabled:     false,
+			},
+			FlightDetection: dtos.FlightDetection{
+				DetectionMode:       dtos.DetectionModeOptional,
+				RequireActiveFlight: false,
+			},
+			RouteBehavior: dtos.RouteBehavior{
+				RouteSource: dtos.RouteSourceNone,
+			},
+			PilotInputs: []dtos.ModePilotInput{},
+		}
+
+		configToSave := map[string]interface{}{
+			"config_version": float64(envelope.ConfigVersion),
+			"flight_modes":   envelope.FlightModes,
+		}
+
+		if err := h.vaSvc.ValidateAndSaveFlightModesConfig(r.Context(), activeVA.VAID, configToSave); err != nil {
+			logging.Error("Failed to save created flight mode", "error", err, "va_id", activeVA.VAID, "mode_id", newModeID)
+			http.Error(w, "Failed to create flight mode: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		updatedConfig, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
+		if err != nil {
+			http.Error(w, "Failed to fetch updated config", http.StatusInternalServerError)
+			return
+		}
+
+		modes, _ := buildModeCards(updatedConfig)
+		data := map[string]interface{}{
+			"Modes":    modes,
+			"ActiveVA": activeVA,
+			"HasModes": len(modes) > 0,
+		}
+
+		if err := h.templateRenderer.RenderPartial(w, "partials/flight-modes-list.html", data); err != nil {
+			logging.Error("Error rendering updated flight modes list", "error", err)
+			http.Error(w, "Error rendering updated flight modes list", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
 // GetFlightModeEditHandler handles GET /dashboard/vaadmin/flight-modes/{mode_id}/edit
 // Returns the edit form for a specific flight mode (HTMX partial)
 func (h *Handler) GetFlightModeEditHandler() http.HandlerFunc {
@@ -957,6 +1046,10 @@ func (h *Handler) UpdateFlightModeHandler() http.HandlerFunc {
 			http.Error(w, "Display name is required", http.StatusBadRequest)
 			return
 		}
+		if routeSource == dtos.RouteSourceFixedRoute && fixedRouteName == "" {
+			http.Error(w, "Fixed route name is required when route source is fixed_route", http.StatusBadRequest)
+			return
+		}
 
 		config, err := h.vaSvc.GetFlightModesConfig(r.Context(), activeVA.VAID)
 		if err != nil {
@@ -988,10 +1081,74 @@ func (h *Handler) UpdateFlightModeHandler() http.HandlerFunc {
 			modeData.RouteBehavior.FixedRoute = nil
 		}
 
-		for i := range modeData.PilotInputs {
-			fieldShowValue := r.FormValue("field_required_" + modeData.PilotInputs[i].Key)
-			modeData.PilotInputs[i].Required = fieldShowValue == "on" || fieldShowValue == "true"
+		pilotInputKeys := r.Form["pilot_input_key[]"]
+		pilotInputLabels := r.Form["pilot_input_label[]"]
+		pilotInputTypes := r.Form["pilot_input_type[]"]
+		pilotInputRequired := r.Form["pilot_input_required[]"]
+		pilotInputPlaceholders := r.Form["pilot_input_placeholder[]"]
+		pilotInputHelpTexts := r.Form["pilot_input_help_text[]"]
+
+		if len(pilotInputKeys) != len(pilotInputLabels) ||
+			len(pilotInputKeys) != len(pilotInputTypes) ||
+			len(pilotInputKeys) != len(pilotInputRequired) ||
+			len(pilotInputKeys) != len(pilotInputPlaceholders) ||
+			len(pilotInputKeys) != len(pilotInputHelpTexts) {
+			http.Error(w, "Invalid pilot input rows payload", http.StatusBadRequest)
+			return
 		}
+
+		if len(pilotInputKeys) > 5 {
+			http.Error(w, "Discord allows a maximum of 5 pilot inputs per mode", http.StatusBadRequest)
+			return
+		}
+
+		keyPattern := regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+		seenKeys := make(map[string]struct{}, len(pilotInputKeys))
+		parsedPilotInputs := make([]dtos.ModePilotInput, 0, len(pilotInputKeys))
+
+		for i := range pilotInputKeys {
+			key := strings.TrimSpace(pilotInputKeys[i])
+			if key == "" {
+				continue
+			}
+
+			if !keyPattern.MatchString(key) {
+				http.Error(w, "Pilot input key must be snake_case and start with a letter", http.StatusBadRequest)
+				return
+			}
+			if _, exists := seenKeys[key]; exists {
+				http.Error(w, "Pilot input keys must be unique within a mode", http.StatusBadRequest)
+				return
+			}
+			seenKeys[key] = struct{}{}
+
+			label := strings.TrimSpace(pilotInputLabels[i])
+			if label == "" {
+				http.Error(w, "Pilot input label is required", http.StatusBadRequest)
+				return
+			}
+
+			fieldType := strings.TrimSpace(pilotInputTypes[i])
+			switch fieldType {
+			case "text", "number", "date":
+			default:
+				http.Error(w, "Pilot input type must be text, number, or date", http.StatusBadRequest)
+				return
+			}
+
+			required := strings.TrimSpace(pilotInputRequired[i]) == "true"
+
+			parsedPilotInputs = append(parsedPilotInputs, dtos.ModePilotInput{
+				Key:         key,
+				Label:       label,
+				Type:        fieldType,
+				Required:    required,
+				Placeholder: strings.TrimSpace(pilotInputPlaceholders[i]),
+				HelpText:    strings.TrimSpace(pilotInputHelpTexts[i]),
+			})
+		}
+
+		modeData.PilotInputs = parsedPilotInputs
 
 		envelope.FlightModes[modeID] = modeData
 		configToSave := map[string]interface{}{
@@ -1085,4 +1242,25 @@ func buildModeSectionStatus(mode dtos.ModeRuntimeConfig) map[string]string {
 	}
 
 	return status
+}
+
+func nextNewModeID(modes map[string]dtos.ModeRuntimeConfig) string {
+	if len(modes) == 0 {
+		return "new_mode_1"
+	}
+
+	existing := make([]string, 0, len(modes))
+	for key := range modes {
+		existing = append(existing, key)
+	}
+	sort.Strings(existing)
+
+	for i := 1; i <= len(existing)+1; i++ {
+		candidate := fmt.Sprintf("new_mode_%d", i)
+		if _, ok := modes[candidate]; !ok {
+			return candidate
+		}
+	}
+
+	return fmt.Sprintf("new_mode_%d", len(existing)+1)
 }

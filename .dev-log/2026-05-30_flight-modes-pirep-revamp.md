@@ -469,3 +469,63 @@ Branch: `feat/flight-modes-pirep-revamp`
 ## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
 
 - Unit Testing: add adapter-level tests for non-200/400/404 status mapping on generated PIREP adapter.
+
+---
+
+Date: 2026-06-01
+Branch: `feat/flight-modes-pirep-revamp`
+
+## Logical unit / commit intent
+
+- VaAdmin flight-mode UX stabilization + pilot input authoring MVP: add create-mode button/route, fix edit-form HTMX target errors, add detection/route guidance, add fixed-route dependency validation, and support add/edit/remove pilot input rows (max 5).
+
+## Changed files
+
+- `templates/pages/vaadmin-flight-modes.html`
+- `templates/partials/flight-mode-edit-form.html`
+- `internal/vaadmin/handler.go`
+- `internal/routes/router.go`
+- `docs/dev/endpoint-inventory.md`
+
+## Reused code / patterns / components
+
+- Reused existing HTMX partial refresh pattern targeting `#flight-modes-container`.
+- Reused `ValidateAndSaveFlightModesConfig` as authoritative save-time validation path.
+- Reused existing v2 mode envelope (`dtos.ModeRuntimeEnvelope`) and route-source constants.
+
+## Logging added or affected
+
+- Added warning path when create action encounters invalid existing config and initializes a fresh strict v2 envelope.
+
+## Metrics added or affected
+
+- No metrics changes in this unit.
+
+## Test surface touched or still needed
+
+- Touched vaadmin flight-mode create/edit/update routing and validation behavior.
+- Still needed: dedicated handler tests for pilot input row parsing and malformed form payload branches.
+
+## Build/test command(s) run and status
+
+- `go test ./internal/vaadmin ./internal/routes`
+  - status: passed
+- `go build -buildvcs=false -o .air_tmp/main ./cmd/server`
+  - status: passed
+
+## Deviations from plan, if any
+
+- Pilot input MVP currently supports `text|number|date` field types only in this UI slice.
+
+## Blast-radius notes / dependent surfaces checked
+
+- Verified `/dashboard/vaadmin/flight-modes/*` route family remains admin-scoped and partial-response based.
+- Updated endpoint inventory docs to reflect create endpoint and pilot input authoring behavior.
+
+## Live API compliance notes when relevant
+
+- No Live API boundary changes.
+
+## Follow-up notes for Swagger/OpenAPI, Observability, or Unit Testing agents when applicable
+
+- Unit Testing: add table-driven tests for `UpdateFlightModeHandler` pilot input validation (duplicate keys, regex, max field count, unsupported type).

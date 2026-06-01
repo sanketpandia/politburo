@@ -82,6 +82,7 @@ Notes:
 Notes:
 
 - Mounted through generated OpenAPI strict handler (`internal/api/generated/pireps`) with a handwritten adapter in `internal/api/pireps/server.go`, mirroring registration runtime pattern.
+- `/api/v1/pireps/config` consumes mode `pilot_inputs` authored through the VA admin flight-mode editor.
 - Domain logic still uses some legacy-sensitive dependencies (`internal/common`, `internal/db/repositories`) and remains a follow-up cleanup area.
 
 ## Feature: events API
@@ -158,9 +159,10 @@ Notes:
 | `POST` | `/dashboard/vaadmin/pilots/{pilot_id}/role` | Update role | Mixed | `partial` |
 | `DELETE` | `/dashboard/vaadmin/pilots/{pilot_id}` | Remove pilot | Mixed | `partial` |
 | `GET` | `/dashboard/vaadmin/flight-modes/list` | Flight mode list | Mixed | `partial` |
-| `GET` | `/dashboard/vaadmin/flight-modes/{mode_id}/edit` | Edit flight mode | Mixed | `partial` |
+| `POST` | `/dashboard/vaadmin/flight-modes/create` | Create a new flight mode with default v2 values | Mixed | `partial` |
+| `GET` | `/dashboard/vaadmin/flight-modes/{mode_id}/edit` | Edit full mode config including pilot input authoring rows | Mixed | `partial` |
 | `POST` | `/dashboard/vaadmin/flight-modes/{mode_id}/toggle` | Toggle flight mode | Mixed | `partial` |
-| `POST` | `/dashboard/vaadmin/flight-modes/{mode_id}/update` | Update flight mode | Mixed | `partial` |
+| `POST` | `/dashboard/vaadmin/flight-modes/{mode_id}/update` | Persist full mode config (basics, detection, route behavior, pilot_inputs) with strict v2 validation | Mixed | `partial` |
 | `GET` | `/dashboard/vaadmin/webhooks` | Webhooks page | Mixed | `page` |
 | `GET` | `/dashboard/vaadmin/webhooks/list` | Webhooks list | Mixed | `partial` |
 | `POST` | `/dashboard/vaadmin/webhooks` | Create webhook | Mixed | `partial` |
@@ -169,6 +171,7 @@ Notes:
 Notes:
 
 - These are active Vizburo routes, but `internal/vaadmin/handler.go` remains a large technical-debt hotspot.
+- Flight-mode authoring is constrained by Discord modal limits: maximum 5 `pilot_inputs` per mode.
 
 ## Feature: datasource configuration UI
 
