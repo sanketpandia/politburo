@@ -360,6 +360,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /flights/va:
+    get:
+      operationId: getVALiveFlights
+      summary: Get live flights for the current Discord server's VA
+      description: |
+        Returns the bot-facing live-flight snapshot for the VA resolved from
+        X-Discord-Server-Id and the authenticated API key. This operation is
+        source-agnostic from the bot's perspective: clients should depend on the
+        stable state code, display message, flight list, summary, freshness
+        metadata, and optional signed Vizburo live-page link rather than on the
+        backend's internal live-data source.
+
+        Missing Discord context headers are expected to be rejected by bot
+        context middleware as 403 MISSING_DISCORD_CONTEXT after API-key auth.
+      tags: [registration]
+      responses:
+        "200":
+          description: Live flights snapshot retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VALiveFlightsResponse"
+        "401":
+          description: Missing or invalid X-API-Key authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveFlightsErrorResponse"
+        "403":
+          description: Missing Discord context, unregistered user, forbidden caller, or VA context not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveFlightsErrorResponse"
+        "500":
+          description: Live flights cache/source unavailable, stale beyond usable bounds, or signed link generation failure when treated as fatal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveFlightsErrorResponse"
+
 components:
   securitySchemes:
     ApiKey:
@@ -968,6 +1009,256 @@ components:
           enum: [ok]
         result:
           $ref: "#/components/schemas/PilotStatsData"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    # ── /flights/va ────────────────────────────────────────────────────────
+
+    LiveFlightsStateCode:
+      type: string
+      description: Stable backend-controlled semantic state for the live-flight response.
+      enum:
+        - LIVE_FLIGHTS_FOUND
+        - NO_LIVE_FLIGHTS
+        - VA_CONTEXT_NOT_CONFIGURED
+        - MISSING_DISCORD_CONTEXT
+        - USER_NOT_REGISTERED
+        - FORBIDDEN
+        - LIVE_FLIGHTS_UNAVAILABLE
+        - LIVE_FLIGHTS_STALE
+        - SIGNED_LINK_UNAVAILABLE
+
+    LiveFlightPhase:
+      type: string
+      description: Backend flight-state/phase derived from cached live-flight tracking.
+      enum: [on_ground, takeoff, climb, cruise, descent, landed, unknown]
+
+    LiveFlightPhaseHistoryEntry:
+      type: object
+      required: [ph, at]
+      properties:
+        ph:
+          $ref: "#/components/schemas/LiveFlightPhase"
+        at:
+          type: string
+          format: date-time
+
+    VALiveFlight:
+      type: object
+      required:
+        - flight_id
+        - callsign
+        - username
+        - session_name
+        - latitude
+        - longitude
+        - altitude
+        - speed
+        - track
+        - vertical_speed
+        - aircraft_name
+        - livery_name
+        - phase
+        - takeoff_time
+        - detected_at
+        - last_updated
+        - last_report
+        - last_flight_plan_fetch
+      properties:
+        flight_id:
+          type: string
+          description: Backend live-flight/cache identifier.
+        callsign:
+          type: string
+          description: Pilot callsign detected for the VA.
+          example: IFE123
+        username:
+          type: string
+          description: Infinite Flight Community username.
+          example: jane_doe
+        session_name:
+          type: string
+          description: Human-readable Infinite Flight server/session name.
+          example: Expert Server
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        altitude:
+          type: integer
+          description: Current altitude in feet.
+        speed:
+          type: integer
+          description: Current ground speed in knots.
+        track:
+          type: number
+          format: double
+          description: Current track/heading in degrees.
+        vertical_speed:
+          type: number
+          format: double
+          description: Current vertical speed in feet per minute.
+        aircraft_name:
+          type: string
+          description: Display aircraft name resolved by the backend when available.
+        livery_name:
+          type: string
+          description: Display livery name resolved by the backend when available.
+        phase:
+          $ref: "#/components/schemas/LiveFlightPhase"
+        phase_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiveFlightPhaseHistoryEntry"
+        takeoff_time:
+          type: string
+          format: date-time
+          nullable: true
+        landing_time:
+          type: string
+          format: date-time
+          nullable: true
+        origin:
+          type: string
+          description: Origin airport code from the fetched flight plan when available.
+          example: KLAX
+        destination:
+          type: string
+          description: Destination airport code from the fetched flight plan when available.
+          example: KSFO
+        route:
+          type: string
+          description: Optional backend display route, typically origin-destination when both are known.
+          example: KLAX-KSFO
+        max_speed:
+          type: integer
+          nullable: true
+          description: Maximum recorded speed in knots from cached waypoints, if any.
+        max_altitude:
+          type: integer
+          nullable: true
+          description: Maximum recorded altitude in feet from cached waypoints, if any.
+        detected_at:
+          type: string
+          format: date-time
+        last_updated:
+          type: string
+          format: date-time
+        last_report:
+          type: string
+          format: date-time
+        last_flight_plan_fetch:
+          type: string
+          format: date-time
+          nullable: true
+
+    LiveFlightsTopRoute:
+      type: object
+      description: Most common route in the current result; only included when a route has count greater than 1.
+      required: [route, count]
+      properties:
+        route:
+          type: string
+          example: KLAX-KSFO
+        count:
+          type: integer
+          minimum: 2
+          example: 3
+
+    LiveFlightsSummary:
+      type: object
+      required: [total_detected_flights]
+      properties:
+        total_detected_flights:
+          type: integer
+          minimum: 0
+          description: Count of flights detected for the VA in this response.
+        top_route:
+          $ref: "#/components/schemas/LiveFlightsTopRoute"
+
+    LiveFlightsFreshness:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+          description: Time the backend generated this live-flight snapshot.
+        newest_report_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Most recent pilot report timestamp across returned flights, if any.
+        oldest_report_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Oldest pilot report timestamp across returned flights, if any.
+        is_stale:
+          type: boolean
+          description: True when the backend considers the snapshot stale but still usable.
+        stale_after_seconds:
+          type: integer
+          minimum: 0
+          description: Backend freshness threshold used to classify staleness, when exposed.
+
+    VALiveFlightsData:
+      type: object
+      required: [code, message, flights, summary]
+      properties:
+        code:
+          $ref: "#/components/schemas/LiveFlightsStateCode"
+        message:
+          type: string
+          description: Bot-safe display message for the current live-flight state.
+          example: Live flights fetched
+        flights:
+          type: array
+          items:
+            $ref: "#/components/schemas/VALiveFlight"
+        summary:
+          $ref: "#/components/schemas/LiveFlightsSummary"
+        freshness:
+          $ref: "#/components/schemas/LiveFlightsFreshness"
+        signed_link:
+          type: string
+          description: Optional signed URL to the Vizburo live page for the current user/VA.
+          example: https://dashboard.example.com/auth/login?token=eyJ...
+
+    VALiveFlightsResponse:
+      type: object
+      required: [status, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        result:
+          $ref: "#/components/schemas/VALiveFlightsData"
+        responseTimeMs:
+          type: integer
+          format: int64
+
+    LiveFlightsErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          $ref: "#/components/schemas/LiveFlightsStateCode"
+        message:
+          type: string
+          description: Bot-safe error message.
+
+    LiveFlightsErrorResponse:
+      type: object
+      required: [status, error, responseTimeMs]
+      properties:
+        status:
+          type: string
+          enum: [error]
+        error:
+          $ref: "#/components/schemas/LiveFlightsErrorDetail"
         responseTimeMs:
           type: integer
           format: int64

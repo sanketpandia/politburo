@@ -1223,10 +1223,19 @@ body {
     text-transform: uppercase;
 }
 
+.phase-chip {
+    justify-content: center;
+    min-width: 2.35rem;
+    padding-inline: 0.45rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+}
+
 .status-pill-info,
 .phase-cruise {
     color: var(--status-cruise);
     border-color: var(--status-cruise);
+    background-color: color-mix(in srgb, var(--status-cruise) 12%, transparent);
 }
 
 .status-pill-success {
@@ -1234,11 +1243,13 @@ body {
     border-color: var(--status-success);
 }
 
-.phase-climb { color: var(--status-climb); border-color: var(--status-climb); }
-.phase-descent { color: var(--status-descent); border-color: var(--status-descent); }
+.phase-on_ground { color: var(--text-muted); border-color: var(--border-color); background-color: rgba(255, 255, 255, 0.03); }
+.phase-unknown { color: var(--text-muted); border-color: var(--border-color); background-color: transparent; }
+.phase-climb { color: var(--status-climb); border-color: var(--status-climb); background-color: color-mix(in srgb, var(--status-climb) 12%, transparent); }
+.phase-descent { color: var(--status-descent); border-color: var(--status-descent); background-color: color-mix(in srgb, var(--status-descent) 12%, transparent); }
 .phase-takeoff,
 .phase-landing,
-.phase-landed { color: var(--status-landing); border-color: var(--status-landing); }
+.phase-landed { color: var(--status-landing); border-color: var(--status-landing); background-color: color-mix(in srgb, var(--status-landing) 12%, transparent); }
 
 .empty-state {
     display: flex;
@@ -1754,6 +1765,7 @@ body {
     flex-direction: column;
     gap: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 0.75rem;
     height: 34rem;
     max-height: 34rem;
@@ -1762,7 +1774,7 @@ body {
 
 .flight-list-heading {
     display: grid;
-    grid-template-columns: minmax(10rem, 1.35fr) minmax(6rem, 0.8fr) minmax(7rem, 0.9fr) minmax(5.5rem, 0.7fr) minmax(4.5rem, 0.55fr) minmax(4rem, 0.5fr) minmax(4rem, 0.45fr);
+    grid-template-columns: minmax(8rem, 1.45fr) minmax(6rem, 0.85fr) minmax(3.25rem, 0.65fr) minmax(2.5rem, 0.35fr) minmax(3.25rem, 0.5fr) minmax(3.25rem, 0.5fr);
     gap: 0.75rem;
     padding: 0 0.75rem 0.625rem;
     color: var(--text-muted);
@@ -1796,9 +1808,9 @@ body {
 .flight-list-item {
     width: 100%;
     display: grid;
-    grid-template-columns: minmax(10rem, 1.35fr) minmax(6rem, 0.8fr) minmax(7rem, 0.9fr) minmax(5.5rem, 0.7fr) minmax(4.5rem, 0.55fr) minmax(4rem, 0.5fr) minmax(4rem, 0.45fr);
-    align-items: center;
-    gap: 0.5rem;
+    grid-template-columns: minmax(8rem, 1.45fr) minmax(6rem, 0.85fr) minmax(3.25rem, 0.65fr) minmax(2.5rem, 0.35fr) minmax(3.25rem, 0.5fr) minmax(3.25rem, 0.5fr);
+    align-items: start;
+    gap: 0.75rem;
     min-height: 52px;
     padding: 0.75rem;
     border: 0;
@@ -1832,7 +1844,7 @@ body {
 
 .flight-list-meta {
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
 }
 
 .flight-list-primary strong {
@@ -1861,9 +1873,54 @@ body {
 }
 
 .flight-card-top,
-.flight-card-metrics,
-.flight-card-label {
+.flight-card-metrics {
     display: contents;
+}
+
+.flight-card-label {
+    display: none;
+}
+
+.flight-list-heading > span,
+.flight-card-identity,
+.flight-list-pilot,
+.flight-card-metric,
+.flight-card-value,
+.flight-list-route > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.flight-list-route {
+    display: grid;
+    gap: 0.1rem;
+    line-height: 1.1;
+}
+
+.flight-card-identity {
+    grid-column: 1;
+}
+
+.flight-list-pilot {
+    grid-column: 2;
+}
+
+.flight-card-metric-route {
+    grid-column: 3;
+}
+
+.flight-card-phase {
+    grid-column: 4;
+}
+
+.flight-card-metric-altitude {
+    grid-column: 5;
+}
+
+.flight-card-metric-speed {
+    grid-column: 6;
 }
 
 .live-map-panel {
@@ -2096,27 +2153,29 @@ body {
 
 .phase-timeline {
     display: grid;
-    grid-template-columns: repeat(6, minmax(4rem, 1fr));
-    gap: 0.5rem;
+    grid-template-columns: 1fr;
+    gap: 0;
     margin-top: 1rem;
-    overflow-x: auto;
 }
 
 .phase-step {
     position: relative;
     display: grid;
-    gap: 0.35rem;
+    grid-template-columns: 1rem minmax(0, 1fr);
+    column-gap: 0.75rem;
+    row-gap: 0.15rem;
     color: var(--text-muted);
-    min-width: 4.5rem;
+    min-width: 0;
+    padding-bottom: 0.9rem;
 }
 
 .phase-step::before {
     content: "";
     position: absolute;
-    top: 0.44rem;
-    left: 0.75rem;
-    right: -0.75rem;
-    border-top: 2px solid var(--border-color);
+    top: 0.9rem;
+    bottom: 0;
+    left: 0.44rem;
+    border-left: 2px solid var(--border-color);
 }
 
 .phase-step:last-child::before {
@@ -2130,11 +2189,19 @@ body {
 .phase-node {
     position: relative;
     z-index: 1;
+    grid-column: 1;
+    grid-row: 1 / span 2;
     width: 0.9rem;
     height: 0.9rem;
+    margin-top: 0.15rem;
     border-radius: 999px;
     border: 2px solid var(--border-color);
     background-color: var(--bg-surface);
+}
+
+.phase-step strong,
+.phase-step small {
+    grid-column: 2;
 }
 
 .phase-step.complete .phase-node,
@@ -2344,7 +2411,7 @@ body {
 
     .live-mobile-tabs {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.25rem;
         border: 1px solid var(--border-color);
         border-radius: 0.875rem;
@@ -2409,9 +2476,9 @@ body {
     }
 
     .flight-card-top {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: flex-start;
-        justify-content: space-between;
         gap: 0.75rem;
         min-width: 0;
     }
@@ -2431,16 +2498,26 @@ body {
 
     .flight-card-phase {
         display: flex;
+        grid-column: 2;
+        grid-row: 1;
         flex-shrink: 0;
         justify-content: flex-end;
     }
 
     .flight-card-metrics {
         display: grid;
+        grid-column: 1 / -1;
+        grid-row: 2;
         grid-template-columns: minmax(0, 1.35fr) minmax(72px, 0.8fr) minmax(64px, 0.7fr);
         gap: 0.75rem;
         align-items: end;
         min-width: 0;
+    }
+
+    .flight-card-metric-route,
+    .flight-card-metric-altitude,
+    .flight-card-metric-speed {
+        grid-column: auto;
     }
 
     @media (max-width: 380px) {
@@ -2583,6 +2660,12 @@ body {
         cursor: pointer;
     }
 
+    .dock-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(4.25rem, 1fr));
+        gap: 0.5rem;
+    }
+
     .flight-details-sheet {
         position: fixed;
         left: 0;
@@ -2611,6 +2694,16 @@ body {
         margin: 0 auto 1rem;
     }
 
+    .mobile-sheet-close {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin-bottom: 1rem;
+        padding: 0.65rem 1rem;
+        border-radius: 0.75rem;
+        font-weight: 800;
+    }
+
     .mobile-sheet-actions {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
@@ -2623,7 +2716,7 @@ body {
     }
 
     .phase-timeline {
-        grid-template-columns: repeat(6, minmax(5rem, 1fr));
+        grid-template-columns: 1fr;
     }
 
     /* Hide secondary nav on mobile (navigation is in drawer) */

@@ -20,6 +20,10 @@ let flightMap = null;
 let selectedFlightID = null;
 let inspectorCollapsed = false;
 
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
 function formatRoute(flight) {
   const origin = flight.origin || '—';
   const destination = flight.destination || '—';
@@ -106,10 +110,6 @@ function renderDetails(flight) {
       <div><dt>Takeoff</dt><dd>${escapeHTML(formatTime(flight.takeoff_time))}</dd></div>
       <div><dt>Last report</dt><dd>${escapeHTML(formatTime(flight.last_report))}</dd></div>
     </dl>
-    <div class="mobile-sheet-actions">
-      <button class="btn btn-secondary" type="button" data-center-selected-flight>Center</button>
-      <button class="btn btn-secondary" type="button" data-view-selected-route>View route</button>
-    </div>
     <section class="phase-history-card"><h3>Phase History</h3><div class="phase-timeline">${timeline}</div></section>`;
 }
 
@@ -165,9 +165,8 @@ function selectFlight(flightID, focusMap = true) {
   if (sheet && sheetContent) {
     sheetContent.innerHTML = renderDetails(flight);
   }
-  if (focusMap && flightMap) {
+  if (focusMap && flightMap && !isMobileViewport()) {
     flightMap.focusFlight(flightID, { zoom: 8, flightData: flight });
-    showMobileSection('map');
   }
   loadFlightPaths(flightID);
 }
@@ -259,20 +258,31 @@ function filterFlights(query) {
   searchEmpty?.classList.toggle('hidden', visibleCount !== 0 || !normalized);
 }
 
-listItems.forEach((item) => item.addEventListener('click', () => selectFlight(item.dataset.flightId)));
+listItems.forEach((item) => item.addEventListener('click', () => {
+  selectFlight(item.dataset.flightId, !isMobileViewport());
+  if (isMobileViewport()) showMobileSection('list');
+}));
 searchInput?.addEventListener('input', () => filterFlights(searchInput.value));
 document.querySelectorAll('[data-close-flight-details]').forEach((button) => button.addEventListener('click', closeDetails));
 document.querySelectorAll('[data-reopen-flight-details]').forEach((button) => button.addEventListener('click', reopenInspector));
 document.querySelectorAll('[data-collapse-mobile-sheet]').forEach((button) => button.addEventListener('click', () => showMobileSection('map')));
-document.querySelectorAll('[data-open-mobile-map]').forEach((button) => button.addEventListener('click', () => showMobileSection('map')));
+document.querySelectorAll('[data-open-mobile-map]').forEach((button) => button.addEventListener('click', () => {
+  showMobileSection('map');
+  if (!selectedFlightID) return;
+  const flight = byID.get(selectedFlightID);
+  setTimeout(() => {
+    if (flightMap && flight) flightMap.focusFlight(selectedFlightID, { zoom: 8, flightData: flight });
+    loadFlightPaths(selectedFlightID);
+  }, 75);
+}));
+document.querySelectorAll('[data-open-mobile-details]').forEach((button) => button.addEventListener('click', () => showMobileSection('details')));
 document.querySelectorAll('[data-collapse-mobile-dock]').forEach((button) => button.addEventListener('click', () => dock?.classList.add('hidden')));
 tabButtons.forEach((button) => button.addEventListener('click', () => showMobileSection(button.dataset.liveTab)));
 document.addEventListener('click', (event) => {
-  const action = event.target.closest('[data-center-selected-flight], [data-follow-selected-flight], [data-view-selected-route]');
+  const action = event.target.closest('[data-center-selected-flight]');
   if (!action || !selectedFlightID) return;
   const flight = byID.get(selectedFlightID);
   if (flightMap && flight) flightMap.focusFlight(selectedFlightID, { zoom: 8, flightData: flight });
-  if (action.matches('[data-view-selected-route]')) loadFlightPaths(selectedFlightID);
 });
 document.querySelectorAll('[data-return-to-flight-list]').forEach((button) => button.addEventListener('click', () => {
   showMobileSection('list');

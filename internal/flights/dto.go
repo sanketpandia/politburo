@@ -34,6 +34,7 @@ type VALiveFlightDTO struct {
 	// Route information
 	Origin      string `json:"origin,omitempty"`
 	Destination string `json:"destination,omitempty"`
+	Route       string `json:"route,omitempty"`
 
 	// Flight statistics (calculated from waypoints)
 	MaxSpeed    *int `json:"max_speed"`    // null if no waypoints, max speed in knots from waypoints
@@ -86,6 +87,9 @@ func ToVALiveFlightDTO(flight *CompleteFlight) *VALiveFlightDTO {
 		LastReport:          flight.LastReport.UTC(),
 		LastFlightPlanFetch: nil,
 	}
+	if flight.Origin != "" && flight.Destination != "" {
+		dto.Route = flight.Origin + "-" + flight.Destination
+	}
 
 	// Convert LastFlightPlanFetch to UTC if present
 	if !flight.LastFlightPlanFetch.IsZero() {
@@ -136,6 +140,19 @@ func ToVALiveFlightDTO(flight *CompleteFlight) *VALiveFlightDTO {
 // VALiveFlightsResponse represents the response for GET /api/v1/flights/va
 // Contains flights array and signed link for browser access
 type VALiveFlightsResponse struct {
-	Flights    []VALiveFlightDTO `json:"flights"`
-	SignedLink string            `json:"signed_link,omitempty"`
+	Code       string               `json:"code"`
+	Message    string               `json:"message"`
+	Flights    []VALiveFlightDTO    `json:"flights"`
+	Summary    VALiveFlightsSummary `json:"summary"`
+	SignedLink string               `json:"signed_link,omitempty"`
+}
+
+type VALiveFlightsSummary struct {
+	TotalDetectedFlights int                  `json:"total_detected_flights"`
+	TopRoute             *VALiveFlightsRoute `json:"top_route,omitempty"`
+}
+
+type VALiveFlightsRoute struct {
+	Route string `json:"route"`
+	Count int    `json:"count"`
 }

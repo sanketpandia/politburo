@@ -30,6 +30,8 @@ type Service struct {
 
 const maxRouteWorkers = 8
 
+var ErrVAContextNotConfigured = errors.New("VA context not configured")
+
 func SplitCallsign(raw string) (variable, prefix, suffix string) {
 	cs := strings.TrimSpace(raw)
 

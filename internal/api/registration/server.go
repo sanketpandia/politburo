@@ -22,6 +22,7 @@ import (
 type Handlers struct {
 	JoinMembership     http.HandlerFunc
 	GetPilotStats      http.HandlerFunc
+	GetVALiveFlights   http.HandlerFunc
 	RegisterPilot      http.HandlerFunc
 	InitServer         http.HandlerFunc
 	GenerateSignedLink http.HandlerFunc
@@ -39,15 +40,18 @@ func NewServer(
 	membershipsHandler *memberships.Handler,
 	serversHandler *servers.Handler,
 	authHandler *auth.Handler,
+	liveFlightsHandler http.HandlerFunc,
 ) *Server {
-	return &Server{handlers: Handlers{
+	handlers := Handlers{
 		JoinMembership:     membershipsHandler.JoinVA(),
 		GetPilotStats:      pilotsHandler.GetPilotStats(),
+		GetVALiveFlights:   liveFlightsHandler,
 		RegisterPilot:      pilotsHandler.RegisterPilot(),
 		InitServer:         serversHandler.InitServer(),
 		GenerateSignedLink: authHandler.GenerateSignedLink(),
 		GetUserStatus:      membershipsHandler.GetUserStatus(),
-	}}
+	}
+	return &Server{handlers: handlers}
 }
 
 func NewServerFromHandlers(handlers Handlers) *Server {
@@ -127,6 +131,7 @@ func (s *Server) RegisterPilot(ctx context.Context, request registrationgen.Regi
 }
 
 func (s *Server) GetCurrentUserPilotStats(ctx context.Context, request registrationgen.GetCurrentUserPilotStatsRequestObject) (registrationgen.GetCurrentUserPilotStatsResponseObject, error) {
+	// TODO Need to use string constant, but I think we should pass these paths to these servers as a map kinda thing from the main router setup thing and then we have handler registrars which can fetch a constant route string and then work with it? Or even better derive from OAS itself.
 	path := "/api/v1/pilot/stats"
 	if request.Params.Refresh != nil {
 		path = fmt.Sprintf("%s?refresh=%t", path, *request.Params.Refresh)
@@ -161,6 +166,30 @@ func (s *Server) GetCurrentUserPilotStats(ctx context.Context, request registrat
 		return registrationgen.GetCurrentUserPilotStats500JSONResponse(response), err
 	default:
 		return nil, fmt.Errorf("get pilot stats: unexpected status code %d", statusCode)
+	}
+}
+
+func (s *Server) GetVALiveFlights(ctx context.Context, _ registrationgen.GetVALiveFlightsRequestObject) (registrationgen.GetVALiveFlightsResponseObject, error) {
+	statusCode, body, err := s.serveJSON(ctx, http.MethodGet, "/api/v1/flights/va", nil, s.handlers.GetVALiveFlights)
+	if err != nil {
+		return nil, err
+	}
+
+	switch statusCode {
+	case http.StatusOK:
+		response, err := decodeBody[registrationgen.VALiveFlightsResponse](body)
+		return registrationgen.GetVALiveFlights200JSONResponse(response), err
+	case http.StatusUnauthorized:
+		response, err := decodeBody[registrationgen.LiveFlightsErrorResponse](body)
+		return registrationgen.GetVALiveFlights401JSONResponse(response), err
+	case http.StatusForbidden:
+		response, err := decodeBody[registrationgen.LiveFlightsErrorResponse](body)
+		return registrationgen.GetVALiveFlights403JSONResponse(response), err
+	case http.StatusInternalServerError:
+		response, err := decodeBody[registrationgen.LiveFlightsErrorResponse](body)
+		return registrationgen.GetVALiveFlights500JSONResponse(response), err
+	default:
+		return nil, fmt.Errorf("get VA live flights: unexpected status code %d", statusCode)
 	}
 }
 

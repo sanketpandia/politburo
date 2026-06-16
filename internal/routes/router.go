@@ -11,8 +11,8 @@ import (
 	"infinite-experiment/politburo/infra/session"
 	"infinite-experiment/politburo/infra/templates"
 	pirepsgen "infinite-experiment/politburo/internal/api/generated/pireps"
-	pirepsapi "infinite-experiment/politburo/internal/api/pireps"
 	registrationgen "infinite-experiment/politburo/internal/api/generated/registration"
+	pirepsapi "infinite-experiment/politburo/internal/api/pireps"
 	registration "infinite-experiment/politburo/internal/api/registration"
 	"infinite-experiment/politburo/internal/app"
 	"infinite-experiment/politburo/internal/auth"
@@ -25,6 +25,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// TODO Route strings to use constants. Also do we need to keep paths if they are in swagger path?
 // resolveProjectPath resolves a relative path to an absolute path relative to project root
 // This is needed because the binary may run from .air_tmp, so relative paths don't work
 func resolveProjectPath(relPath string) string {
@@ -85,6 +86,7 @@ func NewRouter(application *app.App) http.Handler {
 	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, faviconPath)
 	})
+	// TODO this is a very hacky way and needs to be cleaned up
 	// Serve logo assets referenced by the base layout.
 	logoSVGPath := resolveProjectPath("logo.svg")
 	r.Get("/logo.svg", func(w http.ResponseWriter, r *http.Request) {
@@ -129,27 +131,25 @@ func NewRouter(application *app.App) http.Handler {
 
 		v1.Group(func(bot chi.Router) {
 			bot.Use(middleware.RequireDiscordBotContextMiddleware())
-			registerRegistrationRoutes(bot, application)
+			registerRegistrationRoutes(bot, application, authSvc)
 		})
 
 		// Pilot stats endpoint
 		v1.Get("/pilot/stats", application.Features.PilotsHandler.GetPilotStats())
 
-		// Live flights endpoint - returns cached live flights for the current VA
-		// Reads from prepopulated cache (game:live:vaflights:<va_id> and game:live:flight:<flight_id>)
-		// Includes signed link for browser access to /live page
-		v1.Get("/flights/va", flights.GetVALiveFlightsFromCache(application.Infra.RedisCache, authSvc))
-
 		// Get single flight by ID - returns CompleteFlight from cache
+		// TODO Remove direct dependency
 		v1.Get("/flights/{flight_id}", flights.GetFlightByID(application.Infra.RedisCache))
 
 		// Logbook endpoint (staff/admin only)
+		// TODO Review needs to be done.
 		v1.Route("/pilots/{ifc_id}/logbook", func(logbook chi.Router) {
 			logbook.Use(middleware.IsStaffMiddleware())
 			logbook.Get("/", application.Features.PilotsHandler.GetUserLogbook())
 		})
 
 		// Self-service logbook: own IFC ID or staff/admin may view any
+		// TODO Can be eliminated. Above flights and logbook can be merged.
 		v1.Route("/user/{ifc_id}/flights", func(logbookSelf chi.Router) {
 			logbookSelf.Use(middleware.IsRegisteredMiddleware())
 			logbookSelf.Get("/", application.Features.PilotsHandler.GetUserLogbookSelf())
@@ -243,6 +243,7 @@ func NewRouter(application *app.App) http.Handler {
 			member.Get("/live", flights.NewLivePageHandler(application.Infra.RedisCache, application.Infra.TemplateRenderer).LiveFlightsPageHandler())
 
 			// Get flight waypoints for route mapping (all members)
+			// TODO This is a JSON endpoint and should have OAS
 			member.Get("/flights/{flight_id}/waypoints", flights.GetFlightWaypoints(application.Infra.RedisCache))
 			member.Get("/flights/{flight_id}/paths", flights.GetCachedFlightPaths(application.Infra.RedisCache))
 
@@ -367,17 +368,22 @@ func handleMethodNotAllowed(templateRenderer *templates.Renderer) http.HandlerFu
 	}
 }
 
-func registerRegistrationRoutes(bot chi.Router, application *app.App) {
+// TODO Cleanup required. All routes should be registered like this in separate files
+func registerRegistrationRoutes(bot chi.Router, application *app.App, authSvc *auth.Service) {
+	// TODO Live flights is separate from register and should be dealt with separately
+	liveFlightsHandler := flights.NewVALiveFlightsContractHandler(application.Infra.RedisCache, authSvc).GetVALiveFlightsFromCache()
 	registrationServer := registration.NewServer(
 		application.Features.PilotsHandler,
 		application.Features.MembershipsHandler,
 		application.Features.ServersHandler,
 		application.Features.AuthHandler,
+		liveFlightsHandler,
 	)
 	strictServer := registrationgen.NewStrictHandler(registrationServer, nil)
 	registrationgen.HandlerFromMux(strictServer, bot)
 }
 
+// TODO Cleanup required. All routes should be registered like this in separate files
 func registerPirepRoutes(v1 chi.Router, application *app.App) {
 	pirepsServer := pirepsapi.NewServer(
 		application.Features.PirepHandler,

@@ -110,7 +110,7 @@ func TestStrictServer_ComradeBotFlowEndpoints(t *testing.T) {
 	authHandler := &auth.Handler{}
 	authHandler = auth.NewHandler(authServiceStub{}, nil)
 
-	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler), nil)
+	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler, okLiveFlightsHandler), nil)
 	router := chi.NewRouter()
 	registrationgen.HandlerFromMux(strictServer, router)
 
@@ -152,7 +152,7 @@ func TestStrictServer_UnauthorizedWithoutBotHeaders(t *testing.T) {
 	serversHandler := servers.NewHandler(serverServiceStub{})
 	authHandler := auth.NewHandler(authServiceStub{}, nil)
 
-	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler), nil)
+	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler, okLiveFlightsHandler), nil)
 	router := chi.NewRouter()
 	registrationgen.HandlerFromMux(strictServer, router)
 
@@ -174,6 +174,7 @@ func TestStrictServer_ForbiddenDiscordContextMapsErrorEnvelope(t *testing.T) {
 
 	strictServer := registrationgen.NewStrictHandler(NewServerFromHandlers(Handlers{
 		JoinMembership:     forbiddenHandler,
+		GetVALiveFlights:   forbiddenHandler,
 		RegisterPilot:      forbiddenHandler,
 		InitServer:         forbiddenHandler,
 		GenerateSignedLink: forbiddenHandler,
@@ -223,7 +224,7 @@ func TestStrictServer_ValidationFailureMatchesHandlerEnvelope(t *testing.T) {
 	serversHandler := servers.NewHandler(serverServiceStub{})
 	authHandler := auth.NewHandler(authServiceStub{}, nil)
 
-	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler), nil)
+	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler, okLiveFlightsHandler), nil)
 	router := chi.NewRouter()
 	registrationgen.HandlerFromMux(strictServer, router)
 
@@ -252,7 +253,7 @@ func TestStrictServer_RegisterPilotNotFoundPropagatesEnvelope(t *testing.T) {
 	serversHandler := servers.NewHandler(serverServiceStub{})
 	authHandler := auth.NewHandler(authServiceStub{}, nil)
 
-	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler), nil)
+	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler, okLiveFlightsHandler), nil)
 	router := chi.NewRouter()
 	registrationgen.HandlerFromMux(strictServer, router)
 
@@ -305,7 +306,7 @@ func TestStrictServer_LegacyPilotRegisterRouteRemoved(t *testing.T) {
 	serversHandler := servers.NewHandler(serverServiceStub{})
 	authHandler := auth.NewHandler(authServiceStub{}, nil)
 
-	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler), nil)
+	strictServer := registrationgen.NewStrictHandler(NewServer(pilotsHandler, membershipsHandler, serversHandler, authHandler, okLiveFlightsHandler), nil)
 	router := chi.NewRouter()
 	registrationgen.HandlerFromMux(strictServer, router)
 
@@ -340,6 +341,16 @@ func newComradeBotRequest(t *testing.T, method string, path string, body any) *h
 		req.Header.Set("Content-Type", "application/json")
 	}
 	return req
+}
+
+func okLiveFlightsHandler(w http.ResponseWriter, r *http.Request) {
+	httpdto.WriteSuccess(w, time.Now(), map[string]any{
+		"code":        "NO_LIVE_FLIGHTS",
+		"message":     "No live flights currently active for this VA.",
+		"flights":     []any{},
+		"summary":     map[string]any{"total_detected_flights": 0},
+		"signed_link": "https://viz.example.com/auth/login?t=signed-token",
+	}, http.StatusOK)
 }
 
 func apiKeyClaims(userID string, role string, includeVA bool) auth.UserClaims {

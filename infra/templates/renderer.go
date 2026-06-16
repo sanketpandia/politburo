@@ -378,9 +378,11 @@ func (r *Renderer) getFuncMap() template.FuncMap {
 		"mod": func(a, b int) int {
 			return a % b
 		},
-		"dict":     DictFunction,
-		"json":     JSONFunction,
-		"jsEscape": JSEscapeFunction,
+		"phaseLabel":      PhaseLabel,
+		"phaseShortLabel": PhaseShortLabel,
+		"dict":            DictFunction,
+		"json":            JSONFunction,
+		"jsEscape":        JSEscapeFunction,
 		"assetVersion": func(assetPath string) string {
 			cleanPath := strings.TrimPrefix(assetPath, "/")
 			info, err := os.Stat(resolvePath(cleanPath))
@@ -492,4 +494,56 @@ func (r *Renderer) getFuncMap() template.FuncMap {
 			return fmt.Sprintf("%02d:%02d", hours, mins)
 		},
 	}
+}
+
+// PhaseLabel returns a readable label for compact live-flight phase chips.
+func PhaseLabel(phase interface{}) string {
+	switch normalizedPhase(phase) {
+	case "on_ground":
+		return "On ground"
+	case "takeoff":
+		return "Takeoff"
+	case "climb":
+		return "Climb"
+	case "cruise":
+		return "Cruise"
+	case "descent":
+		return "Descent"
+	case "landed":
+		return "Arrived"
+	case "unknown", "":
+		return "Unknown"
+	default:
+		return strings.ReplaceAll(normalizedPhase(phase), "_", " ")
+	}
+}
+
+// PhaseShortLabel returns a compact visual label while PhaseLabel preserves accessibility.
+func PhaseShortLabel(phase interface{}) string {
+	switch normalizedPhase(phase) {
+	case "on_ground":
+		return "GND"
+	case "takeoff":
+		return "TO"
+	case "climb":
+		return "CL"
+	case "cruise":
+		return "CR"
+	case "descent":
+		return "DS"
+	case "landed":
+		return "ARR"
+	case "unknown", "":
+		return "UNK"
+	default:
+		label := strings.ToUpper(strings.ReplaceAll(normalizedPhase(phase), "_", ""))
+		if len(label) > 3 {
+			return label[:3]
+		}
+		return label
+	}
+}
+
+func normalizedPhase(phase interface{}) string {
+	return strings.ToLower(strings.TrimSpace(fmt.Sprint(phase)))
 }

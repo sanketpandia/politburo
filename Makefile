@@ -21,7 +21,7 @@ help:
 	@echo "Politburo Test Commands:"
 	@echo "  make test           - Run all tests with report"
 	@echo "  make test-verbose   - Run tests with verbose output"
-	@echo "  make test-coverage  - Run tests and generate coverage report"
+	@echo "  make test-coveragez5  - Run tests and generate coverage report"
 	@echo "  make test-watch     - Watch for changes and run tests"
 	@echo "  make test-unit      - Run only unit tests (fast)"
 

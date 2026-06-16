@@ -100,7 +100,7 @@ func (registrationRouteLookupStub) GetByDiscordID(context.Context, string) (*use
 func TestRegisterRegistrationRoutesMountsGeneratedUserRegister(t *testing.T) {
 	t.Setenv("UI_BASE_URL", "https://viz.example.com")
 	router := chi.NewRouter()
-	registerRegistrationRoutes(router, registrationRouteApp())
+	registerRegistrationRoutes(router, registrationRouteApp(), nil)
 
 	tests := []struct {
 		name       string
@@ -134,7 +134,7 @@ func TestRegisterRegistrationRoutesMountsGeneratedUserRegister(t *testing.T) {
 
 func TestRegisterRegistrationRoutesDoesNotMountLegacyPilotRegister(t *testing.T) {
 	router := chi.NewRouter()
-	registerRegistrationRoutes(router, registrationRouteApp())
+	registerRegistrationRoutes(router, registrationRouteApp(), nil)
 
 	req := registrationRouteRequest(t, http.MethodPost, "/pilots/register", map[string]string{"ifc_id": "ifc-user", "last_flight": "KJFK-KLAX"})
 	req = req.WithContext(auth.SetUserClaims(req.Context(), registrationRouteClaims("", "", false)))

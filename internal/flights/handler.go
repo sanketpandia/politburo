@@ -10,6 +10,7 @@ import (
 	"infinite-experiment/politburo/infra/templates"
 	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/common"
+	"infinite-experiment/politburo/internal/platform/httpdto"
 	platformVA "infinite-experiment/politburo/internal/platform/va"
 	"net/http"
 	"strconv"
@@ -186,59 +187,67 @@ func (h *Handler) GetUserFlightsFromCache() http.HandlerFunc {
 	}
 }
 
-// GetVALiveFlightsFromCache handles GET /api/v1/flights/va
-// Returns live flights for the current VA from prepopulated cache (new cache structure)
-// Reads flight IDs from game:live:vaflights:<va_id> and fetches each CompleteFlight object
-// This is more efficient than the old approach as it reads directly from cache populated by FlightsCacheJob
-// Also includes a signed link for browser access to the live flights page
-func GetVALiveFlightsFromCache(redisCache *cache.RedisCacheService, authSvc *auth.Service) http.HandlerFunc {
+type VALiveFlightsContractHandler struct {
+	redisCache *cache.RedisCacheService
+	authSvc    *auth.Service
+}
+
+func NewVALiveFlightsContractHandler(redisCache *cache.RedisCacheService, authSvc *auth.Service) *VALiveFlightsContractHandler {
+	return &VALiveFlightsContractHandler{redisCache: redisCache, authSvc: authSvc}
+}
+
+// GetVALiveFlightsFromCache handles GET /api/v1/flights/va.
+// Returns live flights for the current VA from prepopulated cache (new cache structure).
+// Reads flight IDs from game:live:vaflights:<va_id> and fetches each CompleteFlight object.
+// This is more efficient than the old approach as it reads directly from cache populated by FlightsCacheJob.
+// Also includes a signed link for browser access to the live flights page.
+func (h *VALiveFlightsContractHandler) GetVALiveFlightsFromCache() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		initTime := time.Now()
 
 		// Get claims from context
 		claims := auth.GetUserClaims(r.Context())
 		if claims == nil {
-			common.RespondError(w, initTime, nil, "Unauthorized: missing claims", http.StatusUnauthorized)
+			httpdto.WriteError(w, initTime, "UNAUTHORIZED", "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if claims.UserID() == "" {
+			httpdto.WriteError(w, initTime, "USER_NOT_REGISTERED", "You must register before viewing live flights.", http.StatusForbidden)
+			return
+		}
+		if claims.Role() == "" {
+			httpdto.WriteError(w, initTime, "FORBIDDEN", "You must be an active VA member to view live flights.", http.StatusForbidden)
 			return
 		}
 
-		// Get VA ID and User ID from claims
-		vaID := claims.ServerID()
-		userID := claims.UserID()
-		if vaID == "" {
-			common.RespondError(w, initTime, nil, "VA ID not found in claims", http.StatusBadRequest)
+		resolvedVA := ResolvedVAContext{
+			VAID:   claims.ServerID(),
+			UserID: claims.UserID(),
+		}
+		response, err := BuildVALiveFlightsResponse(
+			r.Context(),
+			h.redisCache,
+			resolvedVA,
+			h.authSvc,
+			auth.GetUIBaseURL(r),
+		)
+		if err == ErrVAContextNotConfigured {
+			httpdto.WriteError(w, initTime, VAContextNotConfiguredCode, "VA context is not configured for this request.", http.StatusForbidden)
 			return
 		}
-
-		// Fetch flights using common service function
-		flights, err := GetVALiveFlightsDTOs(redisCache, vaID)
 		if err != nil {
-			logging.Warn("Failed to fetch flights from cache", "error", err, "vaID", vaID)
-			common.RespondError(w, initTime, err, "Failed to fetch flights", http.StatusInternalServerError)
+			logging.Warn("failed to fetch live flights from cache", "error", err)
+			httpdto.WriteError(w, initTime, LiveFlightsUnavailableCode, "Live flights are temporarily unavailable.", http.StatusInternalServerError)
 			return
 		}
 
-		// Generate signed link for browser access
-		var signedLink string
-		if userID != "" {
-			token, err := authSvc.GenerateSignedLink(r.Context(), userID, vaID, "/dashboard/live", 15*time.Minute)
-			if err != nil {
-				logging.Warn("Failed to generate signed link", "error", err, "userID", userID, "vaID", vaID)
-				// Continue without signed link - not a critical error
-			} else {
-				// Use helper functions from auth package to format the signed link URL
-				uiBaseURL := auth.GetUIBaseURL(r)
-				signedLink = auth.FormatSignedLinkURL(uiBaseURL, token)
-			}
-		}
-
-		// Return response with flights array and signed link
-		response := VALiveFlightsResponse{
-			Flights:    flights,
-			SignedLink: signedLink,
-		}
-
-		common.RespondSuccess(w, initTime, "Live flights fetched", response)
+		logging.Info("live flights response built",
+			"flight_count", len(response.Flights),
+			"code", response.Code,
+			"signed_link_available", response.SignedLink != "",
+			"summary_top_route_present", response.Summary.TopRoute != nil,
+		)
+		httpdto.WriteSuccess(w, initTime, response, http.StatusOK)
 	}
 }
 

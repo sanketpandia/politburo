@@ -83,6 +83,93 @@ func (e JoinMembershipResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for LiveFlightPhase.
+const (
+	Climb    LiveFlightPhase = "climb"
+	Cruise   LiveFlightPhase = "cruise"
+	Descent  LiveFlightPhase = "descent"
+	Landed   LiveFlightPhase = "landed"
+	OnGround LiveFlightPhase = "on_ground"
+	Takeoff  LiveFlightPhase = "takeoff"
+	Unknown  LiveFlightPhase = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the LiveFlightPhase enum.
+func (e LiveFlightPhase) Valid() bool {
+	switch e {
+	case Climb:
+		return true
+	case Cruise:
+		return true
+	case Descent:
+		return true
+	case Landed:
+		return true
+	case OnGround:
+		return true
+	case Takeoff:
+		return true
+	case Unknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LiveFlightsErrorResponseStatus.
+const (
+	LiveFlightsErrorResponseStatusError LiveFlightsErrorResponseStatus = "error"
+)
+
+// Valid indicates whether the value is a known member of the LiveFlightsErrorResponseStatus enum.
+func (e LiveFlightsErrorResponseStatus) Valid() bool {
+	switch e {
+	case LiveFlightsErrorResponseStatusError:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LiveFlightsStateCode.
+const (
+	FORBIDDEN              LiveFlightsStateCode = "FORBIDDEN"
+	LIVEFLIGHTSFOUND       LiveFlightsStateCode = "LIVE_FLIGHTS_FOUND"
+	LIVEFLIGHTSSTALE       LiveFlightsStateCode = "LIVE_FLIGHTS_STALE"
+	LIVEFLIGHTSUNAVAILABLE LiveFlightsStateCode = "LIVE_FLIGHTS_UNAVAILABLE"
+	MISSINGDISCORDCONTEXT  LiveFlightsStateCode = "MISSING_DISCORD_CONTEXT"
+	NOLIVEFLIGHTS          LiveFlightsStateCode = "NO_LIVE_FLIGHTS"
+	SIGNEDLINKUNAVAILABLE  LiveFlightsStateCode = "SIGNED_LINK_UNAVAILABLE"
+	USERNOTREGISTERED      LiveFlightsStateCode = "USER_NOT_REGISTERED"
+	VACONTEXTNOTCONFIGURED LiveFlightsStateCode = "VA_CONTEXT_NOT_CONFIGURED"
+)
+
+// Valid indicates whether the value is a known member of the LiveFlightsStateCode enum.
+func (e LiveFlightsStateCode) Valid() bool {
+	switch e {
+	case FORBIDDEN:
+		return true
+	case LIVEFLIGHTSFOUND:
+		return true
+	case LIVEFLIGHTSSTALE:
+		return true
+	case LIVEFLIGHTSUNAVAILABLE:
+		return true
+	case MISSINGDISCORDCONTEXT:
+		return true
+	case NOLIVEFLIGHTS:
+		return true
+	case SIGNEDLINKUNAVAILABLE:
+		return true
+	case USERNOTREGISTERED:
+		return true
+	case VACONTEXTNOTCONFIGURED:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PilotStatsResponseStatus.
 const (
 	PilotStatsResponseStatusOk PilotStatsResponseStatus = "ok"
@@ -128,6 +215,21 @@ func (e UserStatusResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for VALiveFlightsResponseStatus.
+const (
+	Ok VALiveFlightsResponseStatus = "ok"
+)
+
+// Valid indicates whether the value is a known member of the VALiveFlightsResponseStatus enum.
+func (e VALiveFlightsResponseStatus) Valid() bool {
+	switch e {
+	case Ok:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ValidationErrorResponseErrorCode.
 const (
 	VALIDATIONFAILED ValidationErrorResponseErrorCode = "VALIDATION_FAILED"
@@ -145,13 +247,13 @@ func (e ValidationErrorResponseErrorCode) Valid() bool {
 
 // Defines values for ValidationErrorResponseStatus.
 const (
-	ValidationErrorResponseStatusError ValidationErrorResponseStatus = "error"
+	Error ValidationErrorResponseStatus = "error"
 )
 
 // Valid indicates whether the value is a known member of the ValidationErrorResponseStatus enum.
 func (e ValidationErrorResponseStatus) Valid() bool {
 	switch e {
-	case ValidationErrorResponseStatusError:
+	case Error:
 		return true
 	default:
 		return false
@@ -284,6 +386,72 @@ type JoinMembershipResponse struct {
 
 // JoinMembershipResponseStatus defines model for JoinMembershipResponse.Status.
 type JoinMembershipResponseStatus string
+
+// LiveFlightPhase Backend flight-state/phase derived from cached live-flight tracking.
+type LiveFlightPhase string
+
+// LiveFlightPhaseHistoryEntry defines model for LiveFlightPhaseHistoryEntry.
+type LiveFlightPhaseHistoryEntry struct {
+	At time.Time `json:"at"`
+
+	// Ph Backend flight-state/phase derived from cached live-flight tracking.
+	Ph LiveFlightPhase `json:"ph"`
+}
+
+// LiveFlightsErrorDetail defines model for LiveFlightsErrorDetail.
+type LiveFlightsErrorDetail struct {
+	// Code Stable backend-controlled semantic state for the live-flight response.
+	Code LiveFlightsStateCode `json:"code"`
+
+	// Message Bot-safe error message.
+	Message string `json:"message"`
+}
+
+// LiveFlightsErrorResponse defines model for LiveFlightsErrorResponse.
+type LiveFlightsErrorResponse struct {
+	Error          LiveFlightsErrorDetail         `json:"error"`
+	ResponseTimeMs int64                          `json:"responseTimeMs"`
+	Status         LiveFlightsErrorResponseStatus `json:"status"`
+}
+
+// LiveFlightsErrorResponseStatus defines model for LiveFlightsErrorResponse.Status.
+type LiveFlightsErrorResponseStatus string
+
+// LiveFlightsFreshness defines model for LiveFlightsFreshness.
+type LiveFlightsFreshness struct {
+	// GeneratedAt Time the backend generated this live-flight snapshot.
+	GeneratedAt *time.Time `json:"generated_at,omitempty"`
+
+	// IsStale True when the backend considers the snapshot stale but still usable.
+	IsStale *bool `json:"is_stale,omitempty"`
+
+	// NewestReportAt Most recent pilot report timestamp across returned flights, if any.
+	NewestReportAt *time.Time `json:"newest_report_at,omitempty"`
+
+	// OldestReportAt Oldest pilot report timestamp across returned flights, if any.
+	OldestReportAt *time.Time `json:"oldest_report_at,omitempty"`
+
+	// StaleAfterSeconds Backend freshness threshold used to classify staleness, when exposed.
+	StaleAfterSeconds *int `json:"stale_after_seconds,omitempty"`
+}
+
+// LiveFlightsStateCode Stable backend-controlled semantic state for the live-flight response.
+type LiveFlightsStateCode string
+
+// LiveFlightsSummary defines model for LiveFlightsSummary.
+type LiveFlightsSummary struct {
+	// TopRoute Most common route in the current result; only included when a route has count greater than 1.
+	TopRoute *LiveFlightsTopRoute `json:"top_route,omitempty"`
+
+	// TotalDetectedFlights Count of flights detected for the VA in this response.
+	TotalDetectedFlights int `json:"total_detected_flights"`
+}
+
+// LiveFlightsTopRoute Most common route in the current result; only included when a route has count greater than 1.
+type LiveFlightsTopRoute struct {
+	Count int    `json:"count"`
+	Route string `json:"route"`
+}
 
 // MembershipSummary defines model for MembershipSummary.
 type MembershipSummary struct {
@@ -500,6 +668,91 @@ type VAAffiliation struct {
 	VaName   string             `json:"va_name"`
 }
 
+// VALiveFlight defines model for VALiveFlight.
+type VALiveFlight struct {
+	// AircraftName Display aircraft name resolved by the backend when available.
+	AircraftName string `json:"aircraft_name"`
+
+	// Altitude Current altitude in feet.
+	Altitude int `json:"altitude"`
+
+	// Callsign Pilot callsign detected for the VA.
+	Callsign string `json:"callsign"`
+
+	// Destination Destination airport code from the fetched flight plan when available.
+	Destination *string   `json:"destination,omitempty"`
+	DetectedAt  time.Time `json:"detected_at"`
+
+	// FlightId Backend live-flight/cache identifier.
+	FlightId            string     `json:"flight_id"`
+	LandingTime         *time.Time `json:"landing_time,omitempty"`
+	LastFlightPlanFetch *time.Time `json:"last_flight_plan_fetch"`
+	LastReport          time.Time  `json:"last_report"`
+	LastUpdated         time.Time  `json:"last_updated"`
+	Latitude            float64    `json:"latitude"`
+
+	// LiveryName Display livery name resolved by the backend when available.
+	LiveryName string  `json:"livery_name"`
+	Longitude  float64 `json:"longitude"`
+
+	// MaxAltitude Maximum recorded altitude in feet from cached waypoints, if any.
+	MaxAltitude *int `json:"max_altitude,omitempty"`
+
+	// MaxSpeed Maximum recorded speed in knots from cached waypoints, if any.
+	MaxSpeed *int `json:"max_speed,omitempty"`
+
+	// Origin Origin airport code from the fetched flight plan when available.
+	Origin *string `json:"origin,omitempty"`
+
+	// Phase Backend flight-state/phase derived from cached live-flight tracking.
+	Phase        LiveFlightPhase                `json:"phase"`
+	PhaseHistory *[]LiveFlightPhaseHistoryEntry `json:"phase_history,omitempty"`
+
+	// Route Optional backend display route, typically origin-destination when both are known.
+	Route *string `json:"route,omitempty"`
+
+	// SessionName Human-readable Infinite Flight server/session name.
+	SessionName string `json:"session_name"`
+
+	// Speed Current ground speed in knots.
+	Speed       int        `json:"speed"`
+	TakeoffTime *time.Time `json:"takeoff_time"`
+
+	// Track Current track/heading in degrees.
+	Track float64 `json:"track"`
+
+	// Username Infinite Flight Community username.
+	Username string `json:"username"`
+
+	// VerticalSpeed Current vertical speed in feet per minute.
+	VerticalSpeed float64 `json:"vertical_speed"`
+}
+
+// VALiveFlightsData defines model for VALiveFlightsData.
+type VALiveFlightsData struct {
+	// Code Stable backend-controlled semantic state for the live-flight response.
+	Code      LiveFlightsStateCode  `json:"code"`
+	Flights   []VALiveFlight        `json:"flights"`
+	Freshness *LiveFlightsFreshness `json:"freshness,omitempty"`
+
+	// Message Bot-safe display message for the current live-flight state.
+	Message string `json:"message"`
+
+	// SignedLink Optional signed URL to the Vizburo live page for the current user/VA.
+	SignedLink *string            `json:"signed_link,omitempty"`
+	Summary    LiveFlightsSummary `json:"summary"`
+}
+
+// VALiveFlightsResponse defines model for VALiveFlightsResponse.
+type VALiveFlightsResponse struct {
+	ResponseTimeMs int64                       `json:"responseTimeMs"`
+	Result         *VALiveFlightsData          `json:"result,omitempty"`
+	Status         VALiveFlightsResponseStatus `json:"status"`
+}
+
+// VALiveFlightsResponseStatus defines model for VALiveFlightsResponse.Status.
+type VALiveFlightsResponseStatus string
+
 // ValidationErrorResponse defines model for ValidationErrorResponse.
 type ValidationErrorResponse struct {
 	Error *struct {
@@ -552,6 +805,9 @@ type RegisterPilotJSONRequestBody = RegisterPilotRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Get live flights for the current Discord server's VA
+	// (GET /flights/va)
+	GetVALiveFlights(w http.ResponseWriter, r *http.Request)
 	// Join the VA associated with the current Discord server
 	// (POST /memberships/join)
 	JoinMembership(w http.ResponseWriter, r *http.Request)
@@ -575,6 +831,12 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// Get live flights for the current Discord server's VA
+// (GET /flights/va)
+func (_ Unimplemented) GetVALiveFlights(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // Join the VA associated with the current Discord server
 // (POST /memberships/join)
@@ -620,6 +882,30 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetVALiveFlights operation middleware
+func (siw *ServerInterfaceWrapper) GetVALiveFlights(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, ApiKeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, DiscordIdScopes, []string{})
+
+	ctx = context.WithValue(ctx, ServerIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVALiveFlights(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // JoinMembership operation middleware
 func (siw *ServerInterfaceWrapper) JoinMembership(w http.ResponseWriter, r *http.Request) {
@@ -898,6 +1184,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/flights/va", wrapper.GetVALiveFlights)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/memberships/join", wrapper.JoinMembership)
 	})
 	r.Group(func(r chi.Router) {
@@ -917,6 +1206,69 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 
 	return r
+}
+
+type GetVALiveFlightsRequestObject struct {
+}
+
+type GetVALiveFlightsResponseObject interface {
+	VisitGetVALiveFlightsResponse(w http.ResponseWriter) error
+}
+
+type GetVALiveFlights200JSONResponse VALiveFlightsResponse
+
+func (response GetVALiveFlights200JSONResponse) VisitGetVALiveFlightsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVALiveFlights401JSONResponse LiveFlightsErrorResponse
+
+func (response GetVALiveFlights401JSONResponse) VisitGetVALiveFlightsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVALiveFlights403JSONResponse LiveFlightsErrorResponse
+
+func (response GetVALiveFlights403JSONResponse) VisitGetVALiveFlightsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVALiveFlights500JSONResponse LiveFlightsErrorResponse
+
+func (response GetVALiveFlights500JSONResponse) VisitGetVALiveFlightsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type JoinMembershipRequestObject struct {
@@ -1528,6 +1880,9 @@ func (response GetUserStatus500JSONResponse) VisitGetUserStatusResponse(w http.R
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// Get live flights for the current Discord server's VA
+	// (GET /flights/va)
+	GetVALiveFlights(ctx context.Context, request GetVALiveFlightsRequestObject) (GetVALiveFlightsResponseObject, error)
 	// Join the VA associated with the current Discord server
 	// (POST /memberships/join)
 	JoinMembership(ctx context.Context, request JoinMembershipRequestObject) (JoinMembershipResponseObject, error)
@@ -1575,6 +1930,30 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetVALiveFlights operation middleware
+func (sh *strictHandler) GetVALiveFlights(w http.ResponseWriter, r *http.Request) {
+	var request GetVALiveFlightsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetVALiveFlights(ctx, request.(GetVALiveFlightsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetVALiveFlights")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetVALiveFlightsResponseObject); ok {
+		if err := validResponse.VisitGetVALiveFlightsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // JoinMembership operation middleware
