@@ -1,0 +1,15 @@
+root = "."
+tmp_dir = ".air_tmp"
+env_files = [".env"]
+
+[build]
+  cmd = "go build -buildvcs=false -o .air_tmp/politburo ./cmd/politburo"
+  entrypoint = [".air_tmp/politburo"]
+  include_ext = ["go", "html", "css", "mjs", "yaml"]
+  exclude_dir = ["vendor", ".air_tmp", ".git"]
+  delay = 1000
+  stop_on_error = true
+
+[log]
+  time = true
+
