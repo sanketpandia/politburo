@@ -1,6 +1,0 @@
-# DEPRECATED: Vizburo is served by Politburo through Dockerfile.dev or the host
-# Go runtime. Active CSS is hand-authored in static/css/design-system.css; there
-# is no standalone Tailwind watcher for the retired legacy UI tree.
-FROM alpine:3.19
-
-CMD ["sh", "-c", "echo 'Dockerfile.vizburo.dev is deprecated; run Politburo with Dockerfile.dev or go tool air -c .air.toml.'"]

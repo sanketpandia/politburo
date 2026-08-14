@@ -1,8 +1,0 @@
-package: registrationgen
-generate:
-  strict-server: true
-  models: true
-  chi-server: true
-output: ../../internal/api/generated/registration/server.gen.go
-output-options:
-  skip-prune: false

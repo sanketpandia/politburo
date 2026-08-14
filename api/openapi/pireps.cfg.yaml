@@ -1,8 +1,0 @@
-package: pirepsgen
-generate:
-  strict-server: true
-  models: true
-  chi-server: true
-output: ../../internal/api/generated/pireps/server.gen.go
-output-options:
-  skip-prune: false

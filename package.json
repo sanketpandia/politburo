@@ -1,8 +1,0 @@
-{
-  "name": "politburo-ui",
-  "version": "1.0.0",
-  "description": "Frontend assets for Politburo UI. Active Vizburo CSS is hand-authored in static/css/design-system.css.",
-  "dependencies": {
-    "gleo": "^1.1.0"
-  }
-}
