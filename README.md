@@ -11,7 +11,7 @@ The rewrite is a single Go binary that serves:
 
 The rewrite caches Infinite Flight sessions, liveries, and active flights via
 scheduled jobs and exposes them at `GET /api/v1/game/sessions/active` and
-`GET /api/v1/game/flights/active`.
+`GET /api/v1/game/flights/active`. In active development.
 
 ## Local development
 
