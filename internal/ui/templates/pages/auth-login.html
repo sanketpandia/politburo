@@ -1,0 +1,17 @@
+{{define "auth-login"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .Title}}{{.Title}}{{else}}Sign-in link expired{{end}}</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+</head>
+<body>
+  <main>
+    <h1>Sign-in link expired</h1>
+    <p>This sign-in link is invalid or has already been used. Ask the Discord bot for a new link. Links expire after 10 minutes and can be used once.</p>
+  </main>
+</body>
+</html>
+{{end}}

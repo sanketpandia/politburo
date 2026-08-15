@@ -13,18 +13,32 @@ import (
 )
 
 type redisClientStub struct {
-	getValue  string
-	getError  error
-	setError  error
-	pingError error
+	getValue    string
+	getError    error
+	setError    error
+	pingError   error
+	delError    error
+	getDelValue string
+	getDelError error
 }
 
 func (s *redisClientStub) Get(context.Context, string) *redis.StringCmd {
 	return redis.NewStringResult(s.getValue, s.getError)
 }
 
+func (s *redisClientStub) GetDel(context.Context, string) *redis.StringCmd {
+	return redis.NewStringResult(s.getDelValue, s.getDelError)
+}
+
 func (s *redisClientStub) Set(context.Context, string, any, time.Duration) *redis.StatusCmd {
 	return redis.NewStatusResult("OK", s.setError)
+}
+
+func (s *redisClientStub) Del(context.Context, ...string) *redis.IntCmd {
+	if s.delError != nil {
+		return redis.NewIntResult(0, s.delError)
+	}
+	return redis.NewIntResult(1, nil)
 }
 
 func (s *redisClientStub) Ping(context.Context) *redis.StatusCmd {
@@ -85,5 +99,33 @@ func TestRedisStoreRecordsPingFailure(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(registry.CacheOperations.WithLabelValues("ping", "error")); got != 1 {
 		t.Fatalf("failed pings = %v, want 1", got)
+	}
+}
+
+func TestRedisStoreDeleteAndGetDelJSON(t *testing.T) {
+	registry := metrics.NewRegistry()
+	store := &RedisStore{client: &redisClientStub{}, metrics: registry}
+	if err := store.Delete(context.Background(), "session:1"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if got := testutil.ToFloat64(registry.CacheOperations.WithLabelValues("delete", "success")); got != 1 {
+		t.Fatalf("successful deletes = %v, want 1", got)
+	}
+
+	store = &RedisStore{client: &redisClientStub{getDelValue: `{"value":2}`}, metrics: registry}
+	var destination map[string]int
+	if err := store.GetDelJSON(context.Background(), "auth:login_ticket:1", &destination); err != nil {
+		t.Fatalf("GetDelJSON() error = %v", err)
+	}
+	if destination["value"] != 2 {
+		t.Fatalf("destination = %#v", destination)
+	}
+	if got := testutil.ToFloat64(registry.CacheOperations.WithLabelValues("getdel", "hit")); got != 1 {
+		t.Fatalf("getdel hits = %v, want 1", got)
+	}
+
+	store = &RedisStore{client: &redisClientStub{getDelError: redis.Nil}, metrics: metrics.NewRegistry()}
+	if err := store.GetDelJSON(context.Background(), "missing", &destination); !errors.Is(err, ErrMiss) {
+		t.Fatalf("GetDelJSON() error = %v, want ErrMiss", err)
 	}
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/url"
@@ -17,6 +18,12 @@ type Config struct {
 	Redis          Redis
 	Jobs           Jobs
 	InfiniteFlight InfiniteFlight
+	Auth           Auth
+}
+
+type Auth struct {
+	SignedLinkSecret []byte
+	UIBaseURL        string
 }
 
 type HTTP struct {
@@ -75,9 +82,24 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	signedLinkSecret, err := secret("SIGNED_LINK_SECRET", "")
+	if err != nil {
+		return Config{}, err
+	}
+
+	environment := env("APP_ENV", "local")
+	parsedSecret, err := parseSignedLinkSecret(signedLinkSecret, environment)
+	if err != nil {
+		return Config{}, err
+	}
+	uiBaseURL := strings.TrimRight(env("UI_BASE_URL", "http://localhost:8082"), "/")
+	parsedUI, err := url.ParseRequestURI(uiBaseURL)
+	if err != nil || parsedUI.Scheme == "" || parsedUI.Host == "" {
+		return Config{}, fmt.Errorf("UI_BASE_URL must be an absolute URL")
+	}
 
 	cfg := Config{
-		Environment: env("APP_ENV", "local"),
+		Environment: environment,
 		HTTP: HTTP{
 			Port:            env("PORT", "8082"),
 			AllowedOrigins:  csv("CORS_ALLOWED_ORIGINS", []string{"http://localhost:8081", "http://127.0.0.1:8081"}),
@@ -106,6 +128,10 @@ func Load() (Config, error) {
 			APIKey:         infiniteFlightAPIKey,
 			RequestTimeout: duration("IF_API_REQUEST_TIMEOUT", 15*time.Second),
 		},
+		Auth: Auth{
+			SignedLinkSecret: parsedSecret,
+			UIBaseURL:        uiBaseURL,
+		},
 	}
 
 	if _, err := strconv.Atoi(cfg.HTTP.Port); err != nil {
@@ -128,6 +154,33 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("IF_API_KEY is required when JOBS_ENABLED=true")
 	}
 	return cfg, nil
+}
+
+// localSignedLinkSecretHex is a documented 32-byte development key.
+const localSignedLinkSecretHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func parseSignedLinkSecret(raw, environment string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		if environment != "local" {
+			return nil, fmt.Errorf("SIGNED_LINK_SECRET is required")
+		}
+		raw = localSignedLinkSecretHex
+	}
+	if len(raw) == 64 {
+		decoded, err := hex.DecodeString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("SIGNED_LINK_SECRET must be 32 bytes or 64 hex characters: %w", err)
+		}
+		if len(decoded) != 32 {
+			return nil, fmt.Errorf("SIGNED_LINK_SECRET must be 32 bytes or 64 hex characters")
+		}
+		return decoded, nil
+	}
+	if len(raw) == 32 {
+		return []byte(raw), nil
+	}
+	return nil, fmt.Errorf("SIGNED_LINK_SECRET must be 32 bytes or 64 hex characters")
 }
 
 func databaseURL(override, password string) string {

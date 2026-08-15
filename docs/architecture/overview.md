@@ -27,12 +27,16 @@ leave jobs disabled when no `.env` is present; local Air loads `.env` (see
 |---|---|---|
 | Public ops | `/health/*`, `/metrics` | OpenAPI (health) + Prometheus |
 | Machine API | `/api/v1/...` | OpenAPI only |
+| Browser auth | `/auth/login`, `/auth/logout` | Templates/cookies — **not** OpenAPI |
 | Browser UI | `/dashboard/...`, `/static/...` | Templates/forms — **not** OpenAPI |
 
 Middleware lives under `internal/transport/http/middleware`: access log, CORS,
 API-key auth against `api_keys` (Redis-cached for one minute on `/api/v1` only),
-Discord context / UI session / role-gate scaffolds, and an unwired rate limiter.
-Claims helpers are in `internal/auth`.
+Discord context / UI session / role-gate helpers, and an unwired rate limiter.
+Claims helpers are in `internal/auth`. Browser sessions are Redis JSON objects
+keyed `session:{id}` with a `session_id` cookie; UI routes under `/dashboard`
+require that cookie. Domain packages take primitive IDs from handlers rather
+than session or claims objects.
 
 JSON handlers live under `internal/transport/http/api/`. UI handlers live under
 `internal/transport/http/ui/`.

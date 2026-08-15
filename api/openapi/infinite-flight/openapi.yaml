@@ -15,8 +15,52 @@ security:
   - bearerAuth: []
 paths:
   /sessions:
-    $ref: ./requests/sessions.yaml
+    get:
+      operationId: getSessions
+      summary: List active Infinite Flight sessions
+      tags: [sessions]
+      responses:
+        "200":
+          $ref: ./responses/sessions.yaml
+        default:
+          $ref: "#/components/responses/Error"
+  /sessions/{sessionId}/flights:
+    get:
+      operationId: getSessionFlights
+      summary: List flights in an Infinite Flight session
+      description: Upstream returns at most 1500 flights per request.
+      tags: [flights]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            x-go-type: string
+      responses:
+        "200":
+          $ref: ./responses/session-flights.yaml
+        default:
+          $ref: "#/components/responses/Error"
+  /aircraft/liveries:
+    get:
+      operationId: getAircraftLiveries
+      summary: List Infinite Flight aircraft liveries
+      tags: [aircraft]
+      responses:
+        "200":
+          $ref: ./responses/aircraft-liveries.yaml
+        default:
+          $ref: "#/components/responses/Error"
 components:
+  responses:
+    Error:
+      description: Infinite Flight returned an error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   securitySchemes:
     bearerAuth:
       type: http
@@ -26,7 +70,15 @@ components:
   schemas:
     SessionsResponse:
       $ref: ./schemas/responses/sessions.yaml
+    SessionFlightsResponse:
+      $ref: ./schemas/responses/session-flights.yaml
+    AircraftLiveriesResponse:
+      $ref: ./schemas/responses/aircraft-liveries.yaml
     ErrorResponse:
       $ref: ./schemas/responses/error.yaml
     Session:
       $ref: ./schemas/session.yaml
+    FlightEntry:
+      $ref: ./schemas/flight-entry.yaml
+    LiveryData:
+      $ref: ./schemas/livery-data.yaml

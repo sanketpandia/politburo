@@ -1,0 +1,50 @@
+{{define "maps-active-flights"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .Title}}{{.Title}}{{else}}Active flights{{end}}</title>
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/maps.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="">
+</head>
+<body class="maps-page">
+  <div class="maps-shell">
+    <div id="leaflet-map" aria-label="Active flights map"></div>
+    <form class="maps-filters" id="maps-filters">
+      <div class="maps-filters__status">
+        <span id="maps-count">0 flights</span>
+        <span id="maps-cached"></span>
+        <span id="maps-error" hidden></span>
+      </div>
+      <label class="maps-filters__field">
+        Server
+        <select id="maps-server" name="serverId"></select>
+      </label>
+      <fieldset class="maps-filters__states">
+        <legend>Pilot state</legend>
+        <label><input type="checkbox" name="pilotState" value="active"> Active</label>
+        <label><input type="checkbox" name="pilotState" value="away_in_flight"> Away in flight</label>
+        <label><input type="checkbox" name="pilotState" value="away_parked"> Away parked</label>
+        <label><input type="checkbox" name="pilotState" value="in_background"> In background</label>
+      </fieldset>
+      <label class="maps-filters__field">
+        Callsign
+        <input id="maps-callsign" name="callSign" type="search" autocomplete="off">
+      </label>
+      <label class="maps-filters__field">
+        Username
+        <input id="maps-username" name="userName" type="search" autocomplete="off">
+      </label>
+    </form>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+  <script type="module" src="/static/js/maps/active-flights.mjs"></script>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,76 @@
+type: object
+x-go-type-name: FlightEntry
+required:
+  - flightId
+  - userId
+  - aircraftId
+  - liveryId
+  - callsign
+  - latitude
+  - longitude
+  - altitude
+  - speed
+  - verticalSpeed
+  - track
+  - lastReport
+  - pilotState
+  - isConnected
+properties:
+  flightId:
+    type: string
+    format: uuid
+    x-go-type: string
+  userId:
+    type: string
+    format: uuid
+    x-go-type: string
+  aircraftId:
+    type: string
+    format: uuid
+    x-go-type: string
+  liveryId:
+    type: string
+    format: uuid
+    x-go-type: string
+  username:
+    type: string
+    nullable: true
+  virtualOrganization:
+    type: string
+    nullable: true
+  callsign:
+    type: string
+  latitude:
+    type: number
+    format: double
+  longitude:
+    type: number
+    format: double
+  altitude:
+    type: number
+    format: double
+    description: Altitude in feet.
+  speed:
+    type: number
+    format: double
+    description: Groundspeed in knots.
+  verticalSpeed:
+    type: number
+    format: double
+    description: Vertical speed in ft/min.
+  track:
+    type: number
+    format: double
+    description: Track in degrees.
+  heading:
+    type: number
+    format: double
+    description: Heading in degrees.
+  lastReport:
+    type: string
+    description: Last position report time as `YYYY-MM-DD HH:mm:ssZ`.
+  pilotState:
+    type: integer
+    description: "Active=0, AwayInFlight=1, AwayParked=2, InBackground=3."
+  isConnected:
+    type: boolean

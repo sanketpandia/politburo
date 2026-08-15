@@ -1,0 +1,5 @@
+description: Session flights were returned.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/responses/session-flights.yaml

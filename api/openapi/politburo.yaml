@@ -41,6 +41,7 @@ paths:
       summary: Read the latest active Infinite Flight sessions from cache
       security:
         - ApiKeyAuth: []
+        - CookieAuth: []
       parameters:
         - name: history
           in: query
@@ -62,7 +63,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Missing or inactive API key
+          description: Missing or inactive API key or session cookie
           content:
             application/json:
               schema:
@@ -79,6 +80,269 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/game/flights/active:
+    get:
+      operationId: getActiveFlights
+      summary: Read cached active Infinite Flight flights for a server
+      security:
+        - ApiKeyAuth: []
+        - CookieAuth: []
+      parameters:
+        - name: serverId
+          in: query
+          required: true
+          description: Normalized session name (for example casual).
+          schema:
+            type: string
+        - name: pilotState
+          in: query
+          style: form
+          explode: true
+          description: Restrict results to one or more pilot states.
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/PilotStateName"
+        - name: userName
+          in: query
+          description: Restrict results to flights whose username contains this value.
+          schema:
+            type: string
+        - name: callSign
+          in: query
+          description: Restrict results to flights whose callsign contains this value.
+          schema:
+            type: string
+        - name: pageNumber
+          in: query
+          description: 1-based page of filtered flights to return.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageLength
+          in: query
+          description: Number of flights per page.
+          schema:
+            type: integer
+            minimum: 1
+            default: 50
+      responses:
+        "200":
+          description: The latest cached active flights for the server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveFlightsResponse"
+        "400":
+          description: An invalid filter value was supplied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or inactive API key or session cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: The cache entry could not be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: No active-flight snapshot is currently cached for the server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/game/flights/active/trimmed:
+    get:
+      operationId: getTrimmedActiveFlights
+      summary: Read a map-oriented, unpaged snapshot of active flights
+      description: |
+        Returns every matching flight with only marker fields. flightId is an
+        encrypted token that can be resolved by GET /api/v1/game/flights/active/detail.
+      security:
+        - ApiKeyAuth: []
+        - CookieAuth: []
+      parameters:
+        - name: serverId
+          in: query
+          required: true
+          description: Normalized session name (for example casual).
+          schema:
+            type: string
+        - name: pilotState
+          in: query
+          style: form
+          explode: true
+          description: Restrict results to one or more pilot states.
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/PilotStateName"
+        - name: userName
+          in: query
+          description: Restrict results to flights whose username contains this value.
+          schema:
+            type: string
+        - name: callSign
+          in: query
+          description: Restrict results to flights whose callsign contains this value.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Unpaged trimmed active flights for the server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrimmedActiveFlightsResponse"
+        "400":
+          description: An invalid filter value was supplied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or inactive API key or session cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: The cache entry could not be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: No active-flight snapshot is currently cached for the server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/game/flights/active/detail:
+    get:
+      operationId: getActiveFlight
+      summary: Read one cached active flight by encrypted map marker id
+      security:
+        - ApiKeyAuth: []
+        - CookieAuth: []
+      parameters:
+        - name: flightId
+          in: query
+          required: true
+          description: Encrypted flight token from the trimmed map payload.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The matching cached flight
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveFlightResponse"
+        "400":
+          description: The flight token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or inactive API key or session cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The flight is not in the current snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: The cache entry could not be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: No active-flight snapshot is currently cached for the server
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/signed-link:
+    post:
+      operationId: generateSignedLink
+      summary: Create a one-time signed URL that mints a browser session
+      description: |
+        Discord bots with a valid API key and X-Discord-User-Id receive a
+        10-minute URL. Visiting it creates a session cookie and redirects
+        to redirectTo (default /dashboard). X-Discord-Server-Id is stored
+        on the session when present; it is not resolved to a VA.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: X-Discord-User-Id
+          in: header
+          required: false
+          description: Discord user id of the member to sign in.
+          schema:
+            type: string
+        - name: X-Discord-Server-Id
+          in: header
+          required: false
+          description: Optional Discord guild id stored on the session.
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSignedLinkRequest"
+      responses:
+        "200":
+          description: Signed link generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateSignedLinkResponse"
+        "400":
+          description: Invalid redirect path or request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or inactive API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing X-Discord-User-Id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No user exists for the Discord user id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Ticket generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -86,6 +350,11 @@ components:
       in: header
       name: X-API-Key
       description: UUID of an active row in the api_keys table.
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+      description: Browser session cookie minted by GET /auth/login.
   schemas:
     HealthResponse:
       type: object
@@ -139,6 +408,10 @@ components:
           type: string
         current: {}
         default: {}
+        options:
+          type: array
+          items:
+            type: string
     CacheMetadata:
       type: object
       required: [lastCached, refreshIntervalMins]
@@ -172,6 +445,33 @@ components:
               type: string
             message:
               type: string
+    GenerateSignedLinkRequest:
+      type: object
+      properties:
+        redirectTo:
+          type: string
+          description: Relative path to send the browser after login. Defaults to /dashboard.
+          example: /dashboard
+    GenerateSignedLinkData:
+      type: object
+      required: [url, expiresIn, redirectTo]
+      properties:
+        url:
+          type: string
+          description: Full one-time URL the member should open.
+        expiresIn:
+          type: integer
+          description: Seconds until the link expires.
+          example: 600
+        redirectTo:
+          type: string
+          example: /dashboard
+    GenerateSignedLinkResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/GenerateSignedLinkData"
     Session:
       type: object
       required:
@@ -213,3 +513,206 @@ components:
           type: string
           format: date-time
           description: UTC time when this session row was last refreshed into cache.
+    PilotStateName:
+      type: string
+      enum: [active, away_in_flight, away_parked, in_background]
+    ActiveFlightsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ActiveFlightsData"
+    ActiveFlightsData:
+      type: object
+      required: [availableFilters, result, meta, pagination]
+      properties:
+        availableFilters:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailableFilter"
+        result:
+          type: array
+          items:
+            $ref: "#/components/schemas/Flight"
+        meta:
+          $ref: "#/components/schemas/CacheMetadata"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    Pagination:
+      type: object
+      required: [totalLength, pageLength, pageNumber]
+      properties:
+        totalLength:
+          type: integer
+          minimum: 0
+          description: Number of flights matching the current filters before paging.
+        pageLength:
+          type: integer
+          minimum: 1
+          description: Requested page size.
+        pageNumber:
+          type: integer
+          minimum: 1
+          description: Requested 1-based page number.
+    TrimmedActiveFlightsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/TrimmedActiveFlightsData"
+    TrimmedActiveFlightsData:
+      type: object
+      required: [availableFilters, result, count, meta]
+      properties:
+        availableFilters:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailableFilter"
+        result:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrimmedFlight"
+        count:
+          type: integer
+          minimum: 0
+          description: Number of matching flights. This response is not paged.
+        meta:
+          $ref: "#/components/schemas/CacheMetadata"
+    TrimmedFlight:
+      type: object
+      required: [flightId, callsign, latitude, longitude, heading]
+      properties:
+        flightId:
+          type: string
+          description: Encrypted marker token, not the raw Infinite Flight id.
+        callsign:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        heading:
+          type: number
+          format: double
+    ActiveFlightResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ActiveFlightData"
+    ActiveFlightData:
+      type: object
+      required: [result, meta]
+      properties:
+        result:
+          $ref: "#/components/schemas/Flight"
+        meta:
+          $ref: "#/components/schemas/CacheMetadata"
+    FlightPathSync:
+      type: object
+      required: [fplSyncRequired]
+      properties:
+        fplSyncRequired:
+          type: boolean
+    FlightNormalized:
+      type: object
+      required: [speed, verticalSpeed, pilotState, isConnected]
+      properties:
+        speed:
+          type: string
+          description: Groundspeed with units, for example `526 kts`.
+        verticalSpeed:
+          type: string
+          description: Vertical speed with units, for example `0.0 ft/min`.
+        pilotState:
+          $ref: "#/components/schemas/PilotStateName"
+        isConnected:
+          type: string
+          enum: [connected, disconnected]
+    Flight:
+      type: object
+      required:
+        - flightId
+        - userId
+        - aircraftId
+        - liveryId
+        - callsign
+        - latitude
+        - longitude
+        - altitude
+        - speed
+        - verticalSpeed
+        - track
+        - heading
+        - lastReport
+        - pilotState
+        - isConnected
+        - sessionId
+        - normalizedName
+        - normalized
+      properties:
+        flightId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        aircraftId:
+          type: string
+          format: uuid
+        liveryId:
+          type: string
+          format: uuid
+        username:
+          type: string
+          nullable: true
+        virtualOrganization:
+          type: string
+          nullable: true
+        callsign:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        altitude:
+          type: integer
+          description: Altitude in feet.
+        speed:
+          type: integer
+          description: Groundspeed in knots.
+        verticalSpeed:
+          type: number
+          format: double
+          description: Vertical speed in ft/min.
+        track:
+          type: number
+          format: double
+        heading:
+          type: number
+          format: double
+        lastReport:
+          type: string
+          format: date-time
+        pilotState:
+          type: integer
+          description: "Active=0, AwayInFlight=1, AwayParked=2, InBackground=3."
+        isConnected:
+          type: boolean
+        aircraftName:
+          type: string
+        liveryName:
+          type: string
+        sessionId:
+          type: string
+          format: uuid
+        normalizedName:
+          type: string
+        normalized:
+          $ref: "#/components/schemas/FlightNormalized"
+        pathSync:
+          $ref: "#/components/schemas/FlightPathSync"

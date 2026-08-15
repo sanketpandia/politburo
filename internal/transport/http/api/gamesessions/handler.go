@@ -61,7 +61,7 @@ func (h *Handler) GetActiveSessions(w http.ResponseWriter, r *http.Request, hist
 				Current: includeHistory, Default: false,
 			}},
 			Result:  result,
-			History: historyResult,
+			History: &historyResult,
 			Meta: cachedresponse.Meta{
 				LastCached:          snapshot.LastCached,
 				RefreshIntervalMins: int(domainsessions.RefreshInterval / time.Minute),

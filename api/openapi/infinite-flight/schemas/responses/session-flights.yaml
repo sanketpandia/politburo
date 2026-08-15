@@ -1,0 +1,13 @@
+type: object
+x-go-type-name: SessionFlightsResponse
+required: [errorCode, result]
+properties:
+  errorCode:
+    type: integer
+    description: Zero indicates success; non-zero values are upstream API errors.
+  result:
+    type: array
+    maxItems: 1500
+    description: Flights in the session. Infinite Flight returns at most 1500 records.
+    items:
+      $ref: ../flight-entry.yaml

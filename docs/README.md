@@ -5,7 +5,7 @@ the previous implementation remains available in `../politburo-legacy/docs`.
 
 - `architecture/overview.md`: application boundaries, HTTP surfaces, startup.
 - `conventions.md`: cache responses, timestamps, Redis keys, metrics policy,
-  and the checklist for new cache-backed features.
+  auth/service boundary, and the checklist for new cache-backed features.
 - `development/getting-started.md`: `start-dev.sh`, Air `.env`, health checks.
 - `development/openapi.md`: JSON-only contract ownership, Go generation,
   Swagger UI, and Comrade Bot TypeScript generation.
