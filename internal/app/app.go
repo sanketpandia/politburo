@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"infinite-experiment/politburo/internal/apikeys"
+	"infinite-experiment/politburo/internal/auth"
 	"infinite-experiment/politburo/internal/cache"
 	"infinite-experiment/politburo/internal/config"
 	"infinite-experiment/politburo/internal/database"
@@ -17,7 +18,9 @@ import (
 	"infinite-experiment/politburo/internal/logging"
 	"infinite-experiment/politburo/internal/metrics"
 	"infinite-experiment/politburo/internal/scheduler"
+	"infinite-experiment/politburo/internal/session"
 	"infinite-experiment/politburo/internal/ui"
+	"infinite-experiment/politburo/internal/users"
 )
 
 type App struct {
@@ -26,6 +29,9 @@ type App struct {
 	DB        *sql.DB
 	Cache     *cache.RedisStore
 	APIKeys   *apikeys.Lookup
+	Users     *users.Repository
+	Sessions  *session.Service
+	Tickets   *auth.Tickets
 	Metrics   *metrics.Registry
 	Scheduler *scheduler.Scheduler
 	UI        *ui.Renderer
@@ -74,6 +80,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	application := &App{
 		Config: cfg, StartedAt: time.Now().UTC(), DB: db, Cache: cacheStore,
 		APIKeys: apikeys.NewLookup(apikeys.NewRepository(db), cacheStore),
+		Users:   users.NewRepository(db), Sessions: session.NewService(cacheStore),
+		Tickets: auth.NewTickets(cacheStore, cfg.Auth.SignedLinkSecret),
 		Metrics: metricsRegistry, Scheduler: jobScheduler, UI: renderer,
 	}
 	slog.Info("application initialized", "environment", cfg.Environment, "jobs_enabled", cfg.Jobs.Enabled)

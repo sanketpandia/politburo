@@ -18,6 +18,8 @@ func TestLoadUsesRewriteSafeDefaults(t *testing.T) {
 	t.Setenv("REDIS_PASSWORD", "")
 	t.Setenv("REDIS_DB", "")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "")
+	t.Setenv("SIGNED_LINK_SECRET", "")
+	t.Setenv("UI_BASE_URL", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -43,6 +45,12 @@ func TestLoadUsesRewriteSafeDefaults(t *testing.T) {
 	}
 	if cfg.InfiniteFlight.RequestTimeout != 15*time.Second {
 		t.Fatalf("Infinite Flight request timeout = %s", cfg.InfiniteFlight.RequestTimeout)
+	}
+	if len(cfg.Auth.SignedLinkSecret) != 32 {
+		t.Fatalf("local signed-link secret length = %d, want 32", len(cfg.Auth.SignedLinkSecret))
+	}
+	if cfg.Auth.UIBaseURL != "http://localhost:8082" {
+		t.Fatalf("UI base URL = %q, want http://localhost:8082", cfg.Auth.UIBaseURL)
 	}
 }
 
@@ -185,5 +193,35 @@ func TestLoadRejectsUnreadableSecretFile(t *testing.T) {
 
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "read IF_API_KEY_FILE") {
 		t.Fatalf("Load() error = %v, want secret file read error", err)
+	}
+}
+
+func TestLoadRequiresSignedLinkSecretOutsideLocal(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("SIGNED_LINK_SECRET", "")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "SIGNED_LINK_SECRET is required") {
+		t.Fatalf("Load() error = %v, want required signed-link secret", err)
+	}
+}
+
+func TestLoadAcceptsSignedLinkSecretAndUIBaseURL(t *testing.T) {
+	t.Setenv("SIGNED_LINK_SECRET", "abcdef0123456789abcdef0123456789")
+	t.Setenv("UI_BASE_URL", "https://viz.example/")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if string(cfg.Auth.SignedLinkSecret) != "abcdef0123456789abcdef0123456789" {
+		t.Fatalf("signed-link secret = %q", cfg.Auth.SignedLinkSecret)
+	}
+	if cfg.Auth.UIBaseURL != "https://viz.example" {
+		t.Fatalf("UI base URL = %q", cfg.Auth.UIBaseURL)
+	}
+}
+
+func TestLoadRejectsInvalidUIBaseURL(t *testing.T) {
+	t.Setenv("UI_BASE_URL", "not-a-url")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "UI_BASE_URL") {
+		t.Fatalf("Load() error = %v, want invalid UI_BASE_URL", err)
 	}
 }

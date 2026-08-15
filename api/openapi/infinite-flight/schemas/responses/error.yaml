@@ -1,5 +1,4 @@
 type: object
-x-go-type-name: ErrorResponse
 required: [errorCode]
 properties:
   errorCode:

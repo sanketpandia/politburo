@@ -54,6 +54,8 @@ curl http://localhost:8082/health/ready
 curl http://localhost:8082/metrics
 curl -H "X-API-Key: $API_KEY" \
   'http://localhost:8082/api/v1/game/sessions/active?history=false'
+curl -H "X-API-Key: $API_KEY" \
+  'http://localhost:8082/api/v1/game/flights/active?serverId=casual&pilotState=active&userName=hantder&callSign=swiss&pageNumber=1&pageLength=50'
 ```
 
 `/api/v1` routes require an active row in `api_keys` (same table as the baseline

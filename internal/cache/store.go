@@ -28,7 +28,9 @@ type RedisStore struct {
 
 type redisClient interface {
 	Get(context.Context, string) *redis.StringCmd
+	GetDel(context.Context, string) *redis.StringCmd
 	Set(context.Context, string, any, time.Duration) *redis.StatusCmd
+	Del(context.Context, ...string) *redis.IntCmd
 	Ping(context.Context) *redis.StatusCmd
 	Close() error
 }
@@ -89,6 +91,39 @@ func (s *RedisStore) SetJSON(ctx context.Context, key string, value any, ttl tim
 	}
 	outcome = "success"
 	s.metrics.CacheInserts.Inc()
+	return nil
+}
+
+func (s *RedisStore) Delete(ctx context.Context, key string) error {
+	startedAt := time.Now()
+	outcome := "error"
+	defer func() { s.observe("delete", outcome, startedAt) }()
+
+	if err := s.client.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("delete cache key %q: %w", key, err)
+	}
+	outcome = "success"
+	return nil
+}
+
+func (s *RedisStore) GetDelJSON(ctx context.Context, key string, destination any) error {
+	startedAt := time.Now()
+	outcome := "error"
+	defer func() { s.observe("getdel", outcome, startedAt) }()
+
+	data, err := s.client.GetDel(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		outcome = "miss"
+		return ErrMiss
+	}
+	if err != nil {
+		return fmt.Errorf("getdel cache key %q: %w", key, err)
+	}
+	s.metrics.CachePayloadBytes.WithLabelValues("getdel").Observe(float64(len(data)))
+	if err := json.Unmarshal(data, destination); err != nil {
+		return fmt.Errorf("decode cache key %q: %w", key, err)
+	}
+	outcome = "hit"
 	return nil
 }
 

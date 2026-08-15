@@ -1,10 +1,22 @@
 :root {
   color-scheme: dark;
+  --bg-app: #050505;
+  --bg-surface: #0c0b0a;
+  --bg-surface-elevated: #14110f;
+  --text-primary: #fbf1c7;
+  --text-secondary: #e0cda3;
+  --text-muted: #9d8f78;
+  --border-color: #241c14;
+  --accent-primary: #fe8019;
+  --status-active: #7daea3;
+  --status-away-in-flight: #d3869b;
+  --status-away-parked: #9d8f78;
+  --status-in-background: #665c54;
+  --status-error: #ea6962;
   font-family: system-ui, sans-serif;
-  background: #0f111a;
-  color: #f8fafc;
+  background: var(--bg-app);
+  color: var(--text-primary);
 }
 
 * { box-sizing: border-box; }
 body { margin: 0; }
-

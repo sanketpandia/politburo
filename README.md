@@ -9,8 +9,9 @@ The rewrite is a single Go binary that serves:
 - machine JSON API under `/api/v1/...` (OpenAPI contract)
 - browser UI stubs under `/dashboard` and `/static` (not OpenAPI)
 
-The first vertical slice caches Infinite Flight active sessions via a scheduled
-job and exposes them at `GET /api/v1/game/sessions/active`.
+The rewrite caches Infinite Flight sessions, liveries, and active flights via
+scheduled jobs and exposes them at `GET /api/v1/game/sessions/active` and
+`GET /api/v1/game/flights/active`.
 
 ## Local development
 

@@ -38,15 +38,27 @@ export function getAltitudeColor(altitude, maxAltitude = 30000) {
  */
 export function getFlightPhaseColor(phase) {
   const colors = {
-    'cruise': '#3b82f6',     // blue-500
-    'climb': '#10b981',      // emerald-500
-    'descent': '#a855f7',    // purple-500
-    'takeoff': '#f59e0b',    // amber-500
-    'on_ground': '#64748b',  // slate-500
-    'landed': '#64748b',     // slate-500
-    'unknown': '#94a3b8',    // slate-400
+    'cruise': '#3b82f6',
+    'climb': '#10b981',
+    'descent': '#a855f7',
+    'takeoff': '#f59e0b',
+    'on_ground': '#64748b',
+    'landed': '#64748b',
+    'unknown': '#94a3b8',
+    'active': '#7daea3',
+    'away_in_flight': '#d3869b',
+    'away_parked': '#9d8f78',
+    'in_background': '#665c54',
   };
-  return colors[phase] || '#3b82f6'; // Default to blue
+  return colors[phase] || '#7daea3';
+}
+
+function getFlightId(flight) {
+  return flight?.flightId ?? flight?.flight_id;
+}
+
+function flightState(flight) {
+  return flight?.normalized?.pilotState ?? flight?.phase ?? 'unknown';
 }
 
 function isValidLatLng(lat, lng) {
@@ -179,7 +191,7 @@ function getLongestRouteSegment(segments) {
  * @returns {L.DivIcon} Leaflet DivIcon instance
  */
 function createFlightIcon(flight, color) {
-  const track = flight.track != null ? flight.track : 0;
+  const track = flight.track != null ? flight.track : (flight.heading != null ? flight.heading : 0);
   const rotation = track; // Track is already in degrees from north (0-360)
   
   // Create SVG for rotatable triangle (heading indicator)
@@ -289,15 +301,17 @@ export class FlightMap {
 
   /**
    * Add flights to the map
-   * @param {Array} flights - Array of flight objects with {flight_id, latitude, longitude, track, phase, callsign, ...}
+   * @param {Array} flights - Array of flight objects with {flightId|flight_id, latitude, longitude, track, ...}
+   * @param {Object} options
+   * @param {boolean} options.fitBounds - Fit the map to markers (default: true)
    */
-  addFlights(flights) {
+  addFlights(flights, options = {}) {
+    const { fitBounds = true } = options;
+    this.clearFlights();
+
     if (!Array.isArray(flights) || flights.length === 0) {
       return;
     }
-
-    // Clear existing flights
-    this.clearFlights();
 
     const validFlights = flights.filter(f => getValidLatLng(f) !== null);
 
@@ -305,10 +319,9 @@ export class FlightMap {
       return;
     }
 
-    // Create markers for each flight
     validFlights.forEach(flight => {
-      const color = getFlightPhaseColor(flight.phase);
-      const icon = flight.track != null 
+      const color = getFlightPhaseColor(flightState(flight));
+      const icon = (flight.track ?? flight.heading) != null 
         ? createFlightIcon(flight, color)
         : createCircleIcon(color);
 
@@ -319,7 +332,6 @@ export class FlightMap {
         icon: icon
       });
 
-      // Add callsign as popup/tooltip
       if (flight.callsign) {
         marker.bindTooltip(flight.callsign, {
           permanent: true,
@@ -329,31 +341,26 @@ export class FlightMap {
         });
       }
 
-      // Store flight data on marker for click handler
       marker._flightData = flight;
 
-      // Add click handler
       marker.on('click', (e) => {
         if (this.onFlightClickCallback) {
           this.onFlightClickCallback(flight);
         }
       });
 
-      // Add to layer group
       marker.addTo(this.flightLayerGroup);
-      this.flightMarkers.set(flight.flight_id, marker);
+      this.flightMarkers.set(getFlightId(flight), marker);
     });
 
-    // Fit map bounds to show all flights
-    if (validFlights.length > 0) {
+    if (fitBounds && validFlights.length > 0) {
       const bounds = validFlights.map(f => [f.latitude, f.longitude]);
       this.map.fitBounds(bounds, {
-        padding: [50, 50], // Padding in pixels
-        maxZoom: 22 // Allow deeper zoom
+        paddingTopLeft: [50, 50],
+        paddingBottomRight: [50, 120],
+        maxZoom: 22
       });
     }
-
-    console.log(`FlightMap: Added ${validFlights.length} flights to map`);
   }
 
   /**
@@ -663,8 +670,8 @@ export class FlightMap {
       this.flightMarkers.forEach((flightMarker) => {
         const flight = flightMarker._flightData;
         if (!flight) return;
-        flight._selected = flight.flight_id === flightId;
-        flightMarker.setIcon(createFlightIcon(flight, getFlightPhaseColor(flight.phase)));
+        flight._selected = getFlightId(flight) === flightId;
+        flightMarker.setIcon(createFlightIcon(flight, getFlightPhaseColor(flightState(flight))));
       });
     } else if (flightData) {
       // Fallback to flight data if marker doesn't exist

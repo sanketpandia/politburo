@@ -1,0 +1,5 @@
+description: Aircraft liveries were returned.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/responses/aircraft-liveries.yaml

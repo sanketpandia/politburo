@@ -17,8 +17,9 @@ Endpoints whose primary result is precomputed in cache return a top-level
   description, effective `current` value, and `default` value.
 - `result`: the current cached result. Collections are encoded as `[]`, never
   `null`.
-- `history`: previous cached results when supported. Collections are encoded as
-  `[]` when history is disabled or not yet implemented.
+- `history`: previous cached snapshots when the endpoint supports it.
+  Sessions include this field as `[]` when history is disabled. Live flights
+  omit it; per-flight history is stored under a separate cache key.
 - `meta`: endpoint-specific cache freshness metadata.
 
 Cache-backed handlers do not call an upstream provider or database on a cache
@@ -50,3 +51,15 @@ Redis key constants live in `internal/cache/keys.go`. Keys are lowercase,
 colon-delimited, and begin with a bounded domain prefix such as `game:`. Callers
 must use the shared constants or key builders rather than repeating string
 literals.
+
+## Auth boundary
+
+HTTP handlers and OpenAPI-generated controller methods own cookies, Redis
+sessions, and `auth.Claims`. Domain and service packages must not import
+`internal/session`, read cookies, or accept a session or claims struct.
+
+Pass only the identifiers the operation needs (`userID`, `discordUserID`,
+optional `discordServerID`, and similar primitives). Do not pass the whole
+session object. Services stay REST-shaped and independent of how identity was
+established so authentication can later move to a separate service without
+rewriting domain logic.

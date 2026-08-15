@@ -13,8 +13,11 @@ import (
 
 	politburoapi "infinite-experiment/politburo/internal/api/generated/politburo"
 	"infinite-experiment/politburo/internal/app"
+	domainflights "infinite-experiment/politburo/internal/game/flights"
+	"infinite-experiment/politburo/internal/transport/http/api/gameflights"
 	"infinite-experiment/politburo/internal/transport/http/api/gamesessions"
 	"infinite-experiment/politburo/internal/transport/http/api/health"
+	"infinite-experiment/politburo/internal/transport/http/api/signedlink"
 	appmiddleware "infinite-experiment/politburo/internal/transport/http/middleware"
 	"infinite-experiment/politburo/internal/transport/http/response"
 	uihttp "infinite-experiment/politburo/internal/transport/http/ui"
@@ -78,26 +81,33 @@ func (s *Server) router() stdhttp.Handler {
 	router.Use(appmiddleware.CORS(s.app.Config.HTTP.AllowedOrigins))
 	router.Use(middleware.Recoverer)
 	router.Use(appmiddleware.AccessLog(s.app.Metrics))
-	router.Use(appmiddleware.APIKeyAuth(s.app.APIKeys))
+	router.Use(appmiddleware.AuthenticateAPI(s.app.APIKeys, s.app.Sessions))
 
 	healthHandler := health.NewHandler(s.app.DB, s.app.Cache, s.app.StartedAt)
 	sessionsHandler := gamesessions.NewHandler(s.app.Cache)
-	uiHandler := uihttp.NewHandler(s.app.UI)
-	handler := apiHandler{health: healthHandler, sessions: sessionsHandler}
+	flightsHandler := gameflights.NewHandler(s.app.Cache, s.app.Config.Auth.SignedLinkSecret)
+	signedLinkHandler := signedlink.NewHandler(s.app.Users, s.app.Tickets, s.app.Config.Auth.UIBaseURL)
+	uiHandler := uihttp.NewHandler(s.app.UI, s.app.Sessions, s.app.Tickets)
+	handler := apiHandler{
+		health: healthHandler, sessions: sessionsHandler, flights: flightsHandler,
+		signedLink: signedLinkHandler,
+	}
 
 	// Public ops + OpenAPI machine API (paths include /health/* and /api/v1/*).
-	// APIKeyAuth requires a valid api_keys row for /api/v1 only.
+	// Game GETs accept a session cookie or API key; other /api/v1 paths need a key.
 	politburoapi.HandlerWithOptions(handler, politburoapi.ChiServerOptions{
 		BaseRouter:       router,
 		ErrorHandlerFunc: writeParameterError,
 	})
 	router.Handle("/metrics", promhttp.HandlerFor(s.app.Metrics.Prometheus, promhttp.HandlerOpts{}))
 
-	// Browser UI surface (session auth scaffold; lookup nil until login lands).
-	router.Group(func(dashboard chi.Router) {
-		dashboard.Use(appmiddleware.UISessionAuth(nil))
-		dashboard.Get("/dashboard", uiHandler.Dashboard)
-		dashboard.Get("/dashboard/", uiHandler.Dashboard)
+	router.Get("/auth/login", uiHandler.Login)
+	router.Get("/auth/logout", uiHandler.Logout)
+	router.Group(func(ui chi.Router) {
+		ui.Use(appmiddleware.UISessionAuth(s.app.Sessions))
+		ui.Get("/dashboard", uiHandler.Dashboard)
+		ui.Get("/dashboard/", uiHandler.Dashboard)
+		ui.Get("/maps/flights/active", uiHandler.ActiveFlightsMap)
 	})
 	router.Handle("/static/*", uihttp.Static())
 
@@ -105,8 +115,10 @@ func (s *Server) router() stdhttp.Handler {
 }
 
 type apiHandler struct {
-	health   *health.Handler
-	sessions *gamesessions.Handler
+	health     *health.Handler
+	sessions   *gamesessions.Handler
+	flights    *gameflights.Handler
+	signedLink *signedlink.Handler
 }
 
 func (h apiHandler) GetLiveness(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -119,6 +131,54 @@ func (h apiHandler) GetReadiness(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 
 func (h apiHandler) GetActiveSessions(w stdhttp.ResponseWriter, r *stdhttp.Request, params politburoapi.GetActiveSessionsParams) {
 	h.sessions.GetActiveSessions(w, r, params.History)
+}
+
+func (h apiHandler) GetActiveFlights(w stdhttp.ResponseWriter, r *stdhttp.Request, params politburoapi.GetActiveFlightsParams) {
+	h.flights.GetActiveFlights(w, r, flightsQuery(params.ServerId, params.PilotState, params.UserName, params.CallSign, pageValue(params.PageNumber, domainflights.DefaultPageNumber), pageValue(params.PageLength, domainflights.DefaultPageLength)))
+}
+
+func (h apiHandler) GetTrimmedActiveFlights(w stdhttp.ResponseWriter, r *stdhttp.Request, params politburoapi.GetTrimmedActiveFlightsParams) {
+	h.flights.GetTrimmedActiveFlights(w, r, flightsQuery(params.ServerId, params.PilotState, params.UserName, params.CallSign, 0, 0))
+}
+
+func (h apiHandler) GetActiveFlight(w stdhttp.ResponseWriter, r *stdhttp.Request, params politburoapi.GetActiveFlightParams) {
+	h.flights.GetActiveFlight(w, r, params.FlightId)
+}
+
+func flightsQuery(serverID string, pilotState *[]politburoapi.PilotStateName, userName, callSign *string, pageNumber, pageLength int) gameflights.Query {
+	var pilotStates []string
+	if pilotState != nil {
+		pilotStates = make([]string, 0, len(*pilotState))
+		for _, state := range *pilotState {
+			pilotStates = append(pilotStates, string(state))
+		}
+	}
+	return gameflights.Query{
+		ServerID:    serverID,
+		PilotStates: pilotStates,
+		UserName:    stringValue(userName),
+		CallSign:    stringValue(callSign),
+		PageNumber:  pageNumber,
+		PageLength:  pageLength,
+	}
+}
+
+func (h apiHandler) GenerateSignedLink(w stdhttp.ResponseWriter, r *stdhttp.Request, _ politburoapi.GenerateSignedLinkParams) {
+	h.signedLink.GenerateSignedLink(w, r)
+}
+
+func pageValue(value *int, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func writeParameterError(w stdhttp.ResponseWriter, _ *stdhttp.Request, err error) {

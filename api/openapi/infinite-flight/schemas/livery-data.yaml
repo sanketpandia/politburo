@@ -1,0 +1,20 @@
+type: object
+x-go-type-name: LiveryData
+required:
+  - id
+  - aircraftID
+  - aircraftName
+  - liveryName
+properties:
+  id:
+    type: string
+    format: uuid
+    x-go-type: string
+  aircraftID:
+    type: string
+    format: uuid
+    x-go-type: string
+  aircraftName:
+    type: string
+  liveryName:
+    type: string
