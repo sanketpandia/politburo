@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Infinite Flight Live API
+  version: 2.0.0
+  description: Upstream API contract consumed by Politburo scheduled jobs.
+servers:
+  - url: https://api.infiniteflight.com/public/{apiVersion}
+    description: Infinite Flight public API
+    variables:
+      apiVersion:
+        default: v2
+        enum: [v2]
+        description: Public API version used by Politburo.
+security:
+  - bearerAuth: []
+paths:
+  /sessions:
+    $ref: ./requests/sessions.yaml
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+      description: Infinite Flight API key sent in the Authorization header.
+  schemas:
+    SessionsResponse:
+      $ref: ./schemas/responses/sessions.yaml
+    ErrorResponse:
+      $ref: ./schemas/responses/error.yaml
+    Session:
+      $ref: ./schemas/session.yaml

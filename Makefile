@@ -1,47 +1,39 @@
-.PHONY: test test-verbose test-coverage test-watch help
+.PHONY: build run test fmt ci generate generate-api generate-politburo-api generate-infinite-flight-api generate-check openapi-view openapi-stop
 
-# Default target
-help:
-	@echo "Politburo Test Commands:"
-	@echo "  make test           - Run all tests with report"
-	@echo "  make test-verbose   - Run tests with verbose output"
-	@echo "  make test-coverage  - Run tests and generate coverage report"
-	@echo "  make test-watch     - Watch for changes and run tests"
-	@echo "  make test-unit      - Run only unit tests (fast)"
+GO_TOOL = go tool -modfile=$(CURDIR)/tools/go.mod
 
-# Run tests with custom report
+build:
+	go build -buildvcs=false ./cmd/politburo
+
+run:
+	go run ./cmd/politburo
+
 test:
-	@./test.sh
+	go test ./...
 
-# Run tests with verbose output
-test-verbose:
-	@go test -v ./...
+ci: generate test build
 
-# Run tests with coverage and open HTML report
-test-coverage:
-	@echo "Generating coverage report..."
-	@go test -coverprofile=coverage.out ./...
-	@go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
+fmt:
+	gofmt -w $$(find . -name '*.go' -not -path './internal/api/generated/*')
 
-# Run only unit tests (exclude integration tests if any)
-test-unit:
-	@go test -short -v ./...
+generate: generate-api
 
-# Watch for changes and run tests (requires entr)
-test-watch:
-	@if command -v entr > /dev/null; then \
-		find . -name "*.go" | entr -c make test; \
-	else \
-		echo "entr not installed. Install with: apt-get install entr (Ubuntu) or brew install entr (Mac)"; \
-	fi
+generate-api: generate-politburo-api generate-infinite-flight-api
 
-# Run specific package tests
-test-api:
-	@go test -v ./internal/api/...
+generate-politburo-api:
+	mkdir -p internal/api/generated/politburo
+	cd api/openapi && $(GO_TOOL) oapi-codegen -config oapi-codegen.yaml politburo.yaml
 
-test-services:
-	@go test -v ./internal/services/...
+generate-infinite-flight-api:
+	mkdir -p internal/api/generated/infiniteflight
+	cd api/openapi/infinite-flight && $(GO_TOOL) oapi-codegen -config oapi-codegen.yaml openapi.yaml
 
-test-providers:
-	@go test -v ./internal/providers/...
+generate-check: generate
+
+# Generate Go code and start the local read-only Swagger viewer on port 8081.
+openapi-view: generate-api
+	docker compose -f ../labour-bureau/docker-compose.dev.yml up -d swagger-editor
+	@echo "Politburo API: http://localhost:8081"
+
+openapi-stop:
+	docker compose -f ../labour-bureau/docker-compose.dev.yml stop swagger-editor

@@ -1,0 +1,7 @@
+package: politburoapi
+generate:
+  models: true
+  chi-server: true
+output: ../../internal/api/generated/politburo/server.gen.go
+output-options:
+  skip-prune: false

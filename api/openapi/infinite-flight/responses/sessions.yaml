@@ -1,0 +1,5 @@
+description: Active sessions were returned.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/responses/sessions.yaml

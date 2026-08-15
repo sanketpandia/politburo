@@ -1,0 +1,34 @@
+type: object
+x-go-type-name: Session
+required:
+  - id
+  - name
+  - worldType
+  - type
+  - minimumGradeLevel
+  - userCount
+  - minimumAppVersion
+  - maximumAppVersion
+  - maxUsers
+properties:
+  id:
+    type: string
+    format: uuid
+    x-go-type: string
+  name:
+    type: string
+  worldType:
+    type: integer
+  type:
+    type: integer
+  minimumGradeLevel:
+    type: integer
+  userCount:
+    type: integer
+  minimumAppVersion:
+    type: string
+  maximumAppVersion:
+    type: string
+    nullable: true
+  maxUsers:
+    type: integer

@@ -1,1 +1,0 @@
-SELECT id FROM virtual_airlines WHERE discord_server_id = $1 AND is_active = true;

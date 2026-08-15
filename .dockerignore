@@ -1,5 +1,6 @@
-# .dockerignore
-tmp
-bin
-vendor
-.git
+.air_tmp/
+.env
+.git/
+coverage.out
+politburo
+internal/api/generated/**/*.gen.go

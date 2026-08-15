@@ -1,45 +1,5 @@
-# Go build artifacts
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-*.test
-*.out
-
-# Go workspace stuff
-bin/
-pkg/
-tmp/
-*.log
-node_modules/
-# Dependency directories (for modules and vendoring)
-vendor/
-
-# IDE/editor config files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Environment files
-.env*
-.envrc
-
-# Logs
-*.log
-logs/
-
-# Coverage/testing
-coverage.*
-*.coverprofile
-.air_temp/
-main
-
-swagger.json
-swagger.yaml
-# Swagger generated
+/.air_tmp/
+/.env
+/coverage.out
+/politburo
+/internal/api/generated/**/*.gen.go

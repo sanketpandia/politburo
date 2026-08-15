@@ -1,0 +1,215 @@
+openapi: 3.0.3
+info:
+  title: Politburo API
+  version: 0.1.0
+  description: Authoritative contract for the clean-slate Politburo application.
+servers:
+  - url: http://localhost:8082
+    description: Local rewrite
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      summary: Report whether the process is alive
+      responses:
+        "200":
+          description: The process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /health/ready:
+    get:
+      operationId: getReadiness
+      summary: Report whether required dependencies are ready
+      responses:
+        "200":
+          description: The application is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: A required dependency is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /api/v1/game/sessions/active:
+    get:
+      operationId: getActiveSessions
+      summary: Read the latest active Infinite Flight sessions from cache
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: history
+          in: query
+          description: Include the last 50 cached results when history support is available.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The latest cached active sessions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveSessionsResponse"
+        "400":
+          description: An invalid filter value was supplied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or inactive API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: The cache entry could not be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: No active-session snapshot is currently cached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: UUID of an active row in the api_keys table.
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        uptime:
+          type: string
+        services:
+          type: object
+          additionalProperties:
+            type: string
+    ActiveSessionsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/ActiveSessionsData"
+    ActiveSessionsData:
+      type: object
+      required: [availableFilters, result, history, meta]
+      properties:
+        availableFilters:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailableFilter"
+        result:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        history:
+          type: array
+          description: Previous cached snapshots when the history filter is enabled.
+          items:
+            $ref: "#/components/schemas/SessionHistorySnapshot"
+        meta:
+          $ref: "#/components/schemas/CacheMetadata"
+    AvailableFilter:
+      type: object
+      required: [name, type, desc, current, default]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        desc:
+          type: string
+        current: {}
+        default: {}
+    CacheMetadata:
+      type: object
+      required: [lastCached, refreshIntervalMins]
+      properties:
+        lastCached:
+          type: string
+          format: date-time
+        refreshIntervalMins:
+          type: integer
+          minimum: 1
+    SessionHistorySnapshot:
+      type: object
+      required: [result, lastCached]
+      properties:
+        result:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        lastCached:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    Session:
+      type: object
+      required:
+        - id
+        - name
+        - worldType
+        - type
+        - minimumGradeLevel
+        - userCount
+        - minimumAppVersion
+        - maxUsers
+        - normalizedName
+        - timestamp
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        worldType:
+          type: integer
+        type:
+          type: integer
+        minimumGradeLevel:
+          type: integer
+        userCount:
+          type: integer
+        minimumAppVersion:
+          type: string
+        maximumAppVersion:
+          type: string
+          nullable: true
+        maxUsers:
+          type: integer
+        normalizedName:
+          type: string
+          description: Lowercase underscore form of the session name for filters.
+        timestamp:
+          type: string
+          format: date-time
+          description: UTC time when this session row was last refreshed into cache.

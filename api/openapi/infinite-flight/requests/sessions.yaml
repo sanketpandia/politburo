@@ -1,0 +1,9 @@
+get:
+  operationId: getSessions
+  summary: List active Infinite Flight sessions
+  tags: [sessions]
+  responses:
+    "200":
+      $ref: ../responses/sessions.yaml
+    default:
+      $ref: ../responses/error.yaml

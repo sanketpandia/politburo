@@ -1,0 +1,5 @@
+description: Infinite Flight returned an error.
+content:
+  application/json:
+    schema:
+      $ref: ../schemas/responses/error.yaml
