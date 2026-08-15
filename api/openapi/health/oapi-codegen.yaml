@@ -1,8 +1,0 @@
-package: healthapi
-generate:
-  models: true
-  chi-server: true
-output: ../../../internal/api/generated/health/server.gen.go
-output-options:
-  skip-prune: false
-

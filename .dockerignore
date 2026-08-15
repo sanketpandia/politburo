@@ -1,0 +1,6 @@
+.air_tmp/
+.env
+.git/
+coverage.out
+politburo
+internal/api/generated/**/*.gen.go

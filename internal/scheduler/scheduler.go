@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
+
+	"infinite-experiment/politburo/internal/metrics"
 
 	"github.com/robfig/cron/v3"
 )
@@ -15,16 +18,17 @@ type Job interface {
 }
 
 type Scheduler struct {
-	cron   *cron.Cron
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	jobs   map[string]Job
-	start  sync.Once
-	stop   sync.Once
+	cron    *cron.Cron
+	ctx     context.Context
+	cancel  context.CancelFunc
+	mu      sync.Mutex
+	jobs    map[string]Job
+	metrics *metrics.Registry
+	start   sync.Once
+	stop    sync.Once
 }
 
-func New() *Scheduler {
+func New(metricsRegistry *metrics.Registry) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 	logger := cronLogger{}
 	return &Scheduler{
@@ -32,7 +36,7 @@ func New() *Scheduler {
 			cron.WithSeconds(),
 			cron.WithChain(cron.Recover(logger), cron.SkipIfStillRunning(logger)),
 		),
-		ctx: ctx, cancel: cancel, jobs: make(map[string]Job),
+		ctx: ctx, cancel: cancel, jobs: make(map[string]Job), metrics: metricsRegistry,
 	}
 }
 
@@ -46,14 +50,31 @@ func (s *Scheduler) Register(job Job, schedule string) error {
 		return fmt.Errorf("register job %q: duplicate name", job.Name())
 	}
 	if _, err := s.cron.AddFunc(schedule, func() {
-		if err := job.Run(s.ctx); err != nil {
-			slog.Error("scheduled job failed", "job", job.Name(), "error", err)
-		}
+		s.run(job)
 	}); err != nil {
 		return fmt.Errorf("register job %q: %w", job.Name(), err)
 	}
 	s.jobs[job.Name()] = job
 	return nil
+}
+
+func (s *Scheduler) run(job Job) {
+	name := job.Name()
+	startedAt := time.Now()
+	outcome := "error"
+	s.metrics.JobRunning.WithLabelValues(name).Set(1)
+	defer func() {
+		s.metrics.JobRunning.WithLabelValues(name).Set(0)
+		s.metrics.JobRuns.WithLabelValues(name, outcome).Inc()
+		s.metrics.JobDuration.WithLabelValues(name).Observe(time.Since(startedAt).Seconds())
+	}()
+
+	if err := job.Run(s.ctx); err != nil {
+		slog.Error("scheduled job failed", "job", name, "error", err)
+		return
+	}
+	outcome = "success"
+	s.metrics.JobLastSuccess.WithLabelValues(name).SetToCurrentTime()
 }
 
 func (s *Scheduler) Start() {

@@ -1,0 +1,7 @@
+package: infiniteflightapi
+generate:
+  client: true
+  models: true
+output: ../../../internal/api/generated/infiniteflight/client.gen.go
+output-options:
+  skip-prune: false

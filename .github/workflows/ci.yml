@@ -1,0 +1,27 @@
+name: Politburo CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Generate, test, and build
+        run: docker build --file Dockerfile.dev --target ci --tag politburo-ci:${{ github.sha }} .
+
+  production-image:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build --file Dockerfile --tag politburo:${{ github.sha }} .

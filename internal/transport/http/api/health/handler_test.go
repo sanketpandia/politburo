@@ -9,7 +9,7 @@ import (
 )
 
 func TestLiveness(t *testing.T) {
-	handler := NewHandler(nil, time.Now().Add(-time.Second))
+	handler := NewHandler(nil, nil, time.Now().Add(-time.Second))
 	recorder := httptest.NewRecorder()
 	handler.GetLiveness(recorder, httptest.NewRequest(http.MethodGet, "/health/live", nil))
 

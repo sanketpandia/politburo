@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+
+FROM golang:1.25-alpine3.22 AS development
+
+RUN apk add --no-cache git make
+WORKDIR /app
+
+# Keep runtime and tool downloads in separate cacheable layers.
+COPY go.mod go.sum ./
+RUN go mod download
+COPY tools/go.mod tools/go.sum ./tools/
+RUN go mod download -modfile=tools/go.mod
+
+COPY . .
+
+EXPOSE 8082
+CMD ["go", "tool", "-modfile=tools/go.mod", "air", "-c", ".air.toml"]
+
+# CI generates ignored source files before compiling and testing the application.
+FROM development AS ci
+RUN make ci
