@@ -24,6 +24,7 @@ the previous implementation is kept separately during migration.
 - `development/containers.md`: development/production images, CI, and runtime
   secret injection.
 - `observability/metrics.md`: performance-oriented Prometheus metrics.
+- `future/`: planned work not yet implemented (see `future/README.md`).
 
 The authoritative machine API contract is `api/openapi/politburo.yaml`. It
 drives the Go server generator, local Swagger viewer, and Comrade Bot
