@@ -1,7 +1,19 @@
 # Documentation
 
 This directory documents the rewritten Politburo application. Documentation for
-the previous implementation remains available in `../politburo-legacy/docs`.
+the previous implementation is kept separately during migration.
+
+## Rewrite status (snapshot)
+
+| Area | State |
+|---|---|
+| Binary | Single `cmd/politburo` — API, jobs, SSR UI (`/dashboard`, `/static`) |
+| Contract | `api/openapi/politburo.yaml` drives Go generation and Swagger UI |
+| Database | `politburo_next` by default; baseline in `migrations/000_infinite_schema.sql` |
+| Cache-backed API | Active sessions and live flights exposed under `/api/v1/game/...` |
+| Auth | API keys on `/api/v1`; Redis-backed browser sessions for UI |
+| Comrade Bot | Host `npm run dev` via `start-dev.sh`; set `API_URL` to `:8082` for rewrite |
+| Local infra | `start-dev.sh`: Compose backing services + host Politburo + host comrade-bot |
 
 - `architecture/overview.md`: application boundaries, HTTP surfaces, startup.
 - `conventions.md`: cache responses, timestamps, Redis keys, metrics policy,

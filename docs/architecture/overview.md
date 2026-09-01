@@ -58,5 +58,9 @@ the same contract workflow without coupling their build systems.
 
 ## Local launcher
 
-`labour-bureau/start-dev.sh` runs Compose services plus host Air for legacy
-(`:8080`) and rewrite (`:8082`). See `docs/development/getting-started.md`.
+`labour-bureau/start-dev.sh` runs Compose backing services plus host Air for
+Politburo and host `npm run dev` for comrade-bot (default Politburo `:8082`).
+UI routes are served by the same Politburo process — there is no separate Vizburo
+binary or container.
+
+See `docs/development/getting-started.md` and `../labour-bureau/README.md`.

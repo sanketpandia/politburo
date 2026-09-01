@@ -8,34 +8,36 @@ From the sibling `labour-bureau/` checkout:
 ./start-dev.sh
 ```
 
-This starts Compose (Postgres, Redis, Swagger UI, comrade-bot, observability),
-legacy Politburo on `:8080`, and the rewrite on `:8082` via Air. Before starting
-the rewrite it runs `ensure-rewrite-db.sh` to create `politburo_next`.
+This starts Compose backing services (Postgres, Redis, Swagger UI, observability)
+and host processes for Politburo (Air) and comrade-bot (`npm run dev`) in separate
+tmux windows. See `../labour-bureau/README.md` for the full port map and
+first-time database setup.
 
-Air loads `politburo/.env` (`env_files` in `.air.toml`). Copy the sample:
+Before first run:
 
 ```sh
 cp .env.example .env
 ```
 
-`.env.example` enables jobs (`JOBS_ENABLED=true`) and expects `IF_API_KEY`. Empty
-`PG_HOST` / `PG_DB` fall through to code defaults (`localhost`, `politburo_next`).
-The launcher unsets a Compose-network `DATABASE_URL` so the host process does
-not try to reach hostname `db`.
+Air loads `politburo/.env` (`env_files` in `.air.toml`). Set `IF_API_KEY` when `JOBS_ENABLED=true`. Use `PG_HOST=localhost` and `PG_DB=politburo_next` for the rewrite database — do not point a host process at Compose hostname `db`.
 
-| Service | Address |
-|---|---|
-| Politburo legacy | `http://localhost:8080` |
-| Politburo rewrite | `http://localhost:8082` |
-| Swagger UI | `http://localhost:8081` |
-| Dashboard stub | `http://localhost:8082/dashboard` |
-
-Compose comrade-bot still targets legacy `:8080` by default. To exercise the
-rewrite API from the bot on the host:
+Apply the baseline schema once (from `labour-bureau/`):
 
 ```sh
-cd ../comrade-bot && npm run dev:next
+docker compose -f docker-compose.dev.yml exec -T db \
+  psql -v ON_ERROR_STOP=1 -1 -U ieuser -d politburo_next \
+  < ../politburo/migrations/000_infinite_schema.sql
 ```
+
+| Surface | Address |
+|---|---|
+| Politburo API | `http://localhost:8082/api/v1/...` |
+| Dashboard | `http://localhost:8082/dashboard` |
+| Health / metrics | `http://localhost:8082/health/*`, `/metrics` |
+| Swagger UI | `http://localhost:8081` |
+
+Comrade Bot runs on the host via `start-dev.sh` (`npm run dev`). Set
+`API_URL=http://localhost:8082` in `comrade-bot/.env` when calling the rewrite.
 
 ## Manual rewrite only
 
@@ -58,8 +60,7 @@ curl -H "X-API-Key: $API_KEY" \
   'http://localhost:8082/api/v1/game/flights/active?serverId=casual&pilotState=active&userName=hantder&callSign=swiss&pageNumber=1&pageLength=50'
 ```
 
-`/api/v1` routes require an active row in `api_keys` (same table as the baseline
-schema). Key status is cached in Redis for one minute.
+`/api/v1` routes require an active row in `api_keys` (baseline schema). Key status is cached in Redis for one minute.
 
 Generate bindings and open Swagger:
 
@@ -67,9 +68,6 @@ Generate bindings and open Swagger:
 make openapi-view
 ```
 
-Configuration is read from the process environment (and Air-injected `.env`).
-Sensitive values can use `*_FILE` mounts; see `containers.md`.
-Scheduled jobs require `JOBS_ENABLED=true` and `IF_API_KEY`.
+Configuration is read from the process environment (and Air-injected `.env`). Sensitive values can use `*_FILE` mounts; see `containers.md`. Scheduled jobs require `JOBS_ENABLED=true` and `IF_API_KEY`.
 
-Rewrite logs under `start-dev.sh` are at `/tmp/politburo-next.log`; legacy logs
-remain at `/tmp/politburo.log`.
+Politburo logs under `start-dev.sh` are teed to `/tmp/politburo.log` for Promtail.

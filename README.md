@@ -1,13 +1,16 @@
 # Politburo
 
-Clean-slate Politburo game server. The previous application is preserved in the
-sibling `politburo-legacy` directory for reference.
+Clean-slate Politburo game server rewrite. The previous application is kept
+separately for reference during migration.
 
-The rewrite is a single Go binary that serves:
+The rewrite is a **single Go binary** (`cmd/politburo`) that serves:
 
 - public ops (`/health/live`, `/health/ready`, `/metrics`)
 - machine JSON API under `/api/v1/...` (OpenAPI contract)
-- browser UI stubs under `/dashboard` and `/static` (not OpenAPI)
+- server-rendered UI under `/dashboard` and `/static` (not OpenAPI)
+
+There is no separate Vizburo process — the dashboard and static assets are
+embedded in this binary.
 
 The rewrite caches Infinite Flight sessions, liveries, and active flights via
 scheduled jobs and exposes them at `GET /api/v1/game/sessions/active` and
@@ -21,9 +24,12 @@ Primary entry is the labour-bureau launcher (sibling checkout required):
 cd ../labour-bureau && ./start-dev.sh
 ```
 
-That starts Compose backing services, legacy Politburo on `:8080`, and this
-rewrite on `:8082` via Air. Air loads `politburo/.env` (see `.env.example` for
-`JOBS_ENABLED`, `IF_API_KEY`, and optional `PG_*` overrides).
+That starts Compose backing services and Politburo on the host via Air (default
+`:8082`). First-time database setup and the port map are documented in
+`../labour-bureau/README.md`.
+
+Air loads `politburo/.env` (see `.env.example` for `JOBS_ENABLED`, `IF_API_KEY`,
+and `PG_*` overrides). The rewrite uses database `politburo_next` by default.
 
 ## Commands
 

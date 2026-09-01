@@ -13,7 +13,7 @@ Politburo has two container entry points:
 The GitHub Actions workflow builds the `ci` target and then the complete
 production image. CI must publish images with immutable Git-SHA tags; deployment
 configuration should select one of those tags rather than building on the
-production host, as described in `labour-bureau/long_term.md`.
+production host.
 
 ## Development
 

@@ -2,4 +2,6 @@
 /.env
 /coverage.out
 /politburo
+node_modules/
 /internal/api/generated/**/*.gen.go
+server
